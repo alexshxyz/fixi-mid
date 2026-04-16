@@ -1,7 +1,10 @@
 import os
 from datetime import date
+from dotenv import load_dotenv
 
 import psycopg2
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 DB_HOST = os.environ.get('PG_HOST')
 DB_PORT = os.environ.get('PG_PORT')

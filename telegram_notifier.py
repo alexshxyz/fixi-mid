@@ -1,7 +1,10 @@
 import requests
 import os
+from dotenv import load_dotenv
 
 from database import save_match, check_duplicate_match
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 # Настройки для Telegram
 BOT_TOKEN = os.environ.get('BOT_TOKEN')

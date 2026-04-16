@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json
 from database import init_db
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 
 def init_browser(p):
