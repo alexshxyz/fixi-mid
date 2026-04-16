@@ -6,6 +6,27 @@ import json
 import os
 import time
 import random
+import logging
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Handler для файла
+log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# Handler для консоли
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 match_history = {}
 STATE_SAVE_FILE = "match_state.json"
@@ -21,10 +42,10 @@ def _save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE):
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"Saved state to {path}")
+        logger.info(f"Saved state to {path}")
         return True
     except Exception as e:
-        print(f"Failed to save state to {path}: {e}")
+        logger.error(f"Failed to save state to {path}: {e}")
         return False
 
 
@@ -35,10 +56,10 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         with open(path, "r", encoding="utf-8") as f:
             saved_state = json.load(f)
         os.remove(path)
-        print(f"Loaded and removed saved state file {path}")
+        logger.info(f"Loaded and removed saved state file {path}")
         return saved_state
     except Exception as e:
-        print(f"Failed to load state from {path}: {e}")
+        logger.error(f"Failed to load state from {path}: {e}")
         return None
     
 
@@ -165,10 +186,10 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
             match_history.clear()
             match_history.update(restored_history)
             last_data = saved_state.get("last_data", {})
-            print(f"Restored state for {len(active_match_ids)} matches from {STATE_SAVE_FILE}")
+            logger.info(f"Restored state for {len(active_match_ids)} matches from {STATE_SAVE_FILE}")
         else:
             active_match_ids = list(match_ids or [])
-            print(f"Initializing monitoring for {len(active_match_ids)} matches")
+            logger.info(f"Initializing monitoring for {len(active_match_ids)} matches")
 
             # Инициализация начальных данных для всех матчей за один evaluate
             if active_match_ids:
@@ -184,9 +205,9 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                             'ah': initial_data['ah'],
                             'ov': initial_data['ov']
                         }
-                        print(f"Initial data loaded for match {match_id}")
+                        logger.info(f"Initial data loaded for match {match_id}")
                     else:
-                        print(f"No initial data for match {match_id}")
+                        logger.info(f"No initial data for match {match_id}")
 
         reload_counter = 0
         reload_threshold = random.randint(50, 60)  # 100-120 секунд (каждая итерация = 2 секунды)
@@ -198,7 +219,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
             reload_counter += 1
 
             if time.time() >= restart_deadline:
-                print(f"Restart interval reached ({RESTART_HOURS} hours). Saving state before restart...")
+                logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state before restart...")
                 if _save_state_to_json(active_match_ids, last_data):
                     loaded_state = load_state_from_json()
                     if loaded_state:
@@ -207,9 +228,9 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                         match_history.clear()
                         match_history.update(restored_history)
                         last_data = loaded_state.get("last_data", {})
-                        print("State restored from JSON and file removed. Continuing monitoring.")
+                        logger.info("State restored from JSON and file removed. Continuing monitoring.")
                     else:
-                        print("Failed to reload saved state after restart. Continuing with current memory.")
+                        logger.error("Failed to reload saved state after restart. Continuing with current memory.")
                 restart_deadline = time.time() + RESTART_HOURS * 3600
                 reload_counter = 0
                 reload_threshold = random.randint(25, 35)
@@ -223,10 +244,10 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                     try:
                         page.reload(wait_until='domcontentloaded')
                         page.wait_for_selector('table#table_live', timeout=30000)
-                        print("Page reloaded and table_live is ready")
+                        logger.info("Page reloaded and table_live is ready")
                         break  # Успешно загружена, выходим из цикла
                     except Exception as e:
-                        print(f"Reload failed: {e}. Retrying in 3 seconds...")
+                        logger.error(f"Reload failed: {e}. Retrying in 3 seconds...")
                         time.sleep(3)
                         # Продолжаем цикл и пытаемся снова
 
@@ -239,7 +260,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                         del match_history[removed_id]
                     if removed_id in last_data:
                         del last_data[removed_id]
-                    print(f"Match {removed_id} removed")
+                    logger.info(f"Match {removed_id} removed")
 
                 if new_match_ids:
                     new_data = _extract_all_match_data(page, new_match_ids)
@@ -254,7 +275,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                                 'ah': initial_data['ah'],
                                 'ov': initial_data['ov']
                             }
-                            print(f"New match {new_id} added")
+                            logger.info(f"New match {new_id} added")
 
                 active_match_ids = current_match_ids
 
@@ -274,7 +295,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                                 'ah': current_data['ah'],
                                 'ov': current_data['ov']
                             }
-                            print(f"Match {match_id} updated")
+                            logger.info(f"Match {match_id} updated")
 
             # Проверяем паттерны каждые 12 итераций или при изменениях
             if reload_counter == 0:
@@ -282,7 +303,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                 find_pattern_matches(match_history)
 
     except Exception as e:
-        print(f"Error in parse_and_monitor_match: {e}")
+        logger.error(f"Error in parse_and_monitor_match: {e}")
 
 
 # Экспорт функций

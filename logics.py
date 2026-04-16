@@ -1,4 +1,26 @@
+import logging
 from telegram_notifier import send_telegram_notification
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Handler для файла
+import os
+log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# Handler для консоли
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 THRESHOLD = 0.61  # Изменяй это значение для настройки порога
 
@@ -163,6 +185,6 @@ if __name__ == "__main__":
     from parser import match_history
     lines = find_pattern_matches(match_history)
     if lines:
-        print(f"Pattern found: {lines}")
+        logger.info(f"Pattern found: {lines}")
     else:
-        print("No matches found")
+        logger.info("No matches found")

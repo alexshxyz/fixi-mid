@@ -1,10 +1,31 @@
 import requests
 import os
+import logging
 from dotenv import load_dotenv
 
 from database import save_match, check_duplicate_match
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Handler для файла
+log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# Handler для консоли
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 # Настройки для Telegram
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -53,13 +74,13 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
     
     # Проверяем дубликат перед отправкой
     if check_duplicate_match(match_url, prediction):
-        print(f"[DUPLICATE] Match {match_id} with prediction '{prediction}' already sent. Skipping.")
+        logger.info(f"[DUPLICATE] Match {match_id} with prediction '{prediction}' already sent. Skipping.")
         return False
     
     try:
         response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"Telegram notification sent for match {match_id}")
+            logger.info(f"Telegram notification sent for match {match_id}")
             try:
                 save_match(
                     league=league,
@@ -70,20 +91,20 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
                     link=match_url,
                 )
             except Exception as db_error:
-                print(f"Failed to save match to DB: {db_error}")
+                logger.error(f"Failed to save match to DB: {db_error}")
             return True
         else:
-            print(f"Failed to send Telegram notification: {response.text}")
+            logger.error(f"Failed to send Telegram notification: {response.text}")
             return False
     except Exception as e:
-        print(f"Error sending Telegram notification: {e}")
+        logger.error(f"Error sending Telegram notification: {e}")
         return False
 
 
 if __name__ == "__main__":
     # Для тестирования
     if not BOT_TOKEN or not CHANNEL_ID:
-        print("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
+        logger.warning("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
     else:
         send_telegram_notification(
             league="Test League",

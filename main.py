@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json
@@ -6,10 +7,30 @@ from database import init_db
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
+# Настройка логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Handler для файла
+log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# Handler для консоли
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
 
 def init_browser(p):
     """Инициализация браузера и страницы"""
-    print("Initializing browser...")
+    logger.info("Initializing browser...")
     browser = p.chromium.launch(headless=True, args=[
         "--disable-gpu",
         "--disable-dev-shm-usage",
@@ -29,36 +50,36 @@ def init_browser(p):
     page.set_viewport_size({"width": 1280, "height": 720})
     page.goto("https://live5.nowgoal26.com/")
     page.locator("i.closebtn").wait_for(timeout=15000)  # Ждем появления popup для подтверждения загрузки
-    print("Page loaded successfully")
+    logger.info("Page loaded successfully")
     return browser, page
 
 
 def close_popup(page):
     """Закрытие всплывающего окна"""
     try:
-        print("Waiting for popup close button...")
+        logger.info("Waiting for popup close button...")
         page.locator("i.closebtn").wait_for(timeout=10000)
         page.locator("i.closebtn").click()
-        print("Popup closed")
+        logger.info("Popup closed")
     except Exception as e:
-        print("Popup did not appear or could not be closed")
+        logger.info("Popup did not appear or could not be closed")
 
 
 def switch_to_live(page):
     """Переключение на фильтр Live"""
     try:
-        print("Switching to Live...")
+        logger.info("Switching to Live...")
         page.locator("li#li_FilterLive").click()
         page.locator("table#table_live").wait_for(timeout=10000)  # Ждем появления таблицы live
-        print("Switched to Live")
+        logger.info("Switched to Live")
     except Exception as e:
-        print("Failed to switch to Live")
+        logger.info("Failed to switch to Live")
 
 
 def select_crown(page):
     """Выбор компании Crown и ожидание обновления данных"""
     try:
-        print("Selecting company Crown...")
+        logger.info("Selecting company Crown...")
         select = page.locator("select#CompanySel")
 
         select.select_option(value="3")
@@ -82,15 +103,15 @@ def select_crown(page):
             import time
             time.sleep(1)
 
-        print("Crown selected and data updated")
+        logger.info("Crown selected and data updated")
     except Exception as e:
-        print("Failed to select Crown")
+        logger.info("Failed to select Crown")
 
 
 def configure_odds_settings(page):
     """Настройка отображения odds через settings"""
     try:
-        print("Opening settings...")
+        logger.info("Opening settings...")
         page.locator("span#settingBtn").click()
         page.wait_for_selector("input#otc_2", timeout=5000)  # Ждем появления чекбоксов
 
@@ -99,16 +120,16 @@ def configure_odds_settings(page):
 
         # Закрыть окно настроек
         page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
-        print("Settings configured")
+        logger.info("Settings configured")
     except Exception as e:
-        print("Failed to configure settings")
+        logger.info("Failed to configure settings")
 
 
 def collect_matches(page):
     """Сбор списка ID матчей"""
     matches = []
     try:
-        print("Counting matches with odds...")
+        logger.info("Counting matches with odds...")
         matches = page.evaluate("""
             () => {
                 const matches = [];
@@ -132,9 +153,9 @@ def collect_matches(page):
                 return matches;
             }
         """)
-        print(f"Found {len(matches)} matches")
+        logger.info(f"Found {len(matches)} matches")
     except Exception as e:
-        print("Failed to count matches with odds")
+        logger.info("Failed to count matches with odds")
     return matches
 
 
