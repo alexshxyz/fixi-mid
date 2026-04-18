@@ -1,8 +1,9 @@
 import os
+import sys
 import logging
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
-from parser import parse_and_monitor_match, load_state_from_json
+from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from database import init_db
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -161,22 +162,42 @@ def collect_matches(page):
 
 def main():
     init_db()
-    with sync_playwright() as p:
-        browser, page = init_browser(p)
-        close_popup(page)
-        switch_to_live(page)
-        select_crown(page)
-        configure_odds_settings(page)
-        saved_state = load_state_from_json()
-        if saved_state:
-            parse_and_monitor_match(page, saved_state=saved_state)
-        else:
-            matches = collect_matches(page)
-            if matches:
-                parse_and_monitor_match(page, matches)
 
-        # Оставить браузер открытым для бесконечного мониторинга
-        # browser.close()  # Не закрываем, поскольку мониторинг бесконечный
+    while True:
+        with sync_playwright() as p:
+            browser, page = init_browser(p)
+            close_popup(page)
+            switch_to_live(page)
+            select_crown(page)
+            configure_odds_settings(page)
+            saved_state = load_state_from_json()
+
+            try:
+                if saved_state:
+                    parse_and_monitor_match(page, saved_state=saved_state)
+                else:
+                    matches = collect_matches(page)
+                    if matches:
+                        parse_and_monitor_match(page, matches)
+                    else:
+                        logger.error("No matches found on initial page load. Exiting.")
+                        return
+            except PageRestartRequired as e:
+                logger.warning(f"{e}. Restarting script after saving state...")
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception as e:
+                logger.error(f"Unexpected error in main: {e}")
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                raise
+
+        # Если execv подхватил, этот код не выполнится.
 
 
 if __name__ == "__main__":

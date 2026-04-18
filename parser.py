@@ -30,7 +30,12 @@ logger.addHandler(console_handler)
 
 match_history = {}
 STATE_SAVE_FILE = "match_state.json"
-RESTART_HOURS = 8  # Число часов до сохранения состояния и «рестарта»
+RESTART_HOURS = 8  # Число часов до сохранения состояния и «рестарта"
+
+
+class PageRestartRequired(Exception):
+    """Raised when the page crashes repeatedly and the script needs to restart."""
+    pass
 
 
 def _save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE):
@@ -62,6 +67,32 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         logger.error(f"Failed to load state from {path}: {e}")
         return None
     
+
+def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retries=3):
+    crash_retries = 0
+    while True:
+        try:
+            page.reload(wait_until='domcontentloaded')
+            page.wait_for_selector('table#table_live', timeout=15000)
+            logger.info("Page reloaded and table_live is ready")
+            return
+        except Exception as e:
+            error_text = str(e)
+            if "Page.reload: Page crashed" in error_text or "Page crashed" in error_text:
+                crash_retries += 1
+            else:
+                crash_retries = 0
+
+            if crash_retries >= max_crash_retries:
+                if _save_state_to_json(active_match_ids, last_data):
+                    logger.error(f"Page crashed {crash_retries} times. Saved state to {STATE_SAVE_FILE} and requesting restart.")
+                else:
+                    logger.error(f"Page crashed {crash_retries} times and state save failed. Requesting restart anyway.")
+                raise PageRestartRequired(f"Page crashed {crash_retries} times during reload")
+
+            logger.error(f"Reload failed: {e}. Retrying in 3 seconds...")
+            time.sleep(3)
+
 
 def _extract_all_match_data(page, match_ids):
     """
@@ -210,12 +241,12 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                         logger.info(f"No initial data for match {match_id}")
 
         reload_counter = 0
-        reload_threshold = random.randint(50, 60)  # 100-120 секунд (каждая итерация = 2 секунды)
+        reload_threshold = random.randint(100, 120)  # 100-120 секунд (каждая итерация = 1 секунда)
         restart_deadline = time.time() + RESTART_HOURS * 3600
 
         # Бесконечный цикл мониторинга
         while True:
-            time.sleep(2)
+            time.sleep(1)
             reload_counter += 1
 
             if time.time() >= restart_deadline:
@@ -239,17 +270,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                 reload_counter = 0
                 reload_threshold = random.randint(25, 35)  # Новое случайное значение
 
-                # Бесконечно пытаемся перезагрузить страницу
-                while True:
-                    try:
-                        page.reload(wait_until='domcontentloaded')
-                        page.wait_for_selector('table#table_live', timeout=30000)
-                        logger.info("Page reloaded and table_live is ready")
-                        break  # Успешно загружена, выходим из цикла
-                    except Exception as e:
-                        logger.error(f"Reload failed: {e}. Retrying in 3 seconds...")
-                        time.sleep(3)
-                        # Продолжаем цикл и пытаемся снова
+                _reload_page_with_retries(page, active_match_ids, last_data)
 
                 current_match_ids = _collect_match_ids(page)
                 new_match_ids = [m for m in current_match_ids if m not in active_match_ids]
@@ -302,9 +323,11 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                 from logics import find_pattern_matches
                 find_pattern_matches(match_history)
 
+    except PageRestartRequired:
+        raise
     except Exception as e:
         logger.error(f"Error in parse_and_monitor_match: {e}")
 
 
 # Экспорт функций
-__all__ = ['parse_and_monitor_match']
+__all__ = ['parse_and_monitor_match', 'PageRestartRequired']
