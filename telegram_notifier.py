@@ -48,8 +48,7 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
     if handicap_text is None:
         extra_line = f"<b>Over {over} FT</b>\n"
     else:
-        team_part = f" {handicap_team_order}" if handicap_team_order else ""
-        extra_line = f"<b>Handicap ({handicap_text}){team_part} FT</b>\n"
+        extra_line = f"<b>Handicap {handicap_text} {handicap_team_order} FT</b>\n"
 
     message = (
         "<b>⭐️ Crown</b>\n"
@@ -69,7 +68,7 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
     prediction = (
         f"Over {over} FT"
         if handicap_text is None
-        else f"Handicap ({handicap_text}){(' ' + handicap_team_order) if handicap_team_order else ''} FT"
+        else f"Handicap {handicap_text} {handicap_team_order} FT"
     )
     
     # Проверяем дубликат перед отправкой

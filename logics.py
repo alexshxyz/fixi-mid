@@ -155,11 +155,11 @@ def find_pattern_matches(match_history):
                 if sign is not None and sign != 0:
                     if sign > 0 and not _is_away_zero_split_handicap(raw_ah):
                         handicap = _invert_handicap(raw_ah)
-                        handicap_order = "1"
+                        handicap_order = "Home"
                         odds = prev_entry.get("ah", {}).get("home_ah_odds", "Unknown")
                     else:
                         handicap = raw_ah
-                        handicap_order = "2"
+                        handicap_order = "Away"
                         odds = prev_entry.get("ah", {}).get("away_ah_odds", "Unknown")
 
                     send_telegram_notification(
