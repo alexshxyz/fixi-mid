@@ -177,11 +177,7 @@ def main():
                     parse_and_monitor_match(page, saved_state=saved_state)
                 else:
                     matches = collect_matches(page)
-                    if matches:
-                        parse_and_monitor_match(page, matches)
-                    else:
-                        logger.error("No matches found on initial page load. Exiting.")
-                        return
+                    parse_and_monitor_match(page, matches)
             except PageRestartRequired as e:
                 logger.warning(f"{e}. Restarting script after saving state...")
                 try:
