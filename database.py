@@ -65,6 +65,7 @@ def init_db():
             link TEXT,
             script BOOLEAN,
             date DATE NOT NULL DEFAULT CURRENT_DATE,
+            source TEXT DEFAULT 'Crown',
             row_order SERIAL UNIQUE NOT NULL
         )
     """
@@ -128,8 +129,9 @@ def save_match(
             result,
             link,
             script,
-            date
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            date,
+            source
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, row_order
     """
 
@@ -148,6 +150,7 @@ def save_match(
                     link,
                     script,
                     date_value,
+                    'Crown',
                 ),
             )
             inserted_id, row_order = cur.fetchone()
