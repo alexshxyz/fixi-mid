@@ -66,7 +66,8 @@ def load_state_from_json(path=STATE_SAVE_FILE):
     except Exception as e:
         logger.error(f"Failed to load state from {path}: {e}")
         return None
-    
+
+
 
 def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retries=3):
     crash_retries = 0
@@ -207,6 +208,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
     Парсит и мониторит все матчи по списку ID.
     Сохраняет начальные и измененные данные в памяти.
     """
+    logger.info("parse_and_monitor_match started")
     last_data = {}
     active_match_ids = []
 
@@ -239,15 +241,21 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                         logger.info(f"Initial data loaded for match {match_id}")
                     else:
                         logger.info(f"No initial data for match {match_id}")
+            
+            # Вызываем проверку паттернов сразу после инициализации
+            logger.info("Initial call to find_pattern_matches")
+            from logics import find_pattern_matches
+            find_pattern_matches(match_history)
 
         reload_counter = 0
-        reload_threshold = random.randint(100, 120)  # 100-120 секунд (каждая итерация = 1 секунда)
+        reload_threshold = random.randint(480, 540)  # 8-9 минут (каждая итерация = 1 секунда)
         restart_deadline = time.time() + RESTART_HOURS * 3600
 
         # Бесконечный цикл мониторинга
         while True:
             time.sleep(1)
             reload_counter += 1
+            data_changed = False
 
             if time.time() >= restart_deadline:
                 logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state before restart...")
@@ -297,6 +305,8 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                                 'ov': initial_data['ov']
                             }
                             logger.info(f"New match {new_id} added")
+                    
+                    data_changed = True
 
                 active_match_ids = current_match_ids
 
@@ -316,10 +326,11 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                                 'ah': current_data['ah'],
                                 'ov': current_data['ov']
                             }
+                            data_changed = True
                             logger.info(f"Match {match_id} updated")
-
-            # Проверяем паттерны каждые 12 итераций или при изменениях
-            if reload_counter == 0:
+                
+            # Проверяем паттерны при каждом изменении данных
+            if data_changed:
                 from logics import find_pattern_matches
                 find_pattern_matches(match_history)
 
