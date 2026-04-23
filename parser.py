@@ -272,11 +272,11 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                         logger.error("Failed to reload saved state after restart. Continuing with current memory.")
                 restart_deadline = time.time() + RESTART_HOURS * 3600
                 reload_counter = 0
-                reload_threshold = random.randint(25, 35)
+                reload_threshold = random.randint(480, 540)
 
             if reload_counter >= reload_threshold:
                 reload_counter = 0
-                reload_threshold = random.randint(25, 35)  # Новое случайное значение
+                reload_threshold = random.randint(480, 540)  # Новое случайное значение
 
                 _reload_page_with_retries(page, active_match_ids, last_data)
 
