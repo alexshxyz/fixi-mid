@@ -22,7 +22,7 @@ console_handler.setFormatter(console_formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-THRESHOLD = 0.65  # Изменяй это значение для настройки порога
+THRESHOLD = 0.61  # Изменяй это значение для настройки порога
 MAX_ODD = 0.80   # Минимальный коэффициент на ТБ для срабатывания паттерна
 
 
@@ -62,17 +62,6 @@ def _ah_sign(value):
     if _is_away_zero_split_handicap(text):
         return -1
     return -1 if text.startswith("-") else 1
-
-
-def _invert_handicap(value):
-    text = _normalize_ah_text(value)
-    if text is None:
-        return None
-    if text.startswith("-"):
-        return text[1:]
-    if text.startswith("+"):
-        return f"-{text[1:]}"
-    return f"-{text}"
 
 
 def find_pattern_matches(match_history):

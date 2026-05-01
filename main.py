@@ -144,7 +144,7 @@ def collect_matches(page):
                     const row = timeElem.closest('tr');
                     if (!row) continue;
 
-                    const hasOdds = row.querySelector('p.odds1, p.odds2') !== null;
+                    const hasOdds = row.querySelector('p.odds1, p.odds3') !== null;
 
                     if (hasOdds) {
                         matches.push(matchId);

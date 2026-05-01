@@ -69,8 +69,9 @@ def load_state_from_json(path=STATE_SAVE_FILE):
 
 
 
-def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retries=3):
+def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retries=3, max_timeout_retries=4):
     crash_retries = 0
+    timeout_retries = 0
     while True:
         try:
             page.reload(wait_until='domcontentloaded')
@@ -81,8 +82,10 @@ def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retri
             error_text = str(e)
             if "Page.reload: Page crashed" in error_text or "Page crashed" in error_text:
                 crash_retries += 1
+                timeout_retries = 0  # Сброс timeout retries при crash
             else:
-                crash_retries = 0
+                timeout_retries += 1
+                crash_retries = 0  # Сброс crash retries при timeout
 
             if crash_retries >= max_crash_retries:
                 if _save_state_to_json(active_match_ids, last_data):
@@ -90,6 +93,13 @@ def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retri
                 else:
                     logger.error(f"Page crashed {crash_retries} times and state save failed. Requesting restart anyway.")
                 raise PageRestartRequired(f"Page crashed {crash_retries} times during reload")
+
+            if timeout_retries >= max_timeout_retries:
+                if _save_state_to_json(active_match_ids, last_data):
+                    logger.error(f"Reload timed out {timeout_retries} times in a row. Saved state to {STATE_SAVE_FILE} and requesting restart.")
+                else:
+                    logger.error(f"Reload timed out {timeout_retries} times and state save failed. Requesting restart anyway.")
+                raise PageRestartRequired(f"Reload timed out {timeout_retries} times in a row during reload")
 
             logger.error(f"Reload failed: {e}. Retrying in 3 seconds...")
             time.sleep(3)
@@ -258,21 +268,12 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
             data_changed = False
 
             if time.time() >= restart_deadline:
-                logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state before restart...")
+                logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
                 if _save_state_to_json(active_match_ids, last_data):
-                    loaded_state = load_state_from_json()
-                    if loaded_state:
-                        active_match_ids = loaded_state.get("active_match_ids", [])
-                        restored_history = loaded_state.get("match_history", {})
-                        match_history.clear()
-                        match_history.update(restored_history)
-                        last_data = loaded_state.get("last_data", {})
-                        logger.info("State restored from JSON and file removed. Continuing monitoring.")
-                    else:
-                        logger.error("Failed to reload saved state after restart. Continuing with current memory.")
-                restart_deadline = time.time() + RESTART_HOURS * 3600
-                reload_counter = 0
-                reload_threshold = random.randint(480, 540)
+                    logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
+                else:
+                    logger.error("Failed to save state, but proceeding with restart.")
+                raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
 
             if reload_counter >= reload_threshold:
                 reload_counter = 0
