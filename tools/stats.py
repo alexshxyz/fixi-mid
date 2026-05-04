@@ -2,6 +2,12 @@
 Сервис получения статистики матчей из БД.
 Функции для расчёта и форматирования статистики по лигам и в целом.
 """
+import sys
+import os
+
+# Добавляем родительскую директорию в path для импорта модулей
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import _get_connection as get_db_conn, TABLE_NAME
 from datetime import datetime
 

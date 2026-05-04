@@ -4,9 +4,12 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+# Определяем директорию родительского проекта
+PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-LOG_FILE = os.path.join(os.path.dirname(__file__), 'bot.log')
+load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
+
+LOG_FILE = os.path.join(PARENT_DIR, 'bot.log')
 TELEGRAM_TOKEN = os.environ.get('MONITOR_TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('MONITOR_CHAT_ID')
 

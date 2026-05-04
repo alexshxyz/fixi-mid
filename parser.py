@@ -258,7 +258,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
             find_pattern_matches(match_history)
 
         reload_counter = 0
-        reload_threshold = random.randint(480, 540)  # 8-9 минут (каждая итерация = 1 секунда)
+        reload_threshold = random.randint(420, 480)  # 8-9 минут (каждая итерация = 1 секунда)
         restart_deadline = time.time() + RESTART_HOURS * 3600
 
         # Бесконечный цикл мониторинга
@@ -277,7 +277,7 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
 
             if reload_counter >= reload_threshold:
                 reload_counter = 0
-                reload_threshold = random.randint(480, 540)  # Новое случайное значение
+                reload_threshold = random.randint(420, 480)  # Новое случайное значение
 
                 _reload_page_with_retries(page, active_match_ids, last_data)
 
