@@ -1,10 +1,12 @@
 import os
 import sys
 import logging
+import threading
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from database import init_db
+from stats import run_stats_service
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -162,6 +164,11 @@ def collect_matches(page):
 
 def main():
     init_db()
+
+    # Запуск сервиса статистики в отдельном потоке
+    stats_thread = threading.Thread(target=run_stats_service, daemon=True)
+    stats_thread.start()
+    logger.info("Сервис статистики запущен в отдельном потоке")
 
     while True:
         with sync_playwright() as p:
