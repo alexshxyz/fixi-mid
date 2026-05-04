@@ -119,12 +119,12 @@ def get_top_leagues():
                 
                 emoji = emojis[idx - 1] if idx - 1 < len(emojis) else str(idx)
                 stats_text += (
-                    f"{emoji} <b>{league}</b>\n"
+                    f"{emoji} {league}\n"
                     f"{wins}W / {losses}L / {voids}D — {win_rate}%\n\n"
                 )
             return stats_text.rstrip()
         else:
-            return "🏆 <b>TOP LEAGUES</b>\n\nNo data available."
+            return "🏆 TOP LEAGUES\n\nNo data available."
     except Exception as e:
         print(f"[DB] Ошибка при получении топ-лиг: {e}")
         return f"❌ Ошибка при получении статистики: {e}"
