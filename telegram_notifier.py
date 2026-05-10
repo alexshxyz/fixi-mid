@@ -1,11 +1,18 @@
 import requests
 import os
 import logging
+import json
 from dotenv import load_dotenv
 
 from database import save_match, check_duplicate_match
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+# Загрузка списка лиг
+leagues_file = os.path.join(os.path.dirname(__file__), 'leagues.json')
+with open(leagues_file, 'r', encoding='utf-8') as f:
+    leagues_data = json.load(f)
+leagues_list = [item['name'] for item in leagues_data['leagues']]
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -50,8 +57,10 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
     else:
         extra_line = f"<b>Handicap {handicap_text} {handicap_team_order} FT</b>\n"
 
+    emoji = "🔥" if league in leagues_list else "🔒"
+
     message = (
-        "<b>⭐️ Crown</b>\n"
+        f"<b>{emoji} Crown</b>\n"
         f"{league}\n"
         f"<b><a href=\"{match_url}\">{team1} {score} {team2}</a></b>\n"
         f"{extra_line}"

@@ -1,0 +1,116 @@
+{
+    "leagues": [
+        {
+        "id": 1,
+        "name": "Malta Jubilee Cup"
+        },
+        {
+        "id": 2,
+        "name": "International Club Friendly"
+        },
+        {
+        "id": 3,
+        "name": "Costa Rica 2.Liga"
+        },
+        {
+        "id": 4,
+        "name": "Slovakia Cup"
+        },
+        {
+        "id": 5,
+        "name": "Israel C League"
+        },
+        {
+        "id": 6,
+        "name": "Croatia U19 League"
+        },
+        {
+        "id": 7,
+        "name": "Southeast Asian Games"
+        },
+        {
+        "id": 8,
+        "name": "ASEAN Club Championship"
+        },
+        {
+        "id": 9,
+        "name": "China U21 League"
+        },
+        {
+        "id": 10,
+        "name": "Bolivia Primera Division"
+        },
+        {
+        "id": 11,
+        "name": "Liga Super Malaysia"
+        },
+        {
+        "id": 12,
+        "name": "Albania Super league"
+        },
+        {
+        "id": 13,
+        "name": "Myanmar Professional League"
+        },
+        {
+        "id": 14,
+        "name": "India Goa Professional League"
+        },
+        {
+        "id": 15,
+        "name": "Turkey Cup"
+        },
+        {
+        "id": 16,
+        "name": "Albania Cup"
+        },
+        {
+        "id": 17,
+        "name": "Hong Kong 1. Division"
+        },
+        {
+        "id": 18,
+        "name": "Uruguay Reserve League"
+        },
+        {
+        "id": 19,
+        "name": "Slovakia 3.Liga"
+        },
+        {
+        "id": 20,
+        "name": "Venezuela Segunda Division"
+        },
+        {
+        "id": 21,
+        "name": "India Delhi Senior Division"
+        },
+        {
+        "id": 22,
+        "name": "Bosnia and Herzegovina Prva Liga - RS"
+        },
+        {
+        "id": 23,
+        "name": "South Africa First League"
+        },
+        {
+        "id": 24,
+        "name": "Egypt Division 2"
+        },
+        {
+        "id": 25,
+        "name": "Bangladesh Championship League"
+        },
+        {
+        "id": 26,
+        "name": "Chinese FA Cup"
+        },
+        {
+        "id": 27,
+        "name": "Algerian Ligue Professionnelle 2"
+        },
+        {
+        "id": 28,
+        "name": "Greece Cup"
+        }
+    ]
+}
