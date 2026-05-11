@@ -34,7 +34,7 @@ logger.addHandler(console_handler)
 def init_browser(p):
     """Инициализация браузера и страницы"""
     logger.info("Initializing browser...")
-    browser = p.chromium.launch(headless=False, args=[
+    browser = p.chromium.launch(headless=True, args=[
         "--disable-gpu",
         "--disable-dev-shm-usage",
         "--no-sandbox",
