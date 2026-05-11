@@ -34,7 +34,7 @@ logger.addHandler(console_handler)
 def init_browser(p):
     """Инициализация браузера и страницы"""
     logger.info("Initializing browser...")
-    browser = p.chromium.launch(headless=True, args=[
+    browser = p.chromium.launch(headless=False, args=[
         "--disable-gpu",
         "--disable-dev-shm-usage",
         "--no-sandbox",
@@ -52,7 +52,6 @@ def init_browser(p):
     page = browser.new_page()
     page.set_viewport_size({"width": 1280, "height": 720})
     page.goto("https://live5.nowgoal26.com/")
-    page.locator("i.closebtn").wait_for(timeout=15000)  # Ждем появления popup для подтверждения загрузки
     logger.info("Page loaded successfully")
     return browser, page
 
@@ -173,7 +172,7 @@ def main():
     while True:
         with sync_playwright() as p:
             browser, page = init_browser(p)
-            close_popup(page)
+            #close_popup(page)
             switch_to_live(page)
             select_crown(page)
             configure_odds_settings(page)
