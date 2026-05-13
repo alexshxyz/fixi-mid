@@ -262,10 +262,15 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
         restart_deadline = time.time() + RESTART_HOURS * 3600
 
         # Бесконечный цикл мониторинга
+        loop_counter = 0
         while True:
             time.sleep(1)
             reload_counter += 1
+            loop_counter += 1
             data_changed = False
+
+            if loop_counter % 100 == 0:
+                logger.info(f"Heartbeat: {loop_counter} loops completed")
 
             if time.time() >= restart_deadline:
                 logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")

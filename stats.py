@@ -245,8 +245,10 @@ def run_stats_service():
     while True:
         try:
             check_and_send_monthly_stats()
+            time.sleep(86400)  # Проверять раз в сутки
         except Exception as e:
             logger.error(f"Ошибка в сервисе статистики: {e}")
+            time.sleep(3600)  # В случае ошибки ждать час перед повтором
 
         # Ждем 24 часа (86400 секунд)
         time.sleep(86400)
