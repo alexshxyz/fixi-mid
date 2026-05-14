@@ -110,6 +110,12 @@ def _extract_all_match_data(page, match_ids):
     Извлекает данные ВСЕ матчей за один evaluate() вызов.
     Вместо 70 evaluate, делаем 1 — это главная оптимизация.
     """
+    try:
+        page.wait_for_selector('table#table_live', timeout=2000)
+    except Exception as e:
+        logger.warning(f"Table not ready: {e}")
+        return {}
+    
     js = """
         (matchIds) => {
             const result = {};
@@ -185,7 +191,12 @@ def _extract_all_match_data(page, match_ids):
         }
     """
     
-    return page.evaluate(js, match_ids)
+    try:
+        handle = page.wait_for_function(js, arg=match_ids, timeout=5000)
+        return handle.json_value()
+    except Exception as e:
+        logger.error(f"Error in _extract_all_match_data: {e}")
+        raise
 
 
 def _collect_match_ids(page):
