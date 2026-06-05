@@ -38,6 +38,11 @@ class PageRestartRequired(Exception):
     pass
 
 
+class TableNotReadyError(Exception):
+    """Raised when the live table is not ready on the page."""
+    pass
+
+
 def _save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE):
     try:
         payload = {
@@ -114,7 +119,7 @@ def _extract_all_match_data(page, match_ids):
         page.wait_for_selector('table#table_live', timeout=2000)
     except Exception as e:
         logger.warning(f"Table not ready: {e}")
-        return {}
+        raise TableNotReadyError(str(e))
     
     js = """
         (matchIds) => {
@@ -232,6 +237,24 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
     logger.info("parse_and_monitor_match started")
     last_data = {}
     active_match_ids = []
+    consecutive_table_errors = 0
+
+    def handle_table_not_ready():
+        nonlocal consecutive_table_errors, active_match_ids
+        consecutive_table_errors += 1
+        logger.warning(f"Table not ready occurred {consecutive_table_errors} times in a row")
+        if consecutive_table_errors >= 3:
+            if _save_state_to_json(active_match_ids, last_data):
+                logger.info("Saved state before forced reload due to repeated table readiness failures")
+            else:
+                logger.error("Failed to save state before forced reload")
+            _reload_page_with_retries(page, active_match_ids, last_data)
+            current_match_ids = _collect_match_ids(page)
+            active_match_ids = current_match_ids
+            consecutive_table_errors = 0
+            logger.info("Page reloaded after repeated table readiness failures")
+            return True
+        return False
 
     try:
         if saved_state:
@@ -247,7 +270,15 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
 
             # Инициализация начальных данных для всех матчей за один evaluate
             if active_match_ids:
-                initial_all_data = _extract_all_match_data(page, active_match_ids)
+                while True:
+                    try:
+                        initial_all_data = _extract_all_match_data(page, active_match_ids)
+                        consecutive_table_errors = 0
+                        break
+                    except TableNotReadyError:
+                        if handle_table_not_ready():
+                            continue
+                        time.sleep(1)
                 for match_id in active_match_ids:
                     initial_data = initial_all_data.get(match_id)
                     if initial_data:
@@ -309,7 +340,15 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
                     logger.info(f"Match {removed_id} removed")
 
                 if new_match_ids:
-                    new_data = _extract_all_match_data(page, new_match_ids)
+                    try:
+                        new_data = _extract_all_match_data(page, new_match_ids)
+                        consecutive_table_errors = 0
+                    except TableNotReadyError:
+                        if handle_table_not_ready():
+                            new_data = {}
+                        else:
+                            time.sleep(1)
+                            new_data = {}
                     for new_id in new_match_ids:
                         initial_data = new_data.get(new_id)
                         if initial_data:
@@ -329,7 +368,14 @@ def parse_and_monitor_match(page, match_ids=None, saved_state=None):
 
             # Один evaluate для всех матчей вместо циклов по отдельности
             if active_match_ids:
-                all_match_data = _extract_all_match_data(page, active_match_ids)
+                try:
+                    all_match_data = _extract_all_match_data(page, active_match_ids)
+                    consecutive_table_errors = 0
+                except TableNotReadyError:
+                    if handle_table_not_ready():
+                        continue
+                    time.sleep(1)
+                    continue
                 
                 for match_id in active_match_ids:
                     if match_id not in last_data:
