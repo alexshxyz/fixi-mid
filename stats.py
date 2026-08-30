@@ -12,7 +12,7 @@ import requests
 # Добавляем родительскую директорию в path для импорта модулей
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database import _get_connection as get_db_conn, TABLE_NAME
+from storage import get_matches_in_date_range, calculate_stats
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -47,15 +47,12 @@ STATS_FILE = os.path.join(os.path.dirname(__file__), 'stats.txt')
 
 def get_last_month_stats():
     """
-    Получает статистику матчей за прошлый месяц.
+    Получает статистику матчей за прошлый месяц из matches.json.
 
     Returns:
         str: отформатированный текст со статистикой за прошлый месяц
     """
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-
         # Получаем текущую дату в UTC+3
         now_utc3 = datetime.utcnow() + timedelta(hours=3)
         current_year = now_utc3.year
@@ -70,8 +67,8 @@ def get_last_month_stats():
             last_year = current_year
 
         # Получаем первый день прошлого месяца и первый день текущего месяца
-        first_day_last = datetime(last_year, last_month, 1).date()
-        first_day_current = datetime(current_year, current_month, 1).date()
+        first_day_last = datetime(last_year, last_month, 1).date().isoformat()
+        first_day_current = datetime(current_year, current_month, 1).date().isoformat()
 
         # Названия месяцев в именительном падеже
         month_names = {
@@ -81,27 +78,11 @@ def get_last_month_stats():
         }
         last_month_name = month_names.get(last_month, "UNKNOWN MONTH")
 
-        query = f"""
-        SELECT
-            COUNT(*) AS total_matches,
-            SUM(CASE WHEN result = 'Won' THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN result = 'Lost' THEN 1 ELSE 0 END) AS losses,
-            SUM(CASE WHEN result = 'Void' THEN 1 ELSE 0 END) AS voids
-        FROM {TABLE_NAME}
-        WHERE date IS NOT NULL AND date >= %s AND date < %s
-        """
+        # Получаем матчи за прошлый месяц из JSON
+        matches = get_matches_in_date_range(first_day_last, first_day_current)
+        total_matches, wins, losses, voids = calculate_stats(matches)
 
-        cur.execute(query, (first_day_last, first_day_current))
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if result:
-            total_matches, wins, losses, voids = result
-            wins = wins or 0
-            losses = losses or 0
-            voids = voids or 0
-
+        if total_matches > 0:
             # Вычисляем WR (Win Rate) - исключаем Void
             matches_without_void = wins + losses
             if matches_without_void > 0:

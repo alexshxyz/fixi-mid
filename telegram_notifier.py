@@ -4,7 +4,7 @@ import logging
 import json
 from dotenv import load_dotenv
 
-from database import save_match, check_duplicate_match
+from storage import save_match, check_duplicate_match
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
