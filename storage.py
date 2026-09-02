@@ -27,11 +27,6 @@ logger.addHandler(console_handler)
 APP_DIR = Path(__file__).resolve().parent
 MATCHES_FILE = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))
 
-# TABLE_NAME и _get_connection() остаются для обратной совместимости
-# с stats.py и tools/stats_manual.py, которые ещё читают статистику из БД
-TABLE_NAME = 'matches'
-
-
 def _ensure_matches_file():
     path = Path(MATCHES_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,22 +56,6 @@ def _save_matches(matches):
     with path.open('w', encoding='utf-8') as f:
         json.dump(matches, f, ensure_ascii=False, indent=2)
         f.write('\n')
-
-
-def _get_connection():
-    """
-    Deprecated: PostgreSQL connection is no longer used for saving matches.
-    Match data is stored in matches.json.
-    
-    This function is kept only for backward compatibility with stats.py
-    and tools/stats_manual.py which still read statistics from PostgreSQL.
-    If you remove database dependency entirely, migrate those modules to JSON first.
-    """
-    raise RuntimeError(
-        "PostgreSQL connection is no longer configured. "
-        "Match data is stored in matches.json. "
-        "Please migrate stats reading to JSON format."
-    )
 
 
 def init_storage():

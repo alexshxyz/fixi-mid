@@ -229,179 +229,189 @@ def _collect_match_ids(page):
     """)
 
 
-def parse_and_monitor_match(page, match_ids=None, saved_state=None):
-    """
-    Парсит и мониторит все матчи по списку ID.
-    Сохраняет начальные и измененные данные в памяти.
-    """
-    logger.info("parse_and_monitor_match started")
-    last_data = {}
-    active_match_ids = []
-    consecutive_table_errors = 0
+class MatchMonitor:
+    def __init__(self, page, match_ids=None, saved_state=None):
+        self.page = page
+        self.match_ids = match_ids
+        self.saved_state = saved_state
+        self.last_data = {}
+        self.active_match_ids = []
+        self.consecutive_table_errors = 0
+        self.reload_counter = 0
+        self.reload_threshold = random.randint(420, 480)
+        self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
-    def handle_table_not_ready():
-        nonlocal consecutive_table_errors, active_match_ids
-        consecutive_table_errors += 1
-        logger.warning(f"Table not ready occurred {consecutive_table_errors} times in a row")
-        if consecutive_table_errors >= 3:
-            if _save_state_to_json(active_match_ids, last_data):
+    def run(self):
+        logger.info("parse_and_monitor_match started")
+        try:
+            self._init_or_restore_state()
+            self._monitor_loop()
+        except PageRestartRequired:
+            raise
+        except Exception as e:
+            logger.error(f"Error in parse_and_monitor_match: {e}")
+
+    def _handle_table_not_ready(self):
+        self.consecutive_table_errors += 1
+        logger.warning(f"Table not ready occurred {self.consecutive_table_errors} times in a row")
+        if self.consecutive_table_errors >= 3:
+            if _save_state_to_json(self.active_match_ids, self.last_data):
                 logger.info("Saved state before forced reload due to repeated table readiness failures")
             else:
                 logger.error("Failed to save state before forced reload")
-            _reload_page_with_retries(page, active_match_ids, last_data)
-            current_match_ids = _collect_match_ids(page)
-            active_match_ids = current_match_ids
-            consecutive_table_errors = 0
+            _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
+            self.active_match_ids = _collect_match_ids(self.page)
+            self.consecutive_table_errors = 0
             logger.info("Page reloaded after repeated table readiness failures")
             return True
         return False
 
-    try:
-        if saved_state:
-            active_match_ids = saved_state.get("active_match_ids", [])
-            restored_history = saved_state.get("match_history", {})
+    def _init_or_restore_state(self):
+        if self.saved_state:
+            self.active_match_ids = self.saved_state.get("active_match_ids", [])
+            restored_history = self.saved_state.get("match_history", {})
             match_history.clear()
             match_history.update(restored_history)
-            last_data = saved_state.get("last_data", {})
-            logger.info(f"Restored state for {len(active_match_ids)} matches from {STATE_SAVE_FILE}")
-        else:
-            active_match_ids = list(match_ids or [])
-            logger.info(f"Initializing monitoring for {len(active_match_ids)} matches")
+            self.last_data = self.saved_state.get("last_data", {})
+            logger.info(f"Restored state for {len(self.active_match_ids)} matches from {STATE_SAVE_FILE}")
+            return
 
-            # Инициализация начальных данных для всех матчей за один evaluate
-            if active_match_ids:
-                while True:
-                    try:
-                        initial_all_data = _extract_all_match_data(page, active_match_ids)
-                        consecutive_table_errors = 0
-                        break
-                    except TableNotReadyError:
-                        if handle_table_not_ready():
-                            continue
-                        time.sleep(1)
-                for match_id in active_match_ids:
-                    initial_data = initial_all_data.get(match_id)
-                    if initial_data:
-                        match_history[match_id] = {
-                            'initial': initial_data,
-                            'changes': []
-                        }
-                        last_data[match_id] = {
-                            'ah': initial_data['ah'],
-                            'ov': initial_data['ov']
-                        }
-                        logger.info(f"Initial data loaded for match {match_id}")
-                    else:
-                        logger.info(f"No initial data for match {match_id}")
-            
-            # Вызываем проверку паттернов сразу после инициализации
-            logger.info("Initial call to find_pattern_matches")
-            from logics import find_pattern_matches
-            find_pattern_matches(match_history)
+        self.active_match_ids = list(self.match_ids or [])
+        logger.info(f"Initializing monitoring for {len(self.active_match_ids)} matches")
+        if self.active_match_ids:
+            self._load_initial_data()
 
-        reload_counter = 0
-        reload_threshold = random.randint(420, 480)  # 8-9 минут (каждая итерация = 1 секунда)
-        restart_deadline = time.time() + RESTART_HOURS * 3600
+        logger.info("Initial call to find_pattern_matches")
+        from logics import find_pattern_matches
+        find_pattern_matches(match_history)
 
-        # Бесконечный цикл мониторинга
+    def _load_initial_data(self):
+        while True:
+            try:
+                initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
+                self.consecutive_table_errors = 0
+                break
+            except TableNotReadyError:
+                if self._handle_table_not_ready():
+                    continue
+                time.sleep(1)
+
+        for match_id in self.active_match_ids:
+            initial_data = initial_all_data.get(match_id)
+            if initial_data:
+                match_history[match_id] = {'initial': initial_data, 'changes': []}
+                self.last_data[match_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
+                logger.info(f"Initial data loaded for match {match_id}")
+            else:
+                logger.info(f"No initial data for match {match_id}")
+
+    def _monitor_loop(self):
         loop_counter = 0
         while True:
             time.sleep(1)
-            reload_counter += 1
+            self.reload_counter += 1
             loop_counter += 1
             data_changed = False
 
             if loop_counter % 100 == 0:
                 logger.info(f"Heartbeat: {loop_counter} loops completed")
 
-            if time.time() >= restart_deadline:
-                logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
-                if _save_state_to_json(active_match_ids, last_data):
-                    logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
-                else:
-                    logger.error("Failed to save state, but proceeding with restart.")
-                raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
+            if time.time() >= self.restart_deadline:
+                self._trigger_scheduled_restart()
 
-            if reload_counter >= reload_threshold:
-                reload_counter = 0
-                reload_threshold = random.randint(420, 480)  # Новое случайное значение
-
-                _reload_page_with_retries(page, active_match_ids, last_data)
-
-                current_match_ids = _collect_match_ids(page)
-                new_match_ids = [m for m in current_match_ids if m not in active_match_ids]
-                removed_match_ids = [m for m in active_match_ids if m not in current_match_ids]
-
-                for removed_id in removed_match_ids:
-                    if removed_id in match_history:
-                        del match_history[removed_id]
-                    if removed_id in last_data:
-                        del last_data[removed_id]
-                    logger.info(f"Match {removed_id} removed")
-
-                if new_match_ids:
-                    try:
-                        new_data = _extract_all_match_data(page, new_match_ids)
-                        consecutive_table_errors = 0
-                    except TableNotReadyError:
-                        if handle_table_not_ready():
-                            new_data = {}
-                        else:
-                            time.sleep(1)
-                            new_data = {}
-                    for new_id in new_match_ids:
-                        initial_data = new_data.get(new_id)
-                        if initial_data:
-                            match_history[new_id] = {
-                                'initial': initial_data,
-                                'changes': []
-                            }
-                            last_data[new_id] = {
-                                'ah': initial_data['ah'],
-                                'ov': initial_data['ov']
-                            }
-                            logger.info(f"New match {new_id} added")
-                    
+            if self.reload_counter >= self.reload_threshold:
+                if self._do_periodic_reload():
                     data_changed = True
 
-                active_match_ids = current_match_ids
-
-            # Один evaluate для всех матчей вместо циклов по отдельности
-            if active_match_ids:
-                try:
-                    all_match_data = _extract_all_match_data(page, active_match_ids)
-                    consecutive_table_errors = 0
-                except TableNotReadyError:
-                    if handle_table_not_ready():
-                        continue
-                    time.sleep(1)
+            if self.active_match_ids:
+                changed, should_continue = self._poll_and_update()
+                if should_continue:
                     continue
-                
-                for match_id in active_match_ids:
-                    if match_id not in last_data:
-                        continue
-                    current_data = all_match_data.get(match_id)
-                    if current_data:
-                        if (current_data['ah'] != last_data[match_id]['ah'] or
-                            current_data['ov'] != last_data[match_id]['ov']):
-                            match_history[match_id]['changes'].append(current_data)
-                            last_data[match_id] = {
-                                'ah': current_data['ah'],
-                                'ov': current_data['ov']
-                            }
-                            data_changed = True
-                            logger.info(f"Match {match_id} updated")
-                
-            # Проверяем паттерны при каждом изменении данных
+                data_changed = data_changed or changed
+
             if data_changed:
                 from logics import find_pattern_matches
                 find_pattern_matches(match_history)
 
-    except PageRestartRequired:
-        raise
-    except Exception as e:
-        logger.error(f"Error in parse_and_monitor_match: {e}")
+    def _trigger_scheduled_restart(self):
+        logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
+        if _save_state_to_json(self.active_match_ids, self.last_data):
+            logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
+        else:
+            logger.error("Failed to save state, but proceeding with restart.")
+        raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
+
+    def _do_periodic_reload(self):
+        self.reload_counter = 0
+        self.reload_threshold = random.randint(420, 480)
+        _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
+
+        current_match_ids = _collect_match_ids(self.page)
+        new_match_ids = [m for m in current_match_ids if m not in self.active_match_ids]
+        removed_match_ids = [m for m in self.active_match_ids if m not in current_match_ids]
+
+        for removed_id in removed_match_ids:
+            match_history.pop(removed_id, None)
+            self.last_data.pop(removed_id, None)
+            logger.info(f"Match {removed_id} removed")
+
+        data_changed = False
+        if new_match_ids:
+            try:
+                new_data = _extract_all_match_data(self.page, new_match_ids)
+                self.consecutive_table_errors = 0
+            except TableNotReadyError:
+                if self._handle_table_not_ready():
+                    new_data = {}
+                else:
+                    time.sleep(1)
+                    new_data = {}
+
+            for new_id in new_match_ids:
+                initial_data = new_data.get(new_id)
+                if initial_data:
+                    match_history[new_id] = {'initial': initial_data, 'changes': []}
+                    self.last_data[new_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
+                    logger.info(f"New match {new_id} added")
+            data_changed = True
+
+        self.active_match_ids = current_match_ids
+        return data_changed
+
+    def _poll_and_update(self):
+        try:
+            all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
+            self.consecutive_table_errors = 0
+        except TableNotReadyError:
+            if self._handle_table_not_ready():
+                return False, True
+            time.sleep(1)
+            return False, True
+
+        data_changed = False
+        for match_id in self.active_match_ids:
+            if match_id not in self.last_data:
+                continue
+            current_data = all_match_data.get(match_id)
+            if not current_data:
+                continue
+            if (current_data['ah'] != self.last_data[match_id]['ah'] or
+                    current_data['ov'] != self.last_data[match_id]['ov']):
+                match_history[match_id]['changes'].append(current_data)
+                self.last_data[match_id] = {'ah': current_data['ah'], 'ov': current_data['ov']}
+                data_changed = True
+                logger.info(f"Match {match_id} updated")
+
+        return data_changed, False
+
+
+def parse_and_monitor_match(page, match_ids=None, saved_state=None):
+    """
+    Парсит и мониторит все матчи по списку ID.
+    Сохраняет начальные и измененные данные в памяти.
+    """
+    MatchMonitor(page, match_ids=match_ids, saved_state=saved_state).run()
 
 
 # Экспорт функций
-__all__ = ['parse_and_monitor_match', 'PageRestartRequired']
+__all__ = ['parse_and_monitor_match', 'MatchMonitor', 'PageRestartRequired']

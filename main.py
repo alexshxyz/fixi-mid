@@ -31,7 +31,32 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
 
-def init_browser(p):
+def _retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=True):
+    """Повторяет действие со страницей после ошибки."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return action()
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(
+                    f"Failed to {action_name} after {max_retries} attempts: {e}"
+                )
+                raise
+
+            logger.warning(
+                f"Attempt {attempt} to {action_name} failed: {e}. Retrying..."
+            )
+            if reload_before_retry:
+                try:
+                    page.reload(
+                        wait_until="domcontentloaded",
+                        timeout=60000,
+                    )
+                except Exception as reload_error:
+                    logger.warning(f"Failed to reload page before retry: {reload_error}")
+
+
+def init_browser(p, max_navigation_retries=3):
     """Инициализация браузера и страницы"""
     logger.info("Initializing browser...")
     browser = p.chromium.launch(headless=True, args=[
@@ -51,11 +76,26 @@ def init_browser(p):
     ])
     page = browser.new_page()
     page.set_viewport_size({"width": 1280, "height": 720})
-    page.goto(
-        "https://live5.nowgoal26.com/",
-        wait_until="domcontentloaded",
-        timeout=60000,
-    )
+
+    def open_page():
+        page.goto(
+            "https://live5.nowgoal26.com/",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+
+    try:
+        _retry_page_action(
+            page,
+            open_page,
+            "load page",
+            max_retries=max_navigation_retries,
+            reload_before_retry=False,
+        )
+    except Exception:
+        browser.close()
+        raise
+
     logger.info("Page loaded successfully")
     return browser, page
 
@@ -73,62 +113,52 @@ def close_popup(page):
 
 def switch_to_live(page):
     """Переключение на фильтр Live"""
-    try:
-        logger.info("Switching to Live...")
-        page.locator("li#li_FilterLive").click()
-        page.locator("table#table_live").wait_for(timeout=10000)  # Ждем появления таблицы live
-        logger.info("Switched to Live")
-    except Exception as e:
-        logger.info("Failed to switch to Live")
+    logger.info("Switching to Live...")
+    page.locator("li#li_FilterLive").click()
+    page.locator("table#table_live").wait_for(timeout=10000)
+    logger.info("Switched to Live")
 
 
 def select_crown(page):
     """Выбор компании Crown и ожидание обновления данных"""
-    try:
-        logger.info("Selecting company Crown...")
-        select = page.locator("select#CompanySel")
+    logger.info("Selecting company Crown...")
+    select = page.locator("select#CompanySel")
 
-        select.select_option(value="3")
-        page.wait_for_function(
-            "() => { const select = document.querySelector('#CompanySel'); return select && select.value === '3'; }",
-            timeout=5000,
-        )
+    select.select_option(value="3")
+    page.wait_for_function(
+        "() => { const select = document.querySelector('#CompanySel'); return select && select.value === '3'; }",
+        timeout=5000,
+    )
 
-        previous_rows = page.evaluate("""
+    previous_rows = page.evaluate("""
             () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
                 .map(row => row.innerText.trim()).join('||')
         """)
 
-        try:
-            page.wait_for_function(
-                "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
-                arg=previous_rows,
-                timeout=2000,
-            )
-        except Exception:
-            import time
-            time.sleep(1)
+    try:
+        page.wait_for_function(
+            "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
+            arg=previous_rows,
+            timeout=5000,
+        )
+    except Exception:
+        import time
+        time.sleep(1)
 
-        logger.info("Crown selected and data updated")
-    except Exception as e:
-        logger.info("Failed to select Crown")
+    logger.info("Crown selected and data updated")
 
 
 def configure_odds_settings(page):
     """Настройка отображения odds через settings"""
-    try:
-        logger.info("Opening settings...")
-        page.locator("span#settingBtn").click()
-        page.wait_for_selector("input#otc_2", timeout=5000)  # Ждем появления чекбоксов
+    logger.info("Opening settings...")
+    page.locator("span#settingBtn").click()
+    page.wait_for_selector("input#otc_2", timeout=5000)
 
-        page.locator("input#otc_2").set_checked(False)  # Снять чекбокс otc_2
-        page.locator("input#otc_3").set_checked(True)   # Включить чекбокс otc_3
+    page.locator("input#otc_2").set_checked(False)
+    page.locator("input#otc_3").set_checked(True)
 
-        # Закрыть окно настроек
-        page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
-        logger.info("Settings configured")
-    except Exception as e:
-        logger.info("Failed to configure settings")
+    page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
+    logger.info("Settings configured")
 
 
 def collect_matches(page):
@@ -176,13 +206,16 @@ def main():
     while True:
         with sync_playwright() as p:
             browser, page = init_browser(p)
-            #close_popup(page)
-            switch_to_live(page)
-            select_crown(page)
-            configure_odds_settings(page)
-            saved_state = load_state_from_json()
 
             try:
+                def prepare_page():
+                    switch_to_live(page)
+                    select_crown(page)
+                    configure_odds_settings(page)
+
+                _retry_page_action(page, prepare_page, "prepare page")
+                saved_state = load_state_from_json()
+
                 if saved_state:
                     parse_and_monitor_match(page, saved_state=saved_state)
                 else:

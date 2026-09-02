@@ -102,10 +102,26 @@ def init_storage():
 
 ---
 
-### 5.2. `init_browser(p)`
+### 5.2. `_retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=True)`
+
+Общий механизм повторных попыток для операций со страницей.
+
+Функция запускает переданное действие и при ошибке повторяет его до `max_retries` раз. Перед следующей попыткой она может перезагрузить страницу с ожиданием `domcontentloaded` и таймаутом 60 секунд.
+
+Для стартового `page.goto()` перезагрузка перед повтором отключена, потому что само действие является навигацией. Для подготовки уже открытой страницы используется полная последовательность:
+
+1. `switch_to_live(page)`;
+2. `select_crown(page)`;
+3. `configure_odds_settings(page)`.
+
+Если любой из этих шагов завершается ошибкой, страница перезагружается, а последовательность начинается заново. После последней неудачной попытки ошибка передаётся вызывающему коду.
+
+---
+
+### 5.3. `init_browser(p, max_navigation_retries=3)`
 
 ```python
-def init_browser(p):
+def init_browser(p, max_navigation_retries=3):
 ```
 
 Назначение:
@@ -121,7 +137,10 @@ def init_browser(p):
 - включены параметры командной строки для более стабильной работы в контейнере/серверной среде;
 - создаётся новая вкладка (`browser.new_page()`);
 - задаётся размер окна `1280x720`;
-- открывается адрес `https://live5.nowgoal26.com/`.
+- открывается адрес `https://live5.nowgoal26.com/`;
+- используется ожидание `domcontentloaded` с таймаутом 60 секунд;
+- при ошибке загрузки выполняются повторные попытки, по умолчанию всего до 3 попыток;
+- после последней неудачной попытки браузер закрывается, а ошибка передаётся вызывающему коду.
 
 Почему это важно:
 
@@ -132,11 +151,12 @@ def init_browser(p):
 
 - установлен Playwright и браузерные бинарники;
 - сайт должен быть доступен из среды запуска;
+- одна попытка загрузки может занимать до 60 секунд;
 - если селекторы на сайте изменятся, функция начнёт ломаться.
 
 ---
 
-### 5.3. `close_popup(page)`
+### 5.4. `close_popup(page)`
 
 ```python
 def close_popup(page):
@@ -164,7 +184,7 @@ def close_popup(page):
 
 ---
 
-### 5.4. `switch_to_live(page)`
+### 5.5. `switch_to_live(page)`
 
 ```python
 def switch_to_live(page):
@@ -191,7 +211,7 @@ def switch_to_live(page):
 
 ---
 
-### 5.5. `select_crown(page)`
+### 5.6. `select_crown(page)`
 
 ```python
 def select_crown(page):
@@ -224,7 +244,7 @@ def select_crown(page):
 
 ---
 
-### 5.6. `configure_odds_settings(page)`
+### 5.7. `configure_odds_settings(page)`
 
 ```python
 def configure_odds_settings(page):
@@ -258,7 +278,7 @@ def configure_odds_settings(page):
 
 ---
 
-### 5.7. `collect_matches(page)`
+### 5.8. `collect_matches(page)`
 
 ```python
 def collect_matches(page):
@@ -294,7 +314,7 @@ def collect_matches(page):
 
 ---
 
-### 5.8. `main()`
+### 5.9. `main()`
 
 ```python
 def main():

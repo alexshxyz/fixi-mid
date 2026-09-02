@@ -41,72 +41,99 @@ CHANNEL_ID = os.environ.get('CHANNEL_ID')
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 
-def send_telegram_notification(league, team1, team2, score, over=None, over_odds=None, match_id=None, handicap_text=None, handicap_team_order=None):
-    """
-    Отправляет уведомление о матче в Telegram канал
-    """
-    match_url = f"https://live5.nowgoal26.com/oddscomp/{match_id}" if match_id else ""
-
+def _prepare_odds(over_odds):
     try:
-        odds_value = round(float(over_odds) + 1, 2)
+        return round(float(over_odds) + 1, 2)
     except (ValueError, TypeError):
-        odds_value = over_odds
+        return over_odds
 
+
+def _build_prediction(over, handicap_text, handicap_team_order):
     if handicap_text is None:
-        extra_line = f"<b>Over {over} FT</b>\n"
-    else:
-        extra_line = f"<b>Handicap {handicap_text} {handicap_team_order} FT</b>\n"
+        return f"Over {over} FT"
+    return f"Handicap {handicap_text} {handicap_team_order} FT"
 
+
+def _build_message(league, team1, team2, score, match_url, prediction, odds_value):
     emoji = "🔥" if league in leagues_list else "🔒"
+    extra_line = f"<b>{prediction}</b>\n"
 
-    message = (
+    return (
         f"<b>{emoji} Crown</b>\n"
         f"{league}\n"
         f"<b><a href=\"{match_url}\">{team1} {score} {team2}</a></b>\n"
         f"{extra_line}"
         f"Odds {odds_value}"
     )
-    
+
+
+def _is_duplicate_notification(match_url, prediction, match_id):
+    if check_duplicate_match(match_url, prediction):
+        logger.info(
+            f"[DUPLICATE] Match {match_id} with prediction '{prediction}' already sent. Skipping."
+        )
+        return True
+    return False
+
+
+def _send_message(payload, match_id):
+    try:
+        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"Telegram notification sent for match {match_id}")
+            return True
+
+        logger.error(f"Failed to send Telegram notification: {response.text}")
+    except Exception as e:
+        logger.error(f"Error sending Telegram notification: {e}")
+    return False
+
+
+def _save_notification(league, team1, team2, prediction, odds_value, match_url):
+    try:
+        save_match(
+            league=league,
+            home_team=team1,
+            away_team=team2,
+            prediction=prediction,
+            odds=odds_value,
+            link=match_url,
+        )
+    except Exception as db_error:
+        logger.error(f"Failed to save match to DB: {db_error}")
+
+
+def send_telegram_notification(league, team1, team2, score, over=None, over_odds=None, match_id=None, handicap_text=None, handicap_team_order=None):
+    """Отправляет уведомление о матче в Telegram канал."""
+    match_url = f"https://live5.nowgoal26.com/oddscomp/{match_id}" if match_id else ""
+    odds_value = _prepare_odds(over_odds)
+    prediction = _build_prediction(over, handicap_text, handicap_team_order)
+    message = _build_message(
+        league,
+        team1,
+        team2,
+        score,
+        match_url,
+        prediction,
+        odds_value,
+    )
+
     payload = {
         "chat_id": CHANNEL_ID,
         "text": message,
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
-    
-    prediction = (
-        f"Over {over} FT"
-        if handicap_text is None
-        else f"Handicap {handicap_text} {handicap_team_order} FT"
-    )
-    
-    # Проверяем дубликат перед отправкой
-    if check_duplicate_match(match_url, prediction):
-        logger.info(f"[DUPLICATE] Match {match_id} with prediction '{prediction}' already sent. Skipping.")
+
+    if _is_duplicate_notification(match_url, prediction, match_id):
         return False
-    
-    try:
-        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
-        if response.status_code == 200:
-            logger.info(f"Telegram notification sent for match {match_id}")
-            try:
-                save_match(
-                    league=league,
-                    home_team=team1,
-                    away_team=team2,
-                    prediction=prediction,
-                    odds=odds_value,
-                    link=match_url,
-                )
-            except Exception as db_error:
-                logger.error(f"Failed to save match to DB: {db_error}")
-            return True
-        else:
-            logger.error(f"Failed to send Telegram notification: {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"Error sending Telegram notification: {e}")
+
+    if not _send_message(payload, match_id):
         return False
+
+    _save_notification(league, team1, team2, prediction, odds_value, match_url)
+    return True
+
 
 
 if __name__ == "__main__":
