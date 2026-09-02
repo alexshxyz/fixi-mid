@@ -22,8 +22,8 @@ console_handler.setFormatter(console_formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-THRESHOLD = 0.61  # Изменяй это значение для настройки порога
-MAX_ODD = 0.80   # Минимальный коэффициент на ТБ для срабатывания паттерна
+THRESHOLD = 0.61  # Изменяй это значение для настройки порога. Идеально - 0.61
+MAX_ODD = 0.80   # Минимальный коэффициент на ТБ для срабатывания паттерна. Идеально - 0.80
 
 
 def _to_float(value):
@@ -64,155 +64,169 @@ def _ah_sign(value):
     return -1 if text.startswith("-") else 1
 
 
+def _collect_match_entries(data):
+    """Собирает историю матча в один список для дальнейшего анализа."""
+    entries = []
+    if data.get("initial"):
+        entries.append(data["initial"])
+    entries.extend(data.get("changes", []))
+    return entries
+
+
+def _get_last_entry_before_closed(entries, field_name):
+    """Находит последнюю запись до состояния Closed по конкретному полю: ov или ah."""
+    for idx in range(len(entries) - 2, -1, -1):
+        if entries[idx].get(field_name, {}).get(field_name) != "Closed":
+            return entries[idx], idx
+    return None, -1
+
+
+def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
+    """Отправляет Telegram-уведомление для найденного over-паттерна."""
+    team1 = last_entry.get("team1", "Unknown")
+    team2 = last_entry.get("team2", "Unknown")
+    score = last_entry.get("score", "Unknown")
+    league = last_entry.get("league", "Unknown")
+
+    try:
+        send_telegram_notification(
+            league=league,
+            team1=team1,
+            team2=team2,
+            score=score,
+            over=last_total,
+            over_odds=last_over_odds,
+            match_id=match_id
+        )
+    except Exception as e:
+        logger.error(f"Match {match_id}: Failed to send notification: {e}")
+
+
+def _find_over_pattern(entries, match_id):
+    """Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом."""
+    if len(entries) < 2 or entries[-1].get("ov", {}).get("over") != "Closed":
+        logger.debug(f"Match {match_id}: No 'Closed' in last entry or insufficient entries")
+        return False
+
+    last_entry, last_idx = _get_last_entry_before_closed(entries, "ov")
+    if last_entry is None:
+        return False
+
+    last_over_odds = _to_float(last_entry.get("ov", {}).get("over_odds"))
+    last_total = last_entry.get("ov", {}).get("over")
+
+    if last_over_odds is None or last_total is None or last_total == "Closed" or last_over_odds > THRESHOLD:
+        logger.debug(f"Match {match_id}: Base condition not met")
+        return False
+
+    start_search_idx = last_idx - 1
+    for search_idx in range(start_search_idx, -1, -1):
+        current_entry = entries[search_idx]
+
+        if current_entry.get("ov", {}).get("over") == "Closed":
+            continue
+
+        current_total = current_entry.get("ov", {}).get("over")
+        current_over_odds = _to_float(current_entry.get("ov", {}).get("over_odds"))
+
+        if current_total != last_total:
+            break
+
+        if current_over_odds is not None and current_over_odds >= MAX_ODD:
+            _send_over_notification(match_id, last_entry, last_total, last_over_odds)
+            return True
+
+    logger.debug(f"Match {match_id}: No matching entry found above")
+    return False
+
+
+def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side):
+    """Отправляет Telegram-уведомление для найденного handicaps-паттерна."""
+    team1 = last_entry.get("team1", "Unknown")
+    team2 = last_entry.get("team2", "Unknown")
+    score = last_entry.get("score", "Unknown")
+    league = last_entry.get("league", "Unknown")
+    handicap = last_ah
+    handicap_order = "Home" if odds_side == "home" else "Away"
+
+    if handicap and not handicap.startswith("-") and not _is_away_zero_split_handicap(handicap):
+        handicap = f"-{handicap}"
+
+    try:
+        send_telegram_notification(
+            league=league,
+            team1=team1,
+            team2=team2,
+            score=score,
+            match_id=match_id,
+            over_odds=last_ah_odds,
+            handicap_text=handicap,
+            handicap_team_order=handicap_order
+        )
+    except Exception as e:
+        logger.error(f"Match {match_id}: Failed to send notification: {e}")
+
+
+def _find_ah_pattern(entries, match_id):
+    """Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом."""
+    if len(entries) < 2 or entries[-1].get("ah", {}).get("ah") != "Closed":
+        return False
+
+    last_entry, last_idx = _get_last_entry_before_closed(entries, "ah")
+    if last_entry is None:
+        return False
+
+    last_ah = last_entry.get("ah", {}).get("ah")
+    raw_ah = last_ah
+    sign = _ah_sign(raw_ah)
+    last_ah_odds = None
+    odds_side = None
+
+    if sign is not None and sign != 0:
+        if sign > 0 and not _is_away_zero_split_handicap(raw_ah):
+            last_ah_odds = _to_float(last_entry.get("ah", {}).get("home_ah_odds"))
+            odds_side = "home"
+        else:
+            last_ah_odds = _to_float(last_entry.get("ah", {}).get("away_ah_odds"))
+            odds_side = "away"
+
+    if not last_ah or last_ah == "Closed" or last_ah_odds is None or last_ah_odds > THRESHOLD:
+        return False
+
+    start_search_idx = last_idx - 1
+    for search_idx in range(start_search_idx, -1, -1):
+        current_entry = entries[search_idx]
+        if current_entry.get("ah", {}).get("ah") == "Closed":
+            continue
+
+        current_ah = current_entry.get("ah", {}).get("ah")
+        if current_ah != last_ah:
+            break
+
+        if odds_side == "home":
+            current_ah_odds = _to_float(current_entry.get("ah", {}).get("home_ah_odds"))
+        else:
+            current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
+
+        if current_ah_odds is not None and current_ah_odds >= MAX_ODD:
+            _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side)
+            return True
+
+    return False
+
+
 def find_pattern_matches(match_history):
+    """Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн."""
     sent_matches = []
 
     for match_id, data in match_history.items():
-        entries = []
-        if data.get("initial"):
-            entries.append(data["initial"])
-        entries.extend(data.get("changes", []))
+        entries = _collect_match_entries(data)
 
-        # ===== ЛОГИКА ДЛЯ OVER =====
-        # 1. Поиск базовой строки (last)
-        if len(entries) >= 2 and entries[-1].get("ov", {}).get("over") == "Closed":
-            # Найти последний entry перед "Closed" с over != "Closed"
-            last_entry = None
-            for i in range(len(entries) - 2, -1, -1):
-                if entries[i].get("ov", {}).get("over") != "Closed":
-                    last_entry = entries[i]
-                    break
-            
-            if last_entry is None:
-                continue
-            
-            last_over_odds = _to_float(last_entry.get("ov", {}).get("over_odds"))
-            last_total = last_entry.get("ov", {}).get("over")
-            
-            if last_over_odds is not None and last_over_odds <= THRESHOLD and last_total and last_total != "Closed":
-                
-                # 2. Поиск подходящих строк выше
-                found = False
-                start_search_idx = i - 1  # Начинать с строки выше last_entry
-                for search_idx in range(start_search_idx, -1, -1):
-                    current_entry = entries[search_idx]
-                    
-                    # Пропустить строки с "Closed"
-                    if current_entry.get("ov", {}).get("over") == "Closed":
-                        continue
-                    
-                    current_total = current_entry.get("ov", {}).get("over")
-                    current_over_odds = _to_float(current_entry.get("ov", {}).get("over_odds"))
-                    
-                    # Если линия тотала изменилась — остановить поиск
-                    if current_total != last_total:
-                        break
-                    
-                    # Если совпадает и current_odd >= MAX_ODD
-                    if current_over_odds is not None and current_over_odds >= MAX_ODD:
-                        
-                        # Отправляем уведомление с коэффициентом строки непосредственно перед Closed
-                        team1 = last_entry.get("team1", "Unknown")
-                        team2 = last_entry.get("team2", "Unknown")
-                        score = last_entry.get("score", "Unknown")
-                        league = last_entry.get("league", "Unknown")
-                        over = last_total
-                        over_odds = last_over_odds
-                        
-                        try:
-                            send_telegram_notification(
-                                league=league,
-                                team1=team1,
-                                team2=team2,
-                                score=score,
-                                over=over,
-                                over_odds=over_odds,
-                                match_id=match_id
-                            )
-                        except Exception as e:
-                            logger.error(f"Match {match_id}: Failed to send notification: {e}")
-                        
-                        sent_matches.append(match_id)
-                        found = True
-                        break  # Завершить обработку матча
-                
-                if not found:
-                    logger.debug(f"Match {match_id}: No matching entry found above")
-            else:
-                logger.debug(f"Match {match_id}: Base condition not met")
-        else:
-            logger.debug(f"Match {match_id}: No 'Closed' in last entry or insufficient entries")
+        if _find_over_pattern(entries, match_id):
+            sent_matches.append(match_id)
 
-        # ===== НОВАЯ ЛОГИКА ДЛЯ AH =====
-        if len(entries) >= 2 and entries[-1].get("ah", {}).get("ah") == "Closed":
-            last_entry = None
-            for i in range(len(entries) - 2, -1, -1):
-                if entries[i].get("ah", {}).get("ah") != "Closed":
-                    last_entry = entries[i]
-                    break
-
-            if last_entry is not None:
-                last_ah = last_entry.get("ah", {}).get("ah")
-                raw_ah = last_ah
-                sign = _ah_sign(raw_ah)
-                last_ah_odds = None
-                odds_side = None
-
-                if sign is not None and sign != 0:
-                    if sign > 0 and not _is_away_zero_split_handicap(raw_ah):
-                        last_ah_odds = _to_float(last_entry.get("ah", {}).get("home_ah_odds"))
-                        odds_side = "home"
-                    else:
-                        last_ah_odds = _to_float(last_entry.get("ah", {}).get("away_ah_odds"))
-                        odds_side = "away"
-
-                if last_ah and last_ah != "Closed" and last_ah_odds is not None and last_ah_odds <= THRESHOLD:
-                    found = False
-                    start_search_idx = i - 1
-                    for search_idx in range(start_search_idx, -1, -1):
-                        current_entry = entries[search_idx]
-                        if current_entry.get("ah", {}).get("ah") == "Closed":
-                            continue
-
-                        current_ah = current_entry.get("ah", {}).get("ah")
-                        if current_ah != last_ah:
-                            break
-
-                        if odds_side == "home":
-                            current_ah_odds = _to_float(current_entry.get("ah", {}).get("home_ah_odds"))
-                        else:
-                            current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
-
-                        if current_ah_odds is not None and current_ah_odds >= MAX_ODD:
-                            team1 = last_entry.get("team1", "Unknown")
-                            team2 = last_entry.get("team2", "Unknown")
-                            score = last_entry.get("score", "Unknown")
-                            league = last_entry.get("league", "Unknown")
-                            handicap = last_ah
-                            handicap_order = "Home" if odds_side == "home" else "Away"
-
-                            # Добавить "-" перед handicap, если его нет и это не away zero split
-                            if handicap and not handicap.startswith("-") and not _is_away_zero_split_handicap(handicap):
-                                handicap = f"-{handicap}"
-
-                            send_telegram_notification(
-                                league=league,
-                                team1=team1,
-                                team2=team2,
-                                score=score,
-                                match_id=match_id,
-                                over_odds=last_ah_odds,
-                                handicap_text=handicap,
-                                handicap_team_order=handicap_order
-                            )
-                            sent_matches.append(match_id)
-                            found = True
-                            break
-
-                    if not found:
-                        pass
-                else:
-                    pass
+        if _find_ah_pattern(entries, match_id):
+            sent_matches.append(match_id)
 
     return sent_matches
 

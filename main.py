@@ -51,7 +51,11 @@ def init_browser(p):
     ])
     page = browser.new_page()
     page.set_viewport_size({"width": 1280, "height": 720})
-    page.goto("https://live5.nowgoal26.com/")
+    page.goto(
+        "https://live5.nowgoal26.com/",
+        wait_until="domcontentloaded",
+        timeout=60000,
+    )
     logger.info("Page loaded successfully")
     return browser, page
 
