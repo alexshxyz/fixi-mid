@@ -1,10 +1,10 @@
 import requests
 import os
-import logging
 import json
 from dotenv import load_dotenv
 
 from storage import save_match, check_duplicate_match
+from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -14,25 +14,7 @@ with open(leagues_file, 'r', encoding='utf-8') as f:
     leagues_data = json.load(f)
 leagues_list = [item['name'] for item in leagues_data['leagues']]
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Handler для файла
-log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(__name__)
 
 # Настройки для Telegram
 BOT_TOKEN = os.environ.get('BOT_TOKEN')

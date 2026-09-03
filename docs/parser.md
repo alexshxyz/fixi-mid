@@ -58,7 +58,7 @@ logics.py
 
 ---
 
-## 3. Импорты и глобальные настройки
+## 3. Импорты и общие настройки
 
 В начале файла используются стандартные модули:
 
@@ -68,17 +68,22 @@ logics.py
 - `random` — случайный интервал периодической перезагрузки;
 - `setup_logger` из [logging_config.py](../logging_config.py) — получение настроенного логгера для диагностических сообщений.
 
-### Глобальные переменные
+### Общие константы
 
 ```python
-match_history = {}
 STATE_SAVE_FILE = "match_state.json"
 RESTART_HOURS = 8
 ```
 
-#### `match_history`
+### `MatchMonitor.match_history`
 
-Глобальный словарь с историей матчей. Он заполняется в `parser.py` и передаётся в `logics.find_pattern_matches(match_history)`.
+История матчей хранится как атрибут конкретного экземпляра `MatchMonitor`:
+
+```python
+self.match_history = {}
+```
+
+Она передаётся в `logics.find_pattern_matches(self.match_history)` для анализа. Благодаря этому два экземпляра `MatchMonitor` в одном процессе не используют общий словарь и не смешивают истории.
 
 Пример структуры:
 
@@ -142,7 +147,7 @@ RESTART_HOURS = 8
 
 ## 5. Функции работы с состоянием
 
-### 5.1. `_save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE)`
+### 5.1. `MatchMonitor._save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE)`
 
 Сохраняет текущее состояние мониторинга в JSON-файл.
 
@@ -150,7 +155,7 @@ RESTART_HOURS = 8
 
 ```python
 {
-    "match_history": match_history,
+    "match_history": self.match_history,
     "last_data": last_data,
     "active_match_ids": active_match_ids
 }
@@ -306,7 +311,7 @@ if saved_state:
 Если передан `saved_state`:
 
 - восстанавливаются `active_match_ids`;
-- глобальный `match_history` очищается и заполняется сохранённой историей;
+- `self.match_history` заполняется сохранённой историей;
 - восстанавливается `last_data`.
 
 После восстановления начальные данные заново не создаются.
@@ -317,7 +322,7 @@ if saved_state:
 
 - `active_match_ids` создаётся из `match_ids`;
 - вызывается `_load_initial_data()`;
-- сразу после инициализации вызывается `find_pattern_matches(match_history)`.
+- сразу после инициализации вызывается `find_pattern_matches(self.match_history)`.
 
 ### 7.4. `_load_initial_data()`
 
@@ -325,7 +330,7 @@ if saved_state:
 
 Функция повторяет попытку до тех пор, пока таблица не станет доступной. После трёх ошибок `_handle_table_not_ready()` перезагружает страницу и запускает полноценную синхронизацию матчей.
 
-Важно: после reload новые ID матчей получают первоначальные записи в `match_history` и `last_data` только после успешного извлечения данных. Исчезнувшие ID удаляются из `self.active_match_ids`, `match_history` и `last_data`.
+Важно: после reload новые ID матчей получают первоначальные записи в `self.match_history` и `last_data` только после успешного извлечения данных. Исчезнувшие ID удаляются из `self.active_match_ids`, `self.match_history` и `last_data`.
 
 ### 7.5. `_monitor_loop()`
 
@@ -339,7 +344,7 @@ if saved_state:
 4. проверяет плановый срок перезапуска;
 5. при достижении `reload_threshold` выполняет `_do_periodic_reload()`;
 6. получает свежие данные через `_poll_and_update()`;
-7. при изменениях вызывает `find_pattern_matches(match_history)`.
+7. при изменениях вызывает `find_pattern_matches(self.match_history)`.
 
 Проверка паттернов выполняется только когда история действительно изменилась либо после добавления новых матчей.
 
@@ -359,7 +364,7 @@ if saved_state:
 - определяет новые и исчезнувшие ID;
 - удаляет историю исчезнувших матчей из оперативного состояния;
 - получает начальные данные новых матчей;
-- добавляет новые матчи в `match_history` и `last_data`;
+- добавляет новые матчи в `self.match_history` и `last_data`;
 - сохраняет только успешно инициализированные ID в `self.active_match_ids`.
 
 Та же синхронизация вызывается после аварийного reload из `_handle_table_not_ready()`. Поэтому оба типа перезагрузки одинаково обрабатывают добавление и удаление матчей.
@@ -388,7 +393,7 @@ if saved_state:
 
 Если значение изменилось:
 
-1. текущая запись добавляется в `match_history[match_id]['changes']`;
+1. текущая запись добавляется в `self.match_history[match_id]['changes']`;
 2. `last_data` обновляется;
 3. возвращаемый флаг `data_changed` становится `True`;
 4. событие записывается в лог.
@@ -432,16 +437,15 @@ parse_and_monitor_match(page, matches)
 
 ## 9. Как parser.py взаимодействует с logics.py
 
-После первоначальной загрузки и после каждого изменения данных `parser.py` выполняет локальный импорт и вызов:
+После первоначальной загрузки и после каждого изменения данных `parser.py` вызывает:
 
 ```python
-from logics import find_pattern_matches
-find_pattern_matches(match_history)
+find_pattern_matches(self.match_history)
 ```
 
 `logics.py` затем:
 
-1. проходит по всем матчам в `match_history`;
+1. проходит по всем матчам в переданном `self.match_history`;
 2. объединяет `initial` и `changes` в историю событий;
 3. проверяет over-паттерн;
 4. проверяет AH-паттерн;
@@ -482,7 +486,7 @@ find_pattern_matches(match_history)
 
 При изменении HTML сайта в первую очередь нужно проверить `_extract_all_match_data()` и `_collect_match_ids()`, так как именно они зависят от CSS-селекторов и структуры DOM.
 
-`parser.py` использует глобальный `match_history`, поэтому несколько независимых экземпляров мониторинга в одном процессе не предусмотрены: новый запуск очищает и перезаписывает общую историю.
+Каждый `MatchMonitor` хранит собственный `self.match_history`, поэтому несколько независимых экземпляров мониторинга в одном процессе не смешивают свои истории. При сохранении состояния в `match_state.json` записывается история конкретного экземпляра.
 
 ---
 

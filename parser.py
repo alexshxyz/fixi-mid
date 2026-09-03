@@ -11,7 +11,6 @@ from logics import find_pattern_matches
 
 logger = setup_logger(__name__)
 
-match_history = {}
 STATE_SAVE_FILE = "match_state.json"
 RESTART_HOURS = 8  # Число часов до сохранения состояния и «рестарта"
 
@@ -24,22 +23,6 @@ class PageRestartRequired(Exception):
 class TableNotReadyError(Exception):
     """Raised when the live table is not ready on the page."""
     pass
-
-
-def _save_state_to_json(active_match_ids, last_data, path=STATE_SAVE_FILE):
-    try:
-        payload = {
-            "match_history": match_history,
-            "last_data": last_data,
-            "active_match_ids": active_match_ids,
-        }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        logger.info(f"Saved state to {path}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save state to {path}: {e}")
-        return False
 
 
 def load_state_from_json(path=STATE_SAVE_FILE):
@@ -57,7 +40,7 @@ def load_state_from_json(path=STATE_SAVE_FILE):
 
 
 
-def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retries=3, max_timeout_retries=4):
+def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max_crash_retries=3, max_timeout_retries=4):
     crash_retries = 0
     timeout_retries = 0
     while True:
@@ -89,14 +72,14 @@ def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retri
                 crash_retries = 0  # Сброс crash retries при timeout
 
             if crash_retries >= max_crash_retries:
-                if _save_state_to_json(active_match_ids, last_data):
+                if save_state(active_match_ids, last_data):
                     logger.error(f"Page crashed {crash_retries} times. Saved state to {STATE_SAVE_FILE} and requesting restart.")
                 else:
                     logger.error(f"Page crashed {crash_retries} times and state save failed. Requesting restart anyway.")
                 raise PageRestartRequired(f"Page crashed {crash_retries} times during reload")
 
             if timeout_retries >= max_timeout_retries:
-                if _save_state_to_json(active_match_ids, last_data):
+                if save_state(active_match_ids, last_data):
                     logger.error(f"Reload timed out {timeout_retries} times in a row. Saved state to {STATE_SAVE_FILE} and requesting restart.")
                 else:
                     logger.error(f"Reload timed out {timeout_retries} times and state save failed. Requesting restart anyway.")
@@ -230,6 +213,7 @@ class MatchMonitor:
         self.page = page
         self.match_ids = match_ids
         self.saved_state = saved_state
+        self.match_history = {}
         self.last_data = {}
         self.active_match_ids = []
         self.consecutive_table_errors = 0
@@ -247,15 +231,35 @@ class MatchMonitor:
         except Exception as e:
             logger.error(f"Error in parse_and_monitor_match: {e}")
 
+    def _save_state_to_json(self, active_match_ids, last_data, path=STATE_SAVE_FILE):
+        try:
+            payload = {
+                "match_history": self.match_history,
+                "last_data": last_data,
+                "active_match_ids": active_match_ids,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved state to {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save state to {path}: {e}")
+            return False
+
     def _handle_table_not_ready(self):
         self.consecutive_table_errors += 1
         logger.warning(f"Table not ready occurred {self.consecutive_table_errors} times in a row")
         if self.consecutive_table_errors >= 3:
-            if _save_state_to_json(self.active_match_ids, self.last_data):
+            if self._save_state_to_json(self.active_match_ids, self.last_data):
                 logger.info("Saved state before forced reload due to repeated table readiness failures")
             else:
                 logger.error("Failed to save state before forced reload")
-            _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
+            _reload_page_with_retries(
+                self.page,
+                self.active_match_ids,
+                self.last_data,
+                self._save_state_to_json,
+            )
             current_match_ids = _collect_match_ids(self.page)
             self._synchronize_matches(current_match_ids)
             self.consecutive_table_errors = 0
@@ -267,8 +271,7 @@ class MatchMonitor:
         if self.saved_state:
             self.active_match_ids = self.saved_state.get("active_match_ids", [])
             restored_history = self.saved_state.get("match_history", {})
-            match_history.clear()
-            match_history.update(restored_history)
+            self.match_history.update(restored_history)
             self.last_data = self.saved_state.get("last_data", {})
             logger.info(f"Restored state for {len(self.active_match_ids)} matches from {STATE_SAVE_FILE}")
             return
@@ -279,7 +282,7 @@ class MatchMonitor:
             self._load_initial_data()
 
         logger.info("Initial call to find_pattern_matches")
-        find_pattern_matches(match_history)
+        find_pattern_matches(self.match_history)
 
     def _load_initial_data(self):
         while True:
@@ -295,7 +298,7 @@ class MatchMonitor:
         for match_id in self.active_match_ids:
             initial_data = initial_all_data.get(match_id)
             if initial_data:
-                match_history[match_id] = {'initial': initial_data, 'changes': []}
+                self.match_history[match_id] = {'initial': initial_data, 'changes': []}
                 self.last_data[match_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
                 logger.info(f"Initial data loaded for match {match_id}")
             else:
@@ -326,11 +329,11 @@ class MatchMonitor:
                 data_changed = data_changed or changed
 
             if data_changed:
-                find_pattern_matches(match_history)
+                find_pattern_matches(self.match_history)
 
     def _trigger_scheduled_restart(self):
         logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
-        if _save_state_to_json(self.active_match_ids, self.last_data):
+        if self._save_state_to_json(self.active_match_ids, self.last_data):
             logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
         else:
             logger.error("Failed to save state, but proceeding with restart.")
@@ -339,7 +342,12 @@ class MatchMonitor:
     def _do_periodic_reload(self):
         self.reload_counter = 0
         self.reload_threshold = random.randint(420, 480)
-        _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
+        _reload_page_with_retries(
+            self.page,
+            self.active_match_ids,
+            self.last_data,
+            self._save_state_to_json,
+        )
 
         current_match_ids = _collect_match_ids(self.page)
         return self._synchronize_matches(current_match_ids)
@@ -352,7 +360,7 @@ class MatchMonitor:
         removed_match_ids = [match_id for match_id in self.active_match_ids if match_id not in current_match_id_set]
 
         for removed_id in removed_match_ids:
-            match_history.pop(removed_id, None)
+            self.match_history.pop(removed_id, None)
             self.last_data.pop(removed_id, None)
             logger.info(f"Match {removed_id} removed")
 
@@ -368,7 +376,7 @@ class MatchMonitor:
             for new_id in new_match_ids:
                 initial_data = new_data.get(new_id)
                 if initial_data:
-                    match_history[new_id] = {'initial': initial_data, 'changes': []}
+                    self.match_history[new_id] = {'initial': initial_data, 'changes': []}
                     self.last_data[new_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
                     initialized_match_ids.append(new_id)
                     logger.info(f"New match {new_id} added")
@@ -399,7 +407,7 @@ class MatchMonitor:
                 continue
             if (current_data['ah'] != self.last_data[match_id]['ah'] or
                     current_data['ov'] != self.last_data[match_id]['ov']):
-                match_history[match_id]['changes'].append(current_data)
+                self.match_history[match_id]['changes'].append(current_data)
                 self.last_data[match_id] = {'ah': current_data['ah'], 'ov': current_data['ov']}
                 data_changed = True
                 logger.info(f"Match {match_id} updated")

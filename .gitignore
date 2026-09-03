@@ -140,3 +140,7 @@ Thumbs.db
 bot.log
 stats.log
 stats.txt
+
+# Runtime JSON data
+matches.json
+match_state.json
