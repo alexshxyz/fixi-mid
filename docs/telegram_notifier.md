@@ -80,7 +80,15 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 ```text
 BOT_TOKEN=токен_бота
 CHANNEL_ID=id_канала
+
+# Необязательный SOCKS5-прокси для запросов к Telegram
+TELEGRAM_PROXY_HOST=адрес_прокси
+TELEGRAM_PROXY_PORT=порт_прокси
+TELEGRAM_PROXY_USERNAME=логин_прокси
+TELEGRAM_PROXY_PASSWORD=пароль_прокси
 ```
+
+Прокси используется, только если указаны `TELEGRAM_PROXY_HOST` и `TELEGRAM_PROXY_PORT`. Логин и пароль можно оставить пустыми для прокси без авторизации. Для DNS-запросов используется схема `socks5h`.
 
 ### `BOT_TOKEN`
 
@@ -217,7 +225,12 @@ Odds 1.6
 Отправляет подготовленный payload в Telegram:
 
 ```python
-requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
+requests.post(
+  TELEGRAM_API_URL,
+  json=payload,
+  proxies=TELEGRAM_PROXIES,
+  timeout=10,
+)
 ```
 
 Результат:

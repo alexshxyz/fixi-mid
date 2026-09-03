@@ -132,7 +132,7 @@ CHANNEL_ID=id Telegram-канала
 
 ```text
 playwright>=1.40.0
-requests>=2.31.0
+requests[socks]>=2.31.0
 python-dotenv>=1.0.0
 ```
 
@@ -176,6 +176,14 @@ pip install -r requirements.txt
 
 Как и `bot.log`, этот файл предназначен для диагностики и не хранит статистику как структурированные данные. Сама статистика рассчитывается из `matches.json`, а отметки уже отправленных месяцев хранятся в `stats.txt`.
 
+## `tools/monitor.py` и `monitor.log`
+
+`tools/monitor.py` — отдельный watchdog для контроля активности основного приложения. Он каждые 30 минут читает последнюю строку `bot.log`, проверяет её время и отправляет в Telegram статус `OK`, `STALE` или сообщение об ошибке.
+
+Для Telegram watchdog сначала использует отдельные переменные `MONITOR_TELEGRAM_TOKEN` и `MONITOR_CHAT_ID`. Если они не заданы, используются основные `BOT_TOKEN` и `CHANNEL_ID` из `.env`.
+
+Собственные ошибки watchdog записывает в `monitor.log` через общий модуль [logging_config.py](../logging_config.py). Файл `monitor.log`, как и остальные `*.log`, является runtime-журналом и исключён из Git.
+
 ## Характер файлов и резервное копирование
 
 - `.env` — секретные настройки;
@@ -184,7 +192,7 @@ pip install -r requirements.txt
 - `match_state.json` — временное состояние для восстановления;
 - `requirements.txt` — список зависимостей;
 - `logging_config.py` — единая настройка логирования;
-- `bot.log` и `stats.log` — журналы работы.
+- `bot.log`, `stats.log` и `monitor.log` — журналы работы.
 
 Файлы `.env`, `*.log`, `matches.json` и `match_state.json` исключены из Git как локальные или runtime-данные. `matches.json` содержит рабочую историю прогнозов, а `match_state.json` — временное состояние восстановления.
 

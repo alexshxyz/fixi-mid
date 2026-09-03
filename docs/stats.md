@@ -2,9 +2,9 @@
 
 ## 1. Назначение файла
 
-Файл [stats.py](../stats.py) отвечает за автоматическую отправку месячной статистики матчей в Telegram-канал.
+Файл [stats.py](../stats.py) отвечает за расчёт месячной статистики матчей и передачу готового текста в [telegram_notifier.py](../telegram_notifier.py) для отправки в Telegram-канал.
 
-Он получает завершённые матчи из [storage.py](../storage.py), выбирает записи за прошлый календарный месяц, рассчитывает количество побед, поражений и возвратов, формирует HTML-сообщение и отправляет его через Telegram Bot API.
+Он получает завершённые матчи из [storage.py](../storage.py), выбирает записи за прошлый календарный месяц, рассчитывает количество побед, поражений и возвратов и формирует HTML-сообщение. Отправку выполняет [telegram_notifier.py](../telegram_notifier.py).
 
 Основные задачи файла:
 
@@ -13,7 +13,7 @@
 - получить матчи за этот период из `matches.json`;
 - рассчитать общую статистику;
 - вычислить Win Rate и прибыль;
-- отправить статистику в Telegram;
+- передать готовую статистику в `telegram_notifier.py`;
 - не отправлять статистику одного месяца повторно;
 - работать в отдельном фоновом потоке основного приложения.
 
@@ -48,7 +48,11 @@ storage.py
   v
 stats.py
   |
-  | отправляет итоговый текст в Telegram
+  | передаёт итоговый текст в telegram_notifier.py
+  v
+telegram_notifier.py
+  |
+  | отправляет через настроенный прокси
   v
 Telegram-канал
 ```
@@ -66,8 +70,7 @@ Telegram-канал
 - `time` — ожидание между проверками сервиса;
 - `setup_logger` из [logging_config.py](../logging_config.py) — получение настроенного логгера;
 - `datetime`, `timedelta` — расчёт текущего и прошлого месяца;
-- `load_dotenv` — загрузка настроек из `.env`;
-- `requests` — HTTP-запрос к Telegram Bot API;
+- `send_telegram_message` из [telegram_notifier.py](../telegram_notifier.py) — передача готового текста на отправку;
 - `get_matches_in_date_range`, `calculate_stats` из [storage.py](../storage.py) — чтение матчей и расчёт базовой статистики.
 
 ### Добавление пути для импорта
@@ -82,20 +85,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ### Переменные окружения
 
-Файл загружает `.env`, расположенный рядом с исходным файлом, и использует две переменные:
-
-```text
-BOT_TOKEN=токен_бота
-CHANNEL_ID=id_канала
-```
-
-На их основе создаётся URL:
-
-```python
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-```
-
-Если настройки отсутствуют, URL будет сформирован с пустым токеном, а отправка завершится ошибкой Telegram API.
+Настройки Telegram и прокси загружаются и используются в `telegram_notifier.py`. `stats.py` не выполняет HTTP-запросы и не содержит Telegram-конфигурацию.
 
 ### Файлы сервиса
 
@@ -242,37 +232,13 @@ profit = 7 * 0.8 - 2 = +3.60 units
 
 ---
 
-## 6. Функция `send_telegram_message(text)`
+## 6. Передача статистики на отправку
 
 ```python
 def send_telegram_message(text):
 ```
 
-Отправляет готовый текст статистики в Telegram-канал.
-
-Формируется payload:
-
-```python
-payload = {
-    "chat_id": CHANNEL_ID,
-    "text": text,
-    "parse_mode": "HTML",
-    "disable_web_page_preview": True
-}
-```
-
-Затем выполняется запрос:
-
-```python
-requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
-```
-
-Возвращаемое значение:
-
-- `True` — Telegram вернул HTTP-статус `200`;
-- `False` — получен другой статус или возникла ошибка запроса.
-
-При неуспешном статусе в лог записывается текст ответа Telegram. Таймаут запроса составляет 10 секунд.
+После расчёта `stats.py` передаёт готовый текст в `send_telegram_message(text)` из `telegram_notifier.py`. Эта функция формирует payload, выполняет запрос через настроенный SOCKS5-прокси и возвращает результат отправки.
 
 Функция не помечает статистику как отправленную. За запись marker отвечает вызывающая функция `check_and_send_monthly_stats()`.
 

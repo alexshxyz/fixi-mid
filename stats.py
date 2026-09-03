@@ -5,23 +5,15 @@ import sys
 import os
 import time
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
-import requests
 from logging_config import setup_logger
+from telegram_notifier import send_telegram_message
 
 # Добавляем родительскую директорию в path для импорта модулей
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from storage import get_matches_in_date_range, calculate_stats
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
-
 logger = setup_logger(__name__, 'stats.log')
-
-# Настройки для Telegram
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_ID = os.environ.get('CHANNEL_ID')
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 # Файл для отслеживания отправленных статистик
 STATS_FILE = os.path.join(os.path.dirname(__file__), 'stats.txt')
@@ -88,36 +80,6 @@ def get_last_month_stats():
     except Exception as e:
         logger.error(f"Ошибка при получении статистики за прошлый месяц: {e}")
         return f"❌ Ошибка при получении статистики: {e}"
-
-
-def send_telegram_message(text):
-    """
-    Отправляет сообщение в Telegram канал.
-
-    Args:
-        text (str): Текст сообщения
-
-    Returns:
-        bool: True если отправка успешна, False иначе
-    """
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
-
-    try:
-        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
-        if response.status_code == 200:
-            logger.info("Статистика успешно отправлена в Telegram")
-            return True
-        else:
-            logger.error(f"Не удалось отправить статистику в Telegram: {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"Ошибка при отправке статистики в Telegram: {e}")
-        return False
 
 
 def check_stats_sent(year, month):

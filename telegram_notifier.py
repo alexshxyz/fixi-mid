@@ -1,6 +1,7 @@
 import requests
 import os
 import json
+from urllib.parse import quote
 from dotenv import load_dotenv
 
 from storage import save_match, check_duplicate_match
@@ -19,6 +20,28 @@ logger = setup_logger(__name__)
 # Настройки для Telegram
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHANNEL_ID = os.environ.get('CHANNEL_ID')
+
+TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
+TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
+TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
+TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
+
+TELEGRAM_PROXIES = None
+if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
+    proxy_auth = ''
+    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
+        proxy_auth = (
+            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
+            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
+        )
+
+    telegram_proxy_url = (
+        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
+    )
+    TELEGRAM_PROXIES = {
+        'http': telegram_proxy_url,
+        'https': telegram_proxy_url,
+    }
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
@@ -58,17 +81,36 @@ def _is_duplicate_notification(match_url, prediction, match_id):
     return False
 
 
-def _send_message(payload, match_id):
+def _send_message(payload, match_id=None, success_message=None):
     try:
-        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
+        response = requests.post(
+            TELEGRAM_API_URL,
+            json=payload,
+            proxies=TELEGRAM_PROXIES,
+            timeout=10,
+        )
         if response.status_code == 200:
-            logger.info(f"Telegram notification sent for match {match_id}")
+            if success_message:
+                logger.info(success_message)
+            else:
+                logger.info(f"Telegram notification sent for match {match_id}")
             return True
 
         logger.error(f"Failed to send Telegram notification: {response.text}")
     except Exception as e:
         logger.error(f"Error sending Telegram notification: {e}")
     return False
+
+
+def send_telegram_message(text):
+    """Отправляет произвольное HTML-сообщение в Telegram-канал."""
+    payload = {
+        "chat_id": CHANNEL_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    return _send_message(payload, success_message="Telegram message sent")
 
 
 def _save_notification(league, team1, team2, prediction, odds_value, match_url):
