@@ -107,24 +107,25 @@ def select_crown(page):
     logger.info("Selecting company Crown...")
     select = page.locator("select#CompanySel")
 
+    previous_rows = page.evaluate("""
+            () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
+                .map(row => row.innerText.trim()).join('||')
+        """)
+
     select.select_option(value="3")
     page.wait_for_function(
         "() => { const select = document.querySelector('#CompanySel'); return select && select.value === '3'; }",
         timeout=5000,
     )
 
-    previous_rows = page.evaluate("""
-            () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
-                .map(row => row.innerText.trim()).join('||')
-        """)
-
     try:
         page.wait_for_function(
             "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
             arg=previous_rows,
-            timeout=5000,
+            timeout=10000,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Crown table did not change after selection: {e}")
         time.sleep(1)
 
     logger.info("Crown selected and data updated")
@@ -133,6 +134,11 @@ def select_crown(page):
 def configure_odds_settings(page):
     """Настройка отображения odds через settings"""
     logger.info("Opening settings...")
+    previous_rows = page.evaluate("""
+            () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
+                .map(row => row.innerText.trim()).join('||')
+        """)
+
     page.locator("span#settingBtn").click()
     page.wait_for_selector("input#otc_2", timeout=5000)
 
@@ -140,6 +146,17 @@ def configure_odds_settings(page):
     page.locator("input#otc_3").set_checked(True)
 
     page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
+
+    try:
+        page.wait_for_function(
+            "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
+            arg=previous_rows,
+            timeout=10000,
+        )
+    except Exception as e:
+        logger.warning(f"Odds table did not change after settings update: {e}")
+        time.sleep(1)
+
     logger.info("Settings configured")
 
 
@@ -150,25 +167,25 @@ def collect_matches(page):
         logger.info("Counting matches with odds...")
         matches = page.evaluate("""
             () => {
-                const matches = [];
-                const timeElements = Array.from(document.querySelectorAll('[id^="time_"]'));
+                const matches = new Set();
+                const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
 
-                for (const timeElem of timeElements) {
-                    if (timeElem.offsetParent === null) continue;
+                for (const row of rows) {
+                    if (row.offsetParent === null) continue;
+                    const timeElem = row.querySelector('[id^="time_"]');
+                    if (!timeElem || timeElem.offsetParent === null) continue;
                     const matchId = timeElem.id.replace(/^time_/, '');
                     if (!matchId) continue;
 
-                    const row = timeElem.closest('tr');
-                    if (!row) continue;
-
-                    const hasOdds = row.querySelector('p.odds1, p.odds3') !== null;
+                    const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
+                        .some(odds => odds.offsetParent !== null);
 
                     if (hasOdds) {
-                        matches.push(matchId);
+                        matches.add(matchId);
                     }
                 }
 
-                return matches;
+                return Array.from(matches);
             }
         """)
         logger.info(f"Found {len(matches)} matches")

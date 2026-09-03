@@ -64,6 +64,19 @@ def _reload_page_with_retries(page, active_match_ids, last_data, max_crash_retri
         try:
             page.reload(wait_until='domcontentloaded')
             page.wait_for_selector('table#table_live', timeout=15000)
+            try:
+                page.wait_for_function(
+                    """() => {
+                        const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
+                        return rows.length === 0 || rows.some(row =>
+                            Array.from(row.querySelectorAll('p.odds1, p.odds3'))
+                                .some(odds => odds.offsetParent !== null)
+                        );
+                    }""",
+                    timeout=10000,
+                )
+            except Exception as odds_error:
+                logger.warning(f"Visible odds did not appear after reload: {odds_error}")
             logger.info("Page reloaded and table_live is ready")
             return
         except Exception as e:
@@ -190,24 +203,24 @@ def _extract_all_match_data(page, match_ids):
 def _collect_match_ids(page):
     return page.evaluate("""
         () => {
-            const matches = [];
-            const timeElements = Array.from(document.querySelectorAll('[id^=\"time_\"]'));
+            const matches = new Set();
+            const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
 
-            for (const timeElem of timeElements) {
-                if (timeElem.offsetParent === null) continue;
+            for (const row of rows) {
+                if (row.offsetParent === null) continue;
+                const timeElem = row.querySelector('[id^="time_"]');
+                if (!timeElem || timeElem.offsetParent === null) continue;
                 const matchId = timeElem.id.replace(/^time_/, '');
                 if (!matchId) continue;
 
-                const row = timeElem.closest('tr');
-                if (!row) continue;
-
-                const hasOdds = row.querySelector('p.odds1, p.odds3') !== null;
+                const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
+                    .some(odds => odds.offsetParent !== null);
                 if (hasOdds) {
-                    matches.push(matchId);
+                    matches.add(matchId);
                 }
             }
 
-            return matches;
+            return Array.from(matches);
         }
     """)
 
@@ -243,7 +256,8 @@ class MatchMonitor:
             else:
                 logger.error("Failed to save state before forced reload")
             _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
-            self.active_match_ids = _collect_match_ids(self.page)
+            current_match_ids = _collect_match_ids(self.page)
+            self._synchronize_matches(current_match_ids)
             self.consecutive_table_errors = 0
             logger.info("Page reloaded after repeated table readiness failures")
             return True
@@ -328,36 +342,43 @@ class MatchMonitor:
         _reload_page_with_retries(self.page, self.active_match_ids, self.last_data)
 
         current_match_ids = _collect_match_ids(self.page)
-        new_match_ids = [m for m in current_match_ids if m not in self.active_match_ids]
-        removed_match_ids = [m for m in self.active_match_ids if m not in current_match_ids]
+        return self._synchronize_matches(current_match_ids)
+
+    def _synchronize_matches(self, current_match_ids):
+        current_match_ids = list(dict.fromkeys(current_match_ids))
+        previous_match_ids = set(self.active_match_ids)
+        current_match_id_set = set(current_match_ids)
+        new_match_ids = [match_id for match_id in current_match_ids if match_id not in previous_match_ids]
+        removed_match_ids = [match_id for match_id in self.active_match_ids if match_id not in current_match_id_set]
 
         for removed_id in removed_match_ids:
             match_history.pop(removed_id, None)
             self.last_data.pop(removed_id, None)
             logger.info(f"Match {removed_id} removed")
 
-        data_changed = False
+        initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:
             try:
                 new_data = _extract_all_match_data(self.page, new_match_ids)
                 self.consecutive_table_errors = 0
             except TableNotReadyError:
-                if self._handle_table_not_ready():
-                    new_data = {}
-                else:
-                    time.sleep(1)
-                    new_data = {}
+                logger.warning("New matches were not initialized because the table is not ready")
+                new_data = {}
 
             for new_id in new_match_ids:
                 initial_data = new_data.get(new_id)
                 if initial_data:
                     match_history[new_id] = {'initial': initial_data, 'changes': []}
                     self.last_data[new_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
+                    initialized_match_ids.append(new_id)
                     logger.info(f"New match {new_id} added")
-            data_changed = True
 
-        self.active_match_ids = current_match_ids
-        return data_changed
+        self.active_match_ids = initialized_match_ids
+        logger.info(
+            f"Matches synchronized: active={len(self.active_match_ids)}, "
+            f"new={len(new_match_ids)}, removed={len(removed_match_ids)}"
+        )
+        return bool(new_match_ids or removed_match_ids)
 
     def _poll_and_update(self):
         try:

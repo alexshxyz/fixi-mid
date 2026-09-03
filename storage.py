@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from datetime import date
 from pathlib import Path
 from logging_config import setup_logger
@@ -35,9 +36,27 @@ def _load_matches():
 
 def _save_matches(matches):
     path = _ensure_matches_file()
-    with path.open('w', encoding='utf-8') as f:
-        json.dump(matches, f, ensure_ascii=False, indent=2)
-        f.write('\n')
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            encoding='utf-8',
+            dir=path.parent,
+            prefix=f'.{path.name}.',
+            suffix='.tmp',
+            delete=False,
+        ) as f:
+            temp_path = Path(f.name)
+            json.dump(matches, f, ensure_ascii=False, indent=2)
+            f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 def init_storage():
