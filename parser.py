@@ -6,27 +6,10 @@ import json
 import os
 import time
 import random
-import logging
+from logging_config import setup_logger
+from logics import find_pattern_matches
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Handler для файла
-log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(__name__)
 
 match_history = {}
 STATE_SAVE_FILE = "match_state.json"
@@ -218,7 +201,7 @@ def _collect_match_ids(page):
                 const row = timeElem.closest('tr');
                 if (!row) continue;
 
-                const hasOdds = row.querySelector('p.odds1, p.odds2') !== null;
+                const hasOdds = row.querySelector('p.odds1, p.odds3') !== null;
                 if (hasOdds) {
                     matches.push(matchId);
                 }
@@ -282,7 +265,6 @@ class MatchMonitor:
             self._load_initial_data()
 
         logger.info("Initial call to find_pattern_matches")
-        from logics import find_pattern_matches
         find_pattern_matches(match_history)
 
     def _load_initial_data(self):
@@ -330,7 +312,6 @@ class MatchMonitor:
                 data_changed = data_changed or changed
 
             if data_changed:
-                from logics import find_pattern_matches
                 find_pattern_matches(match_history)
 
     def _trigger_scheduled_restart(self):

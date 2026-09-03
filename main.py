@@ -1,34 +1,17 @@
 import os
 import sys
-import logging
+import time
 import threading
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from stats import run_stats_service
 from storage import init_storage
+from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Handler для файла
-log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(__name__)
 
 
 def _retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=True):
@@ -142,7 +125,6 @@ def select_crown(page):
             timeout=5000,
         )
     except Exception:
-        import time
         time.sleep(1)
 
     logger.info("Crown selected and data updated")
@@ -220,11 +202,20 @@ def main():
                     parse_and_monitor_match(page, saved_state=saved_state)
                 else:
                     matches = collect_matches(page)
-                    if matches:
-                        parse_and_monitor_match(page, matches)
-                    else:
-                        logger.error("No matches found on initial page load. Exiting.")
-                        return
+                    while not matches:
+                        logger.info("No matches found. Retrying in 30 seconds...")
+                        time.sleep(30)
+
+                        def reload_page():
+                            page.reload(
+                                wait_until="domcontentloaded",
+                                timeout=60000,
+                            )
+
+                        _retry_page_action(page, reload_page, "reload page")
+                        matches = collect_matches(page)
+
+                    parse_and_monitor_match(page, matches)
             except PageRestartRequired as e:
                 logger.warning(f"{e}. Restarting script after saving state...")
                 try:

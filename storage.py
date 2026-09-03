@@ -1,28 +1,10 @@
 import json
 import os
-import logging
 from datetime import date
 from pathlib import Path
+from logging_config import setup_logger
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Handler для файла
-log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent
 MATCHES_FILE = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))

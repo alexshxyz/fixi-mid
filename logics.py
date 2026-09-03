@@ -1,29 +1,13 @@
-import logging
+import json
+import re
+
 from telegram_notifier import send_telegram_notification
+from logging_config import setup_logger
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = setup_logger(__name__)
 
-# Handler для файла
-import os
-log_file = os.path.join(os.path.dirname(__file__), 'bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-THRESHOLD = 0.61  # Изменяй это значение для настройки порога. Идеально - 0.61
-MAX_ODD = 0.80   # Максимальный коэффициент на ТБ для срабатывания паттерна. Идеально - 0.80
+THRESHOLD = 0.90  # Изменяй это значение для настройки порога. Идеально - 0.61
+MAX_ODD = 0.70   # Максимальный коэффициент на ТБ для срабатывания паттерна. Идеально - 0.80
 
 
 def _to_float(value):
@@ -50,7 +34,7 @@ def _is_away_zero_split_handicap(value):
     if text is None:
         return False
     # Example: 0/-0.5 — это фора второй команды
-    return bool(__import__("re").match(r"^\+?0\s*/\s*-[\d.,]+$", text))
+    return bool(re.match(r"^\+?0\s*/\s*-[\d.,]+$", text))
 
 
 def _ah_sign(value):
@@ -233,7 +217,6 @@ def find_pattern_matches(match_history):
 
 if __name__ == "__main__":
     # Для тестирования, но в реальности match_history передается
-    import json
     try:
         with open('matches_realtime.json', 'r', encoding='utf-8') as f:
             data = json.load(f)

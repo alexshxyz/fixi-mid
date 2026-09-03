@@ -62,7 +62,7 @@ from telegram_notifier import send_telegram_notification
 
 - `requests` — отправка HTTP-запроса к Telegram Bot API;
 - `os` — чтение переменных окружения и построение путей;
-- `logging` — запись служебных сообщений и ошибок;
+- `setup_logger` из [logging_config.py](../logging_config.py) — получение настроенного логгера;
 - `json` — чтение списка лиг из JSON;
 - `load_dotenv` — загрузка значений из `.env`;
 - `save_match`, `check_duplicate_match` из [storage.py](../storage.py) — сохранение матча и проверка дубликата.
@@ -124,10 +124,9 @@ leagues_list = [item['name'] for item in leagues_data['leagues']]
 
 ## 5. Настройка логирования
 
-Модуль создаёт логгер с уровнем `INFO` и двумя обработчиками:
+Модуль получает логгер через общую функцию `setup_logger()` из [logging_config.py](../logging_config.py). Для `telegram_notifier.py` используется файл `bot.log`.
 
-- файловый обработчик записывает сообщения в `bot.log`;
-- консольный обработчик выводит сообщения в терминал.
+Настройка уровня `INFO`, файлового и консольного обработчиков выполняется только в `logging_config.py`.
 
 В лог записываются:
 

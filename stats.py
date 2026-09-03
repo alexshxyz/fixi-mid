@@ -4,10 +4,10 @@
 import sys
 import os
 import time
-import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import requests
+from logging_config import setup_logger
 
 # Добавляем родительскую директорию в path для импорта модулей
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,25 +16,7 @@ from storage import get_matches_in_date_range, calculate_stats
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-# Настройка логирования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Handler для файла
-log_file = os.path.join(os.path.dirname(__file__), 'stats.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.INFO)
-file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-
-# Handler для консоли
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(__name__, 'stats.log')
 
 # Настройки для Telegram
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -230,9 +212,6 @@ def run_stats_service():
         except Exception as e:
             logger.error(f"Ошибка в сервисе статистики: {e}")
             time.sleep(3600)  # В случае ошибки ждать час перед повтором
-
-        # Ждем 24 часа (86400 секунд)
-        time.sleep(86400)
 
 
 if __name__ == "__main__":
