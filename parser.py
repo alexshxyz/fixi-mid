@@ -46,7 +46,7 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
     while True:
         try:
             page.reload(wait_until='domcontentloaded')
-            page.wait_for_selector('table#table_live', timeout=15000)
+            page.wait_for_selector('table#table_live', timeout=20000)
             try:
                 page.wait_for_function(
                     """() => {
