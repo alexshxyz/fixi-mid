@@ -96,21 +96,19 @@ def close_popup(page):
 
 def switch_to_live(page):
     """Переключение на фильтр Live"""
-    logger.info("Switching to Live...")
-    page.locator("li#li_FilterLive").click()
-    page.locator("table#table_live").wait_for(timeout=10000)
-    logger.info("Switched to Live")
+    try:
+        page.locator("li#li_FilterLive").click()
+        page.locator("table#table_live").wait_for(timeout=10000)
+        logger.info("Switched to Live")
+    except Exception as e:
+        logger.error(f"Failed to switch to Live: {e}")
+        raise
 
 
 def select_crown(page):
-    """Выбор компании Crown и ожидание обновления данных"""
+    """Выбор компании Crown и ожидание загрузки данных"""
     logger.info("Selecting company Crown...")
     select = page.locator("select#CompanySel")
-
-    previous_rows = page.evaluate("""
-            () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
-                .map(row => row.innerText.trim()).join('||')
-        """)
 
     select.select_option(value="3")
     page.wait_for_function(
@@ -118,45 +116,23 @@ def select_crown(page):
         timeout=5000,
     )
 
-    try:
-        page.wait_for_function(
-            "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
-            arg=previous_rows,
-            timeout=10000,
-        )
-    except Exception as e:
-        logger.warning(f"Crown table did not change after selection: {e}")
-        time.sleep(1)
-
-    logger.info("Crown selected and data updated")
+    page.wait_for_timeout(3000)
+    logger.info("Crown selected")
 
 
 def configure_odds_settings(page):
     """Настройка отображения odds через settings"""
     logger.info("Opening settings...")
-    previous_rows = page.evaluate("""
-            () => Array.from(document.querySelectorAll('table#table_live tbody tr.tds'))
-                .map(row => row.innerText.trim()).join('||')
-        """)
-
     page.locator("span#settingBtn").click()
     page.wait_for_selector("input#otc_2", timeout=5000)
+    page.wait_for_selector("input#otc_3", timeout=5000)
 
     page.locator("input#otc_2").set_checked(False)
     page.locator("input#otc_3").set_checked(True)
 
     page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
 
-    try:
-        page.wait_for_function(
-            "prev => { const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds')); const snapshot = rows.map(row => row.innerText.trim()).join('||'); return snapshot !== prev; }",
-            arg=previous_rows,
-            timeout=10000,
-        )
-    except Exception as e:
-        logger.warning(f"Odds table did not change after settings update: {e}")
-        time.sleep(1)
-
+    page.wait_for_timeout(500)
     logger.info("Settings configured")
 
 
@@ -165,8 +141,28 @@ def collect_matches(page):
     matches = []
     try:
         logger.info("Counting matches with odds...")
+        page.wait_for_timeout(1000)
         matches = page.evaluate("""
             () => {
+                const hasCrownOdds = Array.from(
+                    document.querySelectorAll('td.oddstd[onclick]')
+                ).some(cell => /,\\s*["']3["']\\s*,/.test(cell.getAttribute('onclick') || ''));
+
+                const hasVisibleOddsPair = Array.from(
+                    document.querySelectorAll('td.oddstd')
+                ).some(cell => {
+                    if (cell.offsetParent === null) return false;
+                    const odds1 = cell.querySelector('p.odds1');
+                    const odds3 = cell.querySelector('p.odds3');
+                    return odds1 && odds3 &&
+                        odds1.offsetParent !== null &&
+                        odds3.offsetParent !== null;
+                });
+
+                if (!hasCrownOdds || !hasVisibleOddsPair) {
+                    return [];
+                }
+
                 const matches = new Set();
                 const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
 
@@ -177,8 +173,15 @@ def collect_matches(page):
                     const matchId = timeElem.id.replace(/^time_/, '');
                     if (!matchId) continue;
 
-                    const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
-                        .some(odds => odds.offsetParent !== null);
+                    const hasOdds = Array.from(row.querySelectorAll('td.oddstd'))
+                        .some(cell => {
+                            if (cell.offsetParent === null) return false;
+                            const odds1 = cell.querySelector('p.odds1');
+                            const odds3 = cell.querySelector('p.odds3');
+                            return odds1 && odds3 &&
+                                odds1.offsetParent !== null &&
+                                odds3.offsetParent !== null;
+                        });
 
                     if (hasOdds) {
                         matches.add(matchId);
@@ -189,9 +192,36 @@ def collect_matches(page):
             }
         """)
         logger.info(f"Found {len(matches)} matches")
-    except Exception as e:
-        logger.info("Failed to count matches with odds")
+    except Exception:
+        pass
     return matches
+
+
+def has_valid_match_data(page):
+    """Проверяет, что после загрузки доступны Crown и видимые odds."""
+    page.wait_for_timeout(1000)
+    return page.evaluate("""
+        () => {
+            const hasCrownOdds = Array.from(
+                document.querySelectorAll('td.oddstd[onclick]')
+            ).some(cell => /,\\s*["']3["']\\s*,/.test(
+                cell.getAttribute('onclick') || ''
+            ));
+
+            const hasVisibleOddsPair = Array.from(
+                document.querySelectorAll('td.oddstd')
+            ).some(cell => {
+                if (cell.offsetParent === null) return false;
+                const odds1 = cell.querySelector('p.odds1');
+                const odds3 = cell.querySelector('p.odds3');
+                return odds1 && odds3 &&
+                    odds1.offsetParent !== null &&
+                    odds3.offsetParent !== null;
+            });
+
+            return hasCrownOdds && hasVisibleOddsPair;
+        }
+    """)
 
 
 def main():
@@ -207,15 +237,40 @@ def main():
             browser, page = init_browser(p)
 
             try:
+                preparation_steps = [
+                    ("switch_to_live", lambda: switch_to_live(page)),
+                    ("select_crown", lambda: select_crown(page)),
+                    ("configure_odds_settings", lambda: configure_odds_settings(page)),
+                ]
+                preparation_step = 0
+
                 def prepare_page():
-                    switch_to_live(page)
-                    select_crown(page)
-                    configure_odds_settings(page)
+                    nonlocal preparation_step
+
+                    while preparation_step < len(preparation_steps):
+                        step_name, step_action = preparation_steps[preparation_step]
+                        try:
+                            step_action()
+                        except Exception as e:
+                            logger.error(f"Failed preparation step {step_name}: {e}")
+                            raise
+                        preparation_step += 1
 
                 _retry_page_action(page, prepare_page, "prepare page")
                 saved_state = load_state_from_json()
 
                 if saved_state:
+                    while not has_valid_match_data(page):
+                        logger.info("Saved-state data is not ready. Retrying in 30 seconds...")
+                        time.sleep(30)
+
+                        def reload_page():
+                            page.reload(
+                                wait_until="domcontentloaded",
+                                timeout=60000,
+                            )
+
+                        _retry_page_action(page, reload_page, "reload page")
                     parse_and_monitor_match(page, saved_state=saved_state)
                 else:
                     matches = collect_matches(page)

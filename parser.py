@@ -20,11 +20,6 @@ class PageRestartRequired(Exception):
     pass
 
 
-class TableNotReadyError(Exception):
-    """Raised when the live table is not ready on the page."""
-    pass
-
-
 def load_state_from_json(path=STATE_SAVE_FILE):
     if not os.path.exists(path):
         return None
@@ -46,21 +41,40 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
     while True:
         try:
             page.reload(wait_until='domcontentloaded')
-            page.wait_for_selector('table#table_live', timeout=20000)
-            try:
-                page.wait_for_function(
-                    """() => {
-                        const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
-                        return rows.length === 0 || rows.some(row =>
-                            Array.from(row.querySelectorAll('p.odds1, p.odds3'))
-                                .some(odds => odds.offsetParent !== null)
-                        );
-                    }""",
-                    timeout=10000,
+            page.wait_for_timeout(1000)
+            data_ready = page.evaluate(
+                """
+                () => {
+                    const hasCrownOdds = Array.from(
+                        document.querySelectorAll('td.oddstd[onclick]')
+                    ).some(cell => /,\\s*["']3["']\\s*,/.test(
+                        cell.getAttribute('onclick') || ''
+                    ));
+
+                    const hasVisibleOddsPair = Array.from(
+                        document.querySelectorAll('td.oddstd')
+                    ).some(cell => {
+                        if (cell.offsetParent === null) return false;
+                        const odds1 = cell.querySelector('p.odds1');
+                        const odds3 = cell.querySelector('p.odds3');
+                        return odds1 && odds3 &&
+                            odds1.offsetParent !== null &&
+                            odds3.offsetParent !== null;
+                    });
+
+                    return {hasCrownOdds, hasVisibleOddsPair};
+                }
+                """
+            )
+
+            if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOddsPair"]:
+                logger.warning(
+                    "Crown odds or visible odds pair did not appear after reload. "
+                    "Reloading again..."
                 )
-            except Exception as odds_error:
-                logger.warning(f"Visible odds did not appear after reload: {odds_error}")
-            logger.info("Page reloaded and table_live is ready")
+                continue
+
+            logger.info("Page reloaded and Crown odds are ready")
             return
         except Exception as e:
             error_text = str(e)
@@ -94,12 +108,6 @@ def _extract_all_match_data(page, match_ids):
     Извлекает данные ВСЕ матчей за один evaluate() вызов.
     Вместо 70 evaluate, делаем 1 — это главная оптимизация.
     """
-    try:
-        page.wait_for_selector('table#table_live', timeout=2000)
-    except Exception as e:
-        logger.warning(f"Table not ready: {e}")
-        raise TableNotReadyError(str(e))
-    
     js = """
         (matchIds) => {
             const result = {};
@@ -246,27 +254,6 @@ class MatchMonitor:
             logger.error(f"Failed to save state to {path}: {e}")
             return False
 
-    def _handle_table_not_ready(self):
-        self.consecutive_table_errors += 1
-        logger.warning(f"Table not ready occurred {self.consecutive_table_errors} times in a row")
-        if self.consecutive_table_errors >= 3:
-            if self._save_state_to_json(self.active_match_ids, self.last_data):
-                logger.info("Saved state before forced reload due to repeated table readiness failures")
-            else:
-                logger.error("Failed to save state before forced reload")
-            _reload_page_with_retries(
-                self.page,
-                self.active_match_ids,
-                self.last_data,
-                self._save_state_to_json,
-            )
-            current_match_ids = _collect_match_ids(self.page)
-            self._synchronize_matches(current_match_ids)
-            self.consecutive_table_errors = 0
-            logger.info("Page reloaded after repeated table readiness failures")
-            return True
-        return False
-
     def _init_or_restore_state(self):
         if self.saved_state:
             self.active_match_ids = self.saved_state.get("active_match_ids", [])
@@ -285,15 +272,8 @@ class MatchMonitor:
         find_pattern_matches(self.match_history)
 
     def _load_initial_data(self):
-        while True:
-            try:
-                initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
-                self.consecutive_table_errors = 0
-                break
-            except TableNotReadyError:
-                if self._handle_table_not_ready():
-                    continue
-                time.sleep(1)
+        initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
+        self.consecutive_table_errors = 0
 
         for match_id in self.active_match_ids:
             initial_data = initial_all_data.get(match_id)
@@ -366,12 +346,8 @@ class MatchMonitor:
 
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:
-            try:
-                new_data = _extract_all_match_data(self.page, new_match_ids)
-                self.consecutive_table_errors = 0
-            except TableNotReadyError:
-                logger.warning("New matches were not initialized because the table is not ready")
-                new_data = {}
+            new_data = _extract_all_match_data(self.page, new_match_ids)
+            self.consecutive_table_errors = 0
 
             for new_id in new_match_ids:
                 initial_data = new_data.get(new_id)
@@ -389,14 +365,8 @@ class MatchMonitor:
         return bool(new_match_ids or removed_match_ids)
 
     def _poll_and_update(self):
-        try:
-            all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
-            self.consecutive_table_errors = 0
-        except TableNotReadyError:
-            if self._handle_table_not_ready():
-                return False, True
-            time.sleep(1)
-            return False, True
+        all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
+        self.consecutive_table_errors = 0
 
         data_changed = False
         for match_id in self.active_match_ids:
