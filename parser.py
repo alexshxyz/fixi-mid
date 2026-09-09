@@ -70,8 +70,9 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
             if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOddsPair"]:
                 logger.warning(
                     "Crown odds or visible odds pair did not appear after reload. "
-                    "Reloading again..."
+                    "Waiting 60 seconds before reloading again..."
                 )
+                time.sleep(60)
                 continue
 
             logger.info("Page reloaded and Crown odds are ready")
