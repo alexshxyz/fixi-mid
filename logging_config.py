@@ -4,7 +4,7 @@ import os
 
 def setup_logger(name, log_filename='bot.log'):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     log_file = os.path.join(os.path.dirname(__file__), log_filename)
     file_handler = logging.FileHandler(log_file)
@@ -13,9 +13,12 @@ def setup_logger(name, log_filename='bot.log'):
     file_handler.setFormatter(formatter)
 
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
 
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    # Do not duplicate handlers for the same logger name in one process.
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+
     return logger

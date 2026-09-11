@@ -10,29 +10,34 @@ from datetime import datetime
 PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, PARENT_DIR)
+from config import (
+    bot_token,
+    channel_id,
+    telegram_proxy_host,
+    telegram_proxy_port,
+    telegram_proxy_username,
+    telegram_proxy_password,
+    telegram_api_url,
+)
 from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
 
 LOG_FILE = os.path.join(PARENT_DIR, 'bot.log')
-TELEGRAM_TOKEN = os.environ.get('MONITOR_TELEGRAM_TOKEN') or os.environ.get('BOT_TOKEN')
-CHAT_ID = os.environ.get('MONITOR_CHAT_ID') or os.environ.get('CHANNEL_ID')
-TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
-TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
-TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
-TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
+TELEGRAM_TOKEN = os.environ.get('MONITOR_TELEGRAM_TOKEN') or bot_token
+CHAT_ID = os.environ.get('MONITOR_CHAT_ID') or channel_id
 
 TELEGRAM_PROXIES = None
-if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
+if telegram_proxy_host and telegram_proxy_port:
     proxy_auth = ''
-    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
+    if telegram_proxy_username and telegram_proxy_password:
         proxy_auth = (
-            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
-            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
+            f'{quote(telegram_proxy_username, safe="")}:'
+            f'{quote(telegram_proxy_password, safe="")}@'
         )
 
     telegram_proxy_url = (
-        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
+        f'socks5h://{proxy_auth}{telegram_proxy_host}:{telegram_proxy_port}'
     )
     TELEGRAM_PROXIES = {
         'http': telegram_proxy_url,
@@ -46,7 +51,7 @@ STALE_LIMIT = 120      # 2 минуты без логов = проблема
 
 
 def send(msg):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = telegram_api_url.format(token=TELEGRAM_TOKEN)
     try:
         response = requests.post(
             url,

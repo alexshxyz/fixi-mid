@@ -3,12 +3,13 @@ import os
 import tempfile
 from datetime import date
 from pathlib import Path
+from config import matches_file
 from logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent
-MATCHES_FILE = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))
+MATCHES_FILE = matches_file
 
 def _ensure_matches_file():
     path = Path(MATCHES_FILE)
@@ -88,7 +89,6 @@ def save_match(
     link,
     final_score=None,
     result=None,
-    script=None,
     date_value=None,
 ):
     if odds is not None:
@@ -109,7 +109,6 @@ def save_match(
         'final_score': final_score,
         'result': result,
         'link': link,
-        'script': script,
         'date': date_value,
         'source': 'Crown',
     }

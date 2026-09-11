@@ -78,8 +78,8 @@ def get_last_month_stats():
         else:
             return f"📅 <b>{last_month_name}</b>\n\nNo data available."
     except Exception as e:
-        logger.error(f"Ошибка при получении статистики за прошлый месяц: {e}")
-        return f"❌ Ошибка при получении статистики: {e}"
+        logger.error(f"Error retrieving statistics for the previous month: {e}")
+        return f"❌ Error retrieving statistics: {e}"
 
 
 def check_stats_sent(year, month):
@@ -102,7 +102,7 @@ def check_stats_sent(year, month):
         period = f"{year}-{month:02d}"
         return f"STATS SENT {period}" in sent_stats
     except Exception as e:
-        logger.error(f"Ошибка при проверке файла stats.txt: {e}")
+        logger.error(f"Error checking stats.txt file: {e}")
         return False
 
 
@@ -118,9 +118,9 @@ def mark_stats_sent(year, month):
         with open(STATS_FILE, 'a', encoding='utf-8') as f:
             period = f"{year}-{month:02d}"
             f.write(f"STATS SENT {period}\n")
-        logger.info(f"Статистика за {period} отмечена как отправленная")
+        logger.info(f"Statistics for {period} marked as sent")
     except Exception as e:
-        logger.error(f"Ошибка при записи в файл stats.txt: {e}")
+        logger.error(f"Error writing to stats.txt file: {e}")
 
 
 def check_and_send_monthly_stats():
@@ -133,7 +133,7 @@ def check_and_send_monthly_stats():
 
     # Отправляем статистику только 1 числа каждого месяца (для тестирования)
     if current_day != 1:
-        logger.info("Сегодня не 1 число месяца, пропускаем отправку статистики")
+        logger.info("Skipping monthly statistics send")
         return
 
     # Определяем прошлый месяц
@@ -146,7 +146,7 @@ def check_and_send_monthly_stats():
 
     # Проверяем, была ли уже отправлена статистика за прошлый месяц
     if check_stats_sent(last_year, last_month):
-        logger.info(f"Статистика за {last_year}-{last_month:02d} уже была отправлена")
+        logger.info(f"Statistics for {last_year}-{last_month:02d} have already been sent")
         return
 
     # Получаем статистику за прошлый месяц
@@ -154,10 +154,11 @@ def check_and_send_monthly_stats():
 
     # Отправляем в Telegram
     if send_telegram_message(stats_text):
+        logger.info(f"Monthly statistics for {last_year}-{last_month:02d} sent successfully to Telegram")
         # Отмечаем как отправленную
         mark_stats_sent(last_year, last_month)
     else:
-        logger.error("Не удалось отправить статистику в Telegram")
+        logger.error("Failed to send statistics to Telegram")
 
 
 def run_stats_service():
@@ -165,15 +166,15 @@ def run_stats_service():
     Основной цикл сервиса статистики.
     Проверяет условия раз в сутки.
     """
-    logger.info("Запуск сервиса автоматической отправки месячной статистики")
+    logger.info("Starting monthly statistics auto-send service")
 
     while True:
         try:
             check_and_send_monthly_stats()
             time.sleep(86400)  # Проверять раз в сутки
         except Exception as e:
-            logger.error(f"Ошибка в сервисе статистики: {e}")
-            time.sleep(3600)  # В случае ошибки ждать час перед повтором
+            logger.error(f"Error in statistics service: {e}")
+            time.sleep(3600)  # Wait an hour before retrying after an error
 
 
 if __name__ == "__main__":

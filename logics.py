@@ -1,13 +1,14 @@
 import json
 import re
 
+from config import threshold, max_odd
 from telegram_notifier import send_telegram_notification
 from logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
-THRESHOLD = 0.61  # Изменяй это значение для настройки порога. Идеально - 0.61
-MAX_ODD = 0.80   # Максимальный коэффициент на ТБ для срабатывания паттерна. Идеально - 0.80
+THRESHOLD = threshold
+MAX_ODD = max_odd
 
 
 def _to_float(value):

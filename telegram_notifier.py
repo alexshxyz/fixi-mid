@@ -4,46 +4,42 @@ import json
 from urllib.parse import quote
 from dotenv import load_dotenv
 
+from config import (
+    site_url,
+    bot_token,
+    channel_id,
+    telegram_proxy_host,
+    telegram_proxy_port,
+    telegram_proxy_username,
+    telegram_proxy_password,
+    telegram_api_url,
+    leagues_list,
+)
 from storage import save_match, check_duplicate_match
 from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-# Загрузка списка лиг
-leagues_file = os.path.join(os.path.dirname(__file__), 'leagues.json')
-with open(leagues_file, 'r', encoding='utf-8') as f:
-    leagues_data = json.load(f)
-leagues_list = [item['name'] for item in leagues_data['leagues']]
-
 logger = setup_logger(__name__)
 
-# Настройки для Telegram
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_ID = os.environ.get('CHANNEL_ID')
-
-TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
-TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
-TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
-TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
-
 TELEGRAM_PROXIES = None
-if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
+if telegram_proxy_host and telegram_proxy_port:
     proxy_auth = ''
-    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
+    if telegram_proxy_username and telegram_proxy_password:
         proxy_auth = (
-            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
-            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
+            f'{quote(telegram_proxy_username, safe="")}:'
+            f'{quote(telegram_proxy_password, safe="")}@'
         )
 
     telegram_proxy_url = (
-        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
+        f'socks5h://{proxy_auth}{telegram_proxy_host}:{telegram_proxy_port}'
     )
     TELEGRAM_PROXIES = {
         'http': telegram_proxy_url,
         'https': telegram_proxy_url,
     }
 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+TELEGRAM_API_URL = telegram_api_url.format(token=bot_token)
 
 
 def _prepare_odds(over_odds):
@@ -105,7 +101,7 @@ def _send_message(payload, match_id=None, success_message=None):
 def send_telegram_message(text):
     """Отправляет произвольное HTML-сообщение в Telegram-канал."""
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": channel_id,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
@@ -124,12 +120,12 @@ def _save_notification(league, team1, team2, prediction, odds_value, match_url):
             link=match_url,
         )
     except Exception as db_error:
-        logger.error(f"Failed to save match to DB: {db_error}")
+        logger.error(f"Failed to save match: {db_error}")
 
 
 def send_telegram_notification(league, team1, team2, score, over=None, over_odds=None, match_id=None, handicap_text=None, handicap_team_order=None):
     """Отправляет уведомление о матче в Telegram канал."""
-    match_url = f"https://live5.nowgoal26.com/oddscomp/{match_id}" if match_id else ""
+    match_url = f"{site_url}oddscomp/{match_id}" if match_id else ""
     odds_value = _prepare_odds(over_odds)
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
     message = _build_message(
@@ -143,7 +139,7 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
     )
 
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": channel_id,
         "text": message,
         "parse_mode": "HTML",
         "disable_web_page_preview": True
@@ -162,7 +158,7 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
 
 if __name__ == "__main__":
     # Для тестирования
-    if not BOT_TOKEN or not CHANNEL_ID:
+    if not bot_token or not channel_id:
         logger.warning("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
     else:
         send_telegram_notification(

@@ -6,13 +6,19 @@ import json
 import os
 import time
 import random
+from config import (
+    state_save_file,
+    restart_hours,
+    page_reload_min_seconds,
+    page_reload_max_seconds,
+)
 from logging_config import setup_logger
 from logics import find_pattern_matches
 
 logger = setup_logger(__name__)
 
-STATE_SAVE_FILE = "match_state.json"
-RESTART_HOURS = 8  # Число часов до сохранения состояния и «рестарта"
+STATE_SAVE_FILE = state_save_file
+RESTART_HOURS = restart_hours
 
 
 class PageRestartRequired(Exception):
@@ -227,7 +233,7 @@ class MatchMonitor:
         self.active_match_ids = []
         self.consecutive_table_errors = 0
         self.reload_counter = 0
-        self.reload_threshold = random.randint(420, 480)
+        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
     def run(self):
@@ -322,7 +328,7 @@ class MatchMonitor:
 
     def _do_periodic_reload(self):
         self.reload_counter = 0
-        self.reload_threshold = random.randint(420, 480)
+        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
         _reload_page_with_retries(
             self.page,
             self.active_match_ids,
@@ -381,7 +387,7 @@ class MatchMonitor:
                 self.match_history[match_id]['changes'].append(current_data)
                 self.last_data[match_id] = {'ah': current_data['ah'], 'ov': current_data['ov']}
                 data_changed = True
-                logger.info(f"Match {match_id} updated")
+                logger.debug(f"Match {match_id} updated")
 
         return data_changed, False
 

@@ -7,6 +7,7 @@ from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from stats import run_stats_service
 from storage import init_storage
+from config import site_url
 from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -62,7 +63,7 @@ def init_browser(p, max_navigation_retries=3):
 
     def open_page():
         page.goto(
-            "https://live5.nowgoal26.com/",
+            site_url,
             wait_until="domcontentloaded",
             timeout=60000,
         )
@@ -140,7 +141,7 @@ def collect_matches(page):
     """Сбор списка ID матчей"""
     matches = []
     try:
-        logger.info("Counting matches with odds...")
+        logger.info("Counting matches...")
         page.wait_for_timeout(1000)
         matches = page.evaluate("""
             () => {
@@ -227,10 +228,9 @@ def has_valid_match_data(page):
 def main():
     init_storage()
 
-    # Запуск сервиса статистики в отдельном потоке
+    # Run the statistics service in a background thread.
     stats_thread = threading.Thread(target=run_stats_service, daemon=True)
     stats_thread.start()
-    logger.info("Сервис статистики запущен в отдельном потоке")
 
     while True:
         with sync_playwright() as p:
@@ -275,8 +275,8 @@ def main():
                 else:
                     matches = collect_matches(page)
                     while not matches:
-                        logger.info("No matches found. Retrying in 30 seconds...")
-                        time.sleep(30)
+                        logger.info("No matches found. Retrying in 60 seconds...")
+                        time.sleep(60)
 
                         def reload_page():
                             page.reload(
