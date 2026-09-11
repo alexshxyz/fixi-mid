@@ -40,7 +40,6 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         return None
 
 
-
 def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max_crash_retries=3, max_timeout_retries=4):
     crash_retries = 0
     timeout_retries = 0
@@ -75,13 +74,13 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
 
             if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOddsPair"]:
                 logger.warning(
-                    "Crown odds or visible odds pair did not appear after reload. "
+                    "Matches not found after reload. "
                     "Waiting 60 seconds before reloading again..."
                 )
                 time.sleep(60)
                 continue
 
-            logger.info("Page reloaded and Crown odds are ready")
+            logger.info("Page reloaded and matches are ready")
             return
         except Exception as e:
             error_text = str(e)
@@ -157,6 +156,16 @@ def _extract_all_match_data(page, match_ids):
                 let league = 'Unknown';
                 let team1 = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
                 let team2 = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
+                const gotSpan = row.querySelector('span[id="got_' + match_id + '"]');
+                let match_time = gotSpan?.textContent.trim() || 'Unknown';
+
+                if (!gotSpan || !gotSpan.textContent.trim()) {
+                    const statusCell = row.querySelector('td#time_' + match_id);
+                    const statusText = statusCell?.textContent.trim();
+                    if (statusText && statusText !== 'Unknown') {
+                        match_time = statusText;
+                    }
+                }
                 
                 if (onclick) {
                     const match = onclick.match(/soccerInPage\\.detail\\([^,]+,"([^"]*)","([^"]*)","([^"]*)"\\)/);
@@ -169,6 +178,7 @@ def _extract_all_match_data(page, match_ids):
                 
                 result[match_id] = {
                     time: timeElem.textContent.trim() || 'Unknown',
+                    match_time: match_time,
                     ah: {
                         home_ah_odds: odds1[0],
                         ah: odds1[1],
@@ -286,7 +296,11 @@ class MatchMonitor:
             initial_data = initial_all_data.get(match_id)
             if initial_data:
                 self.match_history[match_id] = {'initial': initial_data, 'changes': []}
-                self.last_data[match_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
+                self.last_data[match_id] = {
+                    'ah': initial_data['ah'],
+                    'ov': initial_data['ov'],
+                    'match_time': initial_data.get('match_time', 'Unknown'),
+                }
                 logger.info(f"Initial data loaded for match {match_id}")
             else:
                 logger.info(f"No initial data for match {match_id}")
@@ -360,7 +374,11 @@ class MatchMonitor:
                 initial_data = new_data.get(new_id)
                 if initial_data:
                     self.match_history[new_id] = {'initial': initial_data, 'changes': []}
-                    self.last_data[new_id] = {'ah': initial_data['ah'], 'ov': initial_data['ov']}
+                    self.last_data[new_id] = {
+                        'ah': initial_data['ah'],
+                        'ov': initial_data['ov'],
+                        'match_time': initial_data.get('match_time', 'Unknown'),
+                    }
                     initialized_match_ids.append(new_id)
                     logger.info(f"New match {new_id} added")
 
@@ -382,10 +400,16 @@ class MatchMonitor:
             current_data = all_match_data.get(match_id)
             if not current_data:
                 continue
+            old_match_time = self.last_data[match_id].get('match_time', 'Unknown')
             if (current_data['ah'] != self.last_data[match_id]['ah'] or
-                    current_data['ov'] != self.last_data[match_id]['ov']):
+                    current_data['ov'] != self.last_data[match_id]['ov'] or
+                    current_data.get('match_time', 'Unknown') != old_match_time):
                 self.match_history[match_id]['changes'].append(current_data)
-                self.last_data[match_id] = {'ah': current_data['ah'], 'ov': current_data['ov']}
+                self.last_data[match_id] = {
+                    'ah': current_data['ah'],
+                    'ov': current_data['ov'],
+                    'match_time': current_data.get('match_time', 'Unknown'),
+                }
                 data_changed = True
                 logger.debug(f"Match {match_id} updated")
 

@@ -1,6 +1,7 @@
 import requests
 import os
 import json
+import re
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -49,22 +50,71 @@ def _prepare_odds(over_odds):
         return over_odds
 
 
+def _normalize_match_time_for_message(raw_time):
+    if raw_time is None:
+        return 'Unknown'
+
+    value = str(raw_time).strip()
+    if not value or value == 'Unknown':
+        return 'Unknown'
+
+    upper = value.upper()
+    if upper == 'HT':
+        return '45'
+    if upper == 'FT':
+        return 'FT'
+    if upper == 'ET':
+        return 'ET'
+    if upper.startswith('ET+'):
+        return value
+    return value
+
+
 def _build_prediction(over, handicap_text, handicap_team_order):
     if handicap_text is None:
         return f"Over {over} FT"
     return f"Handicap {handicap_text} {handicap_team_order} FT"
 
 
-def _build_message(league, team1, team2, score, match_url, prediction, odds_value):
+def _format_prediction_for_message(prediction, odds_value):
+    """Return a Telegram-safe HTML line for the prediction and odds value.
+
+    Rules:
+      - all normal text remains plain
+      - the predictive number token (over or handicap_text) is wrapped in <code>
+      - the odds token is also wrapped in <code>
+      - the FT label remains plain text
+      - the separator between prediction and odds stays as · and spaced
+    """
+    if prediction.startswith('Over '):
+        m = re.match(r'^Over\s+([^\s]+)\s+FT$', prediction)
+        if m:
+            over = m.group(1)
+            return f"Over <code>{over}</code> FT · <code>{odds_value}</code>"
+
+    if prediction.startswith('Handicap '):
+        m = re.match(r'^Handicap\s+([^\s]+)\s+([^\s]+)\s+FT$', prediction)
+        if m:
+            handicap = m.group(1)
+            side = m.group(2)
+            return f"Handicap <code>{handicap}</code> {side} FT · <code>{odds_value}</code>"
+
+    return f"{prediction} · <code>{odds_value}</code>"
+
+
+def _build_message(league, team1, team2, score, match_url, prediction, odds_value, match_time='Unknown'):
     emoji = "🔥" if league in leagues_list else "🔒"
-    extra_line = f"<b>{prediction}</b>\n"
+    clean_match_time = _normalize_match_time_for_message(match_time)
+
+    # Make the team-name / score segment a hyperlink to the oddscomp detail page.
+    # Telegram HTML parse mode supports <a href="...">...</a> for clickable text.
+    match_text = f"{team1} {score} {team2}"
+    linkified_match_text = f'<a href="{match_url}">{match_text}</a>' if match_url else match_text
 
     return (
-        f"<b>{emoji} Crown</b>\n"
-        f"{league}\n"
-        f"<b><a href=\"{match_url}\">{team1} {score} {team2}</a></b>\n"
-        f"{extra_line}"
-        f"Odds {odds_value}"
+        f"{emoji} <b>{league}</b>\n\n"
+        f"⌛️ <code>{clean_match_time}’</code> {linkified_match_text}\n\n"
+        f"{_format_prediction_for_message(prediction, odds_value)}"
     )
 
 
@@ -123,7 +173,18 @@ def _save_notification(league, team1, team2, prediction, odds_value, match_url):
         logger.error(f"Failed to save match: {db_error}")
 
 
-def send_telegram_notification(league, team1, team2, score, over=None, over_odds=None, match_id=None, handicap_text=None, handicap_team_order=None):
+def send_telegram_notification(
+    league,
+    team1,
+    team2,
+    score,
+    over=None,
+    over_odds=None,
+    match_id=None,
+    handicap_text=None,
+    handicap_team_order=None,
+    match_time='Unknown',
+):
     """Отправляет уведомление о матче в Telegram канал."""
     match_url = f"{site_url}oddscomp/{match_id}" if match_id else ""
     odds_value = _prepare_odds(over_odds)
@@ -136,6 +197,7 @@ def send_telegram_notification(league, team1, team2, score, over=None, over_odds
         match_url,
         prediction,
         odds_value,
+        match_time=match_time,
     )
 
     payload = {

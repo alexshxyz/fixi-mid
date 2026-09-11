@@ -72,6 +72,7 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
     league = last_entry.get("league", "Unknown")
+    match_time = last_entry.get("match_time", "Unknown")
 
     try:
         send_telegram_notification(
@@ -81,7 +82,8 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
             score=score,
             over=last_total,
             over_odds=last_over_odds,
-            match_id=match_id
+            match_id=match_id,
+            match_time=match_time,
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
@@ -131,6 +133,7 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
     league = last_entry.get("league", "Unknown")
+    match_time = last_entry.get("match_time", "Unknown")
     handicap = last_ah
     handicap_order = "Home" if odds_side == "home" else "Away"
 
@@ -146,7 +149,8 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
             match_id=match_id,
             over_odds=last_ah_odds,
             handicap_text=handicap,
-            handicap_team_order=handicap_order
+            handicap_team_order=handicap_order,
+            match_time=match_time,
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")

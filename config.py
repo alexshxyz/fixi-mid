@@ -21,8 +21,8 @@ telegram_proxy_port = os.environ.get('TELEGRAM_PROXY_PORT')
 telegram_proxy_username = os.environ.get('TELEGRAM_PROXY_USERNAME')
 telegram_proxy_password = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
-threshold = 0.61 # Максимальное значение коэффициента последней строки перед closed 
-max_odd = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча
+threshold = 0.90 # Максимальное значение коэффициента последней строки перед closed (0.61)
+max_odd = 0.70 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
 restart_hours = 8 # Плановая перезагрузка скрипта
 
 # Перезагрузка страницы в секундах (случайное значение между min и max)
