@@ -71,8 +71,11 @@ logics.py
 ### Общие константы
 
 ```python
-STATE_SAVE_FILE = "match_state.json"
-RESTART_HOURS = 8
+from config import (
+    STATE_SAVE_FILE,
+    RESTART_HOURS,
+    NOTIFICATION_CHECK_DELAY_SECONDS,
+)
 ```
 
 ### `MatchMonitor.match_history`
@@ -124,6 +127,10 @@ self.match_history = {}
 #### `RESTART_HOURS`
 
 Через это количество часов мониторинг сохраняет состояние и выбрасывает `PageRestartRequired`. [main.py](../main.py) перехватывает это исключение, закрывает браузер и перезапускает процесс.
+
+#### `NOTIFICATION_CHECK_DELAY_SECONDS`
+
+Задержка в секундах перед проверкой статуса отправленного Telegram-уведомления. Значение задаётся параметром `NOTIFICATION_CHECK_DELAY_SECONDS` в [config.py](../config.py); сейчас установлено 180 секунд.
 
 ---
 

@@ -2,6 +2,7 @@ import logging
 import os
 
 
+# Создаёт именованный логгер с выводом в файл и консоль.
 def setup_logger(name, log_filename='bot.log'):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from storage import init_storage
-from config import SITE_COOKIES, browser_headless, site_url
+from config import BROWSER_HEADLESS, SITE_COOKIES, SITE_URL
 from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -38,7 +38,7 @@ def _retry_page_action(page, action, action_name, max_retries=3, reload_before_r
 # Инициализация браузера и страницы.
 def init_browser(p, max_navigation_retries=3):
     logger.info("Setup browser...")
-    browser = p.chromium.launch(headless=browser_headless, args=[
+    browser = p.chromium.launch(headless=BROWSER_HEADLESS, args=[
         "--disable-gpu",
         "--disable-dev-shm-usage",
         "--no-sandbox",
@@ -65,7 +65,7 @@ def init_browser(p, max_navigation_retries=3):
 
     def open_page():
         page.goto(
-            site_url,
+            SITE_URL,
             wait_until="domcontentloaded",
             timeout=60000,
         )

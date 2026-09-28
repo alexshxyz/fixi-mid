@@ -8,11 +8,12 @@ import time
 import random
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from config import (
-    state_save_file,
-    restart_hours,
-    page_reload_min_seconds,
-    page_reload_max_seconds,
-    leagues_list,
+    LEAGUES_LIST,
+    NOTIFICATION_CHECK_DELAY_SECONDS,
+    PAGE_RELOAD_MAX_SECONDS,
+    PAGE_RELOAD_MIN_SECONDS,
+    RESTART_HOURS,
+    STATE_SAVE_FILE,
 )
 from logging_config import setup_logger
 from logics import find_pattern_matches
@@ -20,16 +21,12 @@ from telegram_notifier import edit_telegram_notification
 
 logger = setup_logger(__name__)
 
-STATE_SAVE_FILE = state_save_file
-RESTART_HOURS = restart_hours
-NOTIFICATION_CHECK_DELAY_SECONDS = 180
-
-
 # Исключение для перезапуска браузера после повторных падений страницы.
 class PageRestartRequired(Exception):
     pass
 
 
+# Устанавливает наблюдатель за изменениями Live-таблицы в DOM.
 def _install_live_change_observer(page):
     page.evaluate("""
         () => {
@@ -81,6 +78,7 @@ def _install_live_change_observer(page):
     """)
 
 
+# Отключает наблюдатель за Live-таблицей и удаляет его флаги из страницы.
 def _remove_live_change_observer(page):
     try:
         page.evaluate("""
@@ -96,6 +94,7 @@ def _remove_live_change_observer(page):
         logger.warning("Could not stop live table observer.", exc_info=True)
 
 
+# Ждёт изменения Live-таблицы и возвращает, произошло ли оно до таймаута.
 def _wait_for_live_change(page, timeout_ms):
     try:
         page.wait_for_function(
@@ -125,8 +124,8 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         return None
 
 
+# Обновляет Live-таблицу кликом по фильтру без полной перезагрузки страницы.
 def _refresh_live_table(page):
-    # Обновляем Live-таблицу кликом по фильтру, не делая полной перезагрузки страницы.
     live_filter = page.locator("li#li_FilterLive")
     live_filter.wait_for(timeout=10000)
     live_filter.click()
@@ -203,8 +202,8 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
             time.sleep(3)
 
 
+# Извлекает данные ВСЕ матчей за один evaluate() вызов.
 def _extract_all_match_data(page, match_ids):
-    # Извлекает данные ВСЕ матчей за один evaluate() вызов.
     js = """
         (matchIds) => {
             const result = {};
@@ -327,6 +326,7 @@ def _collect_match_ids(page):
 
 # Мониторит активные матчи и отслеживает изменения в их данных.
 class MatchMonitor:
+    # Создаёт монитор и инициализирует состояние и расписание проверок.
     def __init__(self, page, match_ids=None, saved_state=None):
         self.page = page
         self.match_ids = match_ids
@@ -336,7 +336,7 @@ class MatchMonitor:
         self.pending_notifications = {}
         self.active_match_ids = []
         self.consecutive_table_errors = 0
-        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
+        self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
         self.next_reload_at = time.monotonic() + self.reload_threshold
         self.next_heartbeat_at = time.monotonic() + 100
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
@@ -415,7 +415,7 @@ class MatchMonitor:
                 field_name = 'over' if market == 'ov' else 'ah'
                 last_market_data = self.last_data.get(match_id, {}).get(market, {})
                 closed_remains = last_market_data.get(field_name) == 'Closed'
-                league_is_listed = notification['league'] in leagues_list
+                league_is_listed = notification['league'] in LEAGUES_LIST
 
                 if league_is_listed:
                     marker = '🔥' if closed_remains else '🔓'
@@ -550,7 +550,7 @@ class MatchMonitor:
 
         current_match_ids = _collect_match_ids(self.page)
         synchronized = self._synchronize_matches(current_match_ids)
-        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
+        self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
         self.next_reload_at = time.monotonic() + self.reload_threshold
         return synchronized
 
@@ -632,9 +632,8 @@ class MatchMonitor:
         return bool(updated_match_ids), False
 
 
+# Запускает мониторинг матчей с новым или восстановленным состоянием.
 def parse_and_monitor_match(page, match_ids=None, saved_state=None):
-    # Парсит и мониторит все матчи по списку ID.
-    # Сохраняет начальные и измененные данные в памяти.
     MatchMonitor(page, match_ids=match_ids, saved_state=saved_state).run()
 
 

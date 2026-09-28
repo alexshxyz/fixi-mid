@@ -6,14 +6,14 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 
 from config import (
-    site_url,
-    bot_token,
-    channel_id,
-    telegram_proxy_host,
-    telegram_proxy_port,
-    telegram_proxy_username,
-    telegram_proxy_password,
-    telegram_api_url,
+    BOT_TOKEN,
+    CHANNEL_ID,
+    SITE_URL,
+    TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
+    TELEGRAM_PROXY_HOST,
+    TELEGRAM_PROXY_PASSWORD,
+    TELEGRAM_PROXY_PORT,
+    TELEGRAM_PROXY_USERNAME,
 )
 from storage import save_match, check_duplicate_match
 from logging_config import setup_logger
@@ -23,26 +23,27 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 logger = setup_logger(__name__)
 
 TELEGRAM_PROXIES = None
-if telegram_proxy_host and telegram_proxy_port:
+if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
     proxy_auth = ''
-    if telegram_proxy_username and telegram_proxy_password:
+    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
         proxy_auth = (
-            f'{quote(telegram_proxy_username, safe="")}:'
-            f'{quote(telegram_proxy_password, safe="")}@'
+            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
+            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
         )
 
     telegram_proxy_url = (
-        f'socks5h://{proxy_auth}{telegram_proxy_host}:{telegram_proxy_port}'
+        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
     )
     TELEGRAM_PROXIES = {
         'http': telegram_proxy_url,
         'https': telegram_proxy_url,
     }
 
-TELEGRAM_API_URL = telegram_api_url.format(token=bot_token)
+TELEGRAM_API_URL = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
 TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
 
 
+# Приводит коэффициент к числу и прибавляет единицу для сообщения.
 def _prepare_odds(over_odds):
     try:
         return round(float(over_odds) + 1, 2)
@@ -50,6 +51,7 @@ def _prepare_odds(over_odds):
         return over_odds
 
 
+# Нормализует отображение игрового времени в Telegram-сообщении.
 def _normalize_match_time_for_message(raw_time):
     if raw_time is None:
         return 'Unknown'
@@ -70,12 +72,14 @@ def _normalize_match_time_for_message(raw_time):
     return value
 
 
+# Собирает текст прогноза для тотала или форы.
 def _build_prediction(over, handicap_text, handicap_team_order):
     if handicap_text is None:
         return f"Over {over} FT"
     return f"Handicap {handicap_text} {handicap_team_order} FT"
 
 
+# Форматирует прогноз и коэффициент с HTML-разметкой Telegram.
 def _format_prediction_for_message(prediction, odds_value):
     # Return a Telegram-safe HTML line for the prediction and odds value.
     #
@@ -101,6 +105,7 @@ def _format_prediction_for_message(prediction, odds_value):
     return f"{prediction} · <code>{odds_value}</code>"
 
 
+# Формирует HTML-текст уведомления о матче.
 def _build_message(league, team1, team2, score, match_url, prediction, odds_value, match_time='Unknown'):
     clean_match_time = _normalize_match_time_for_message(match_time)
 
@@ -116,12 +121,14 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
     )
 
 
+# Проверяет, отправлялся ли уже такой прогноз для матча.
 def _is_duplicate_notification(match_url, prediction, match_id):
     if check_duplicate_match(match_url, prediction):
         return True
     return False
 
 
+# Отправляет запрос в Telegram API и возвращает разобранный ответ.
 def _send_message(payload, match_id=None, success_message=None, api_url=TELEGRAM_API_URL):
     try:
         response = requests.post(
@@ -149,7 +156,7 @@ def _send_message(payload, match_id=None, success_message=None, api_url=TELEGRAM
 def send_telegram_message(text):
     # Отправляет произвольное HTML-сообщение в Telegram-канал.
     payload = {
-        "chat_id": channel_id,
+        "chat_id": CHANNEL_ID,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
@@ -160,7 +167,7 @@ def send_telegram_message(text):
 # Редактирует ранее отправленное сообщение в Telegram.
 def edit_telegram_notification(message_id, text):
     payload = {
-        "chat_id": channel_id,
+        "chat_id": CHANNEL_ID,
         "message_id": message_id,
         "text": text,
         "parse_mode": "HTML",
@@ -173,6 +180,7 @@ def edit_telegram_notification(message_id, text):
     ))
 
 
+# Сохраняет отправленное уведомление в хранилище.
 def _save_notification(league, team1, team2, prediction, odds_value, match_url):
     try:
         save_match(
@@ -201,7 +209,7 @@ def send_telegram_notification(
     on_sent=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
-    match_url = f"{site_url}oddscomp/{match_id}" if match_id else ""
+    match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = _prepare_odds(over_odds)
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
     message = _build_message(
@@ -216,7 +224,7 @@ def send_telegram_notification(
     )
 
     payload = {
-        "chat_id": channel_id,
+        "chat_id": CHANNEL_ID,
         "text": message,
         "parse_mode": "HTML",
         "disable_web_page_preview": True
@@ -247,7 +255,7 @@ def send_telegram_notification(
 
 if __name__ == "__main__":
     # Для тестирования
-    if not bot_token or not channel_id:
+    if not BOT_TOKEN or not CHANNEL_ID:
         logger.warning("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
     else:
         send_telegram_notification(

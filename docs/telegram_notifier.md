@@ -113,13 +113,14 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 При импорте модуля читается файл [leagues.json](../leagues.json):
 
 ```python
-leagues_file = os.path.join(os.path.dirname(__file__), 'leagues.json')
-with open(leagues_file, 'r', encoding='utf-8') as f:
-    leagues_data = json.load(f)
-leagues_list = [item['name'] for item in leagues_data['leagues']]
+from config import LEAGUES_FILE
+
+with open(LEAGUES_FILE, 'r', encoding='utf-8') as f:
+    LEAGUES_DATA = json.load(f)
+LEAGUES_LIST = [item['name'] for item in LEAGUES_DATA['leagues']]
 ```
 
-При формировании сообщения лига сравнивается со списком `leagues_list`:
+При формировании сообщения лига сравнивается со списком `LEAGUES_LIST`:
 
 - если лига присутствует в списке, используется значок `🔥`;
 - если лиги нет в списке, используется значок `🔒`.

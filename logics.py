@@ -1,16 +1,13 @@
 import json
 import re
 
-from config import threshold, max_odd
+from config import MAX_ODD, THRESHOLD
 from telegram_notifier import send_telegram_notification
 from logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
-THRESHOLD = threshold
-MAX_ODD = max_odd
-
-
+# Преобразует значение в число с плавающей точкой или возвращает None.
 def _to_float(value):
     try:
         return float(value)
@@ -18,6 +15,7 @@ def _to_float(value):
         return None
 
 
+# Приводит значение форы к очищенной строке или возвращает None.
 def _normalize_ah_text(value):
     if value is None:
         return None
@@ -25,11 +23,13 @@ def _normalize_ah_text(value):
     return text if text else None
 
 
+# Проверяет, является ли значение форы одним из вариантов нуля.
 def _is_exact_zero_ah(value):
     text = _normalize_ah_text(value)
     return text in {"0", "0.0", "+0", "-0", "-0.0"}
 
 
+# Распознаёт азиатскую фору вида 0/-0.5 для второй команды.
 def _is_away_zero_split_handicap(value):
     text = _normalize_ah_text(value)
     if text is None:
@@ -38,6 +38,7 @@ def _is_away_zero_split_handicap(value):
     return bool(re.match(r"^\+?0\s*/\s*-[\d.,]+$", text))
 
 
+# Определяет знак форы: 1 для первой команды, -1 для второй, 0 для нуля.
 def _ah_sign(value):
     text = _normalize_ah_text(value)
     if text is None:
@@ -71,6 +72,7 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
     if not on_notification_sent:
         return None
 
+    # Передаёт callback-у данные об отправленном сообщении.
     def register(message_id, message):
         on_notification_sent({
             'match_id': match_id,

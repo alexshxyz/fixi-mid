@@ -3,14 +3,12 @@ import os
 import tempfile
 from datetime import date
 from pathlib import Path
-from config import matches_file
+from config import MATCHES_FILE
 from logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent
-MATCHES_FILE = matches_file
-
 # Создаёт файл матчей, если он отсутствует.
 def _ensure_matches_file():
     path = Path(MATCHES_FILE)
@@ -71,7 +69,6 @@ def init_storage():
 
 def check_duplicate_match(link, prediction):
     # Проверяет, есть ли уже запись с таким же link и prediction.
-    # Логика та же, что и раньше, но данные читаются из JSON файла.
     if not link or not prediction:
         return False
 
