@@ -9,7 +9,6 @@
 Основные задачи файла:
 
 - загрузить настройки Telegram из переменных окружения;
-- загрузить список лиг из `leagues.json`;
 - сформировать ссылку на страницу матча;
 - подготовить значение коэффициента;
 - сформировать текст прогноза и HTML-сообщение;
@@ -52,7 +51,7 @@ matches.json
 from telegram_notifier import send_telegram_notification
 ```
 
-После рефакторинга её сигнатура не изменилась. Поэтому существующие вызовы для over и handicap продолжают работать без изменений.
+Необязательный `on_sent` позволяет передать монитору ID и исходный текст успешно отправленного сообщения. Существующие вызовы для over и handicap продолжают работать без изменений.
 
 ---
 
@@ -63,7 +62,6 @@ from telegram_notifier import send_telegram_notification
 - `requests` — отправка HTTP-запроса к Telegram Bot API;
 - `os` — чтение переменных окружения и построение путей;
 - `setup_logger` из [logging_config.py](../logging_config.py) — получение настроенного логгера;
-- `json` — чтение списка лиг из JSON;
 - `load_dotenv` — загрузка значений из `.env`;
 - `save_match`, `check_duplicate_match` из [storage.py](../storage.py) — сохранение матча и проверка дубликата.
 
@@ -235,13 +233,17 @@ requests.post(
 
 Результат:
 
-- при HTTP-статусе `200` возвращается `True`;
-- при другом статусе записывается текст ответа и возвращается `False`;
-- при исключении запроса ошибка записывается в лог и возвращается `False`.
+- при HTTP-статусе `200` возвращается JSON-ответ Telegram Bot API, включая `result.message_id`;
+- при другом статусе записывается текст ответа и возвращается `None`;
+- при исключении запроса ошибка записывается в лог и возвращается `None`.
 
 Таймаут запроса установлен в 10 секунд.
 
-### 6.6. `_save_notification(league, team1, team2, prediction, odds_value, match_url)`
+### 6.6. `edit_telegram_notification(message_id, text)`
+
+Редактирует ранее отправленное сообщение через Telegram Bot API `editMessageText`. Для определения успешной отправки используется тот же прокси и таймаут.
+
+### 6.7. `_save_notification(league, team1, team2, prediction, odds_value, match_url)`
 
 Сохраняет успешно отправленный прогноз через `save_match()`.
 
@@ -271,6 +273,7 @@ def send_telegram_notification(
     match_id=None,
     handicap_text=None,
     handicap_team_order=None,
+    on_sent=None,
 ):
 ```
 
@@ -309,7 +312,8 @@ def send_telegram_notification(
 8. Если дубликата нет, вызывается `_send_message()`.
 9. При ошибке отправки функция возвращает `False` и не сохраняет матч.
 10. После успешной отправки вызывается `_save_notification()`.
-11. Функция возвращает `True`.
+11. Если передан `on_sent` и Telegram вернул `message_id`, вызывается callback с ID и исходным HTML-сообщением.
+12. Функция возвращает `True`.
 
 Главный порядок операций:
 

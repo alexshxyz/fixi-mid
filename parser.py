@@ -12,14 +12,17 @@ from config import (
     restart_hours,
     page_reload_min_seconds,
     page_reload_max_seconds,
+    leagues_list,
 )
 from logging_config import setup_logger
 from logics import find_pattern_matches
+from telegram_notifier import edit_telegram_notification
 
 logger = setup_logger(__name__)
 
 STATE_SAVE_FILE = state_save_file
 RESTART_HOURS = restart_hours
+NOTIFICATION_CHECK_DELAY_SECONDS = 180
 
 
 # Исключение для перезапуска браузера после повторных падений страницы.
@@ -330,6 +333,7 @@ class MatchMonitor:
         self.saved_state = saved_state
         self.match_history = {}
         self.last_data = {}
+        self.pending_notifications = {}
         self.active_match_ids = []
         self.consecutive_table_errors = 0
         self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
@@ -359,6 +363,7 @@ class MatchMonitor:
                 "match_history": self.match_history,
                 "last_data": last_data,
                 "active_match_ids": active_match_ids,
+                "pending_notifications": self.pending_notifications,
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -375,6 +380,7 @@ class MatchMonitor:
             restored_history = self.saved_state.get("match_history", {})
             self.match_history.update(restored_history)
             self.last_data = self.saved_state.get("last_data", {})
+            self.pending_notifications = self.saved_state.get("pending_notifications", {})
             logger.info(f"Restored state for {len(self.active_match_ids)} matches from {STATE_SAVE_FILE}")
             return
 
@@ -382,7 +388,83 @@ class MatchMonitor:
         if self.active_match_ids:
             self._load_initial_data()
 
-        find_pattern_matches(self.match_history)
+        find_pattern_matches(self.match_history, self._register_pending_notification)
+
+    # Регистрирует отдельный таймер для отправленного сообщения.
+    def _register_pending_notification(self, notification):
+        message_id = str(notification['message_id'])
+        notification['deadline'] = time.time() + NOTIFICATION_CHECK_DELAY_SECONDS
+        self.pending_notifications[message_id] = notification
+        logger.info(
+            "Scheduled Telegram status check for match %s (%s) in %d seconds",
+            notification['match_id'],
+            notification['market'],
+            NOTIFICATION_CHECK_DELAY_SECONDS,
+        )
+
+    # Проверяет истёкшие таймеры и обновляет сообщения в Telegram.
+    def _process_due_notifications(self):
+        now = time.time()
+        for message_id, notification in list(self.pending_notifications.items()):
+            if notification['deadline'] > now:
+                continue
+
+            if 'edited_message' not in notification:
+                match_id = str(notification['match_id'])
+                market = notification['market']
+                field_name = 'over' if market == 'ov' else 'ah'
+                last_market_data = self.last_data.get(match_id, {}).get(market, {})
+                closed_remains = last_market_data.get(field_name) == 'Closed'
+                league_is_listed = notification['league'] in leagues_list
+
+                if league_is_listed:
+                    marker = '🔥' if closed_remains else '🔓'
+                else:
+                    marker = '⭐' if closed_remains else '💩'
+
+                notification['edited_message'] = notification['message'].replace(
+                    '<b>', f'<b>{marker} ', 1
+                )
+
+            if edit_telegram_notification(
+                notification['message_id'], notification['edited_message']
+            ):
+                del self.pending_notifications[message_id]
+                match_id = str(notification['match_id'])
+                if (match_id not in self.active_match_ids and not any(
+                    str(item['match_id']) == match_id
+                    for item in self.pending_notifications.values()
+                )):
+                    self.last_data.pop(match_id, None)
+            else:
+                notification['edit_attempts'] = notification.get('edit_attempts', 0) + 1
+                if notification['edit_attempts'] >= 3:
+                    del self.pending_notifications[message_id]
+                    match_id = str(notification['match_id'])
+                    if (match_id not in self.active_match_ids and not any(
+                        str(item['match_id']) == match_id
+                        for item in self.pending_notifications.values()
+                    )):
+                        self.last_data.pop(match_id, None)
+                    logger.error(
+                        "Giving up Telegram status edit for message %s after 3 attempts",
+                        message_id,
+                    )
+                else:
+                    notification['deadline'] = now + 30
+                    logger.warning(
+                        "Retrying Telegram status edit for message %s in 30 seconds",
+                        message_id,
+                    )
+
+    # Возвращает время до ближайшей отложенной проверки.
+    def _next_notification_timeout(self):
+        if not self.pending_notifications:
+            return None
+        return max(
+            0,
+            min(item['deadline'] for item in self.pending_notifications.values()) - time.time(),
+        )
 
     # Загружает стартовые данные для всех активных матчей.
     def _load_initial_data(self):
@@ -406,6 +488,7 @@ class MatchMonitor:
         while True:
             data_changed = False
             now = time.monotonic()
+            self._process_due_notifications()
 
             if now >= self.next_heartbeat_at:
                 logger.info("Heartbeat: OK")
@@ -420,7 +503,10 @@ class MatchMonitor:
                     changed, _ = self._poll_and_update()
                     data_changed = data_changed or changed
                 if data_changed:
-                    find_pattern_matches(self.match_history)
+                    find_pattern_matches(
+                        self.match_history, self._register_pending_notification
+                    )
+                self._process_due_notifications()
                 continue
 
             wait_seconds = min(
@@ -428,6 +514,9 @@ class MatchMonitor:
                 self.restart_deadline - time.time(),
                 self.next_heartbeat_at - now,
             )
+            notification_timeout = self._next_notification_timeout()
+            if notification_timeout is not None:
+                wait_seconds = min(wait_seconds, notification_timeout)
             changed = _wait_for_live_change(
                 self.page,
                 timeout_ms=max(1, int(wait_seconds * 1000)),
@@ -436,7 +525,10 @@ class MatchMonitor:
                 data_changed, _ = self._poll_and_update()
 
             if data_changed:
-                find_pattern_matches(self.match_history)
+                find_pattern_matches(
+                    self.match_history, self._register_pending_notification
+                )
+            self._process_due_notifications()
 
     # Сохраняет состояние и запускает перезапуск по расписанию.
     def _trigger_scheduled_restart(self):
@@ -472,7 +564,11 @@ class MatchMonitor:
 
         for removed_id in removed_match_ids:
             self.match_history.pop(removed_id, None)
-            self.last_data.pop(removed_id, None)
+            if not any(
+                str(item['match_id']) == str(removed_id)
+                for item in self.pending_notifications.values()
+            ):
+                self.last_data.pop(removed_id, None)
 
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:

@@ -14,7 +14,6 @@ from config import (
     telegram_proxy_username,
     telegram_proxy_password,
     telegram_api_url,
-    leagues_list,
 )
 from storage import save_match, check_duplicate_match
 from logging_config import setup_logger
@@ -41,6 +40,7 @@ if telegram_proxy_host and telegram_proxy_port:
     }
 
 TELEGRAM_API_URL = telegram_api_url.format(token=bot_token)
+TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
 
 
 def _prepare_odds(over_odds):
@@ -102,7 +102,6 @@ def _format_prediction_for_message(prediction, odds_value):
 
 
 def _build_message(league, team1, team2, score, match_url, prediction, odds_value, match_time='Unknown'):
-    emoji = "🔥" if league in leagues_list else "🔒"
     clean_match_time = _normalize_match_time_for_message(match_time)
 
     # Make the team-name / score segment a hyperlink to the oddscomp detail page.
@@ -111,7 +110,7 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
     linkified_match_text = f'<a href="{match_url}">{match_text}</a>' if match_url else match_text
 
     return (
-        f"{emoji} <b>{league}</b>\n\n"
+        f"<b>{league}</b>\n\n"
         f"⌛️ <code>{clean_match_time}’</code> {linkified_match_text}\n\n"
         f"{_format_prediction_for_message(prediction, odds_value)}"
     )
@@ -123,10 +122,10 @@ def _is_duplicate_notification(match_url, prediction, match_id):
     return False
 
 
-def _send_message(payload, match_id=None, success_message=None):
+def _send_message(payload, match_id=None, success_message=None, api_url=TELEGRAM_API_URL):
     try:
         response = requests.post(
-            TELEGRAM_API_URL,
+            api_url,
             json=payload,
             proxies=TELEGRAM_PROXIES,
             timeout=10,
@@ -136,12 +135,15 @@ def _send_message(payload, match_id=None, success_message=None):
                 logger.info(success_message)
             else:
                 logger.info(f"Telegram notification sent for match {match_id}")
-            return True
+            try:
+                return response.json()
+            except ValueError:
+                return {}
 
         logger.error(f"Failed to send Telegram notification: {response.text}")
     except Exception as e:
         logger.error(f"Error sending Telegram notification: {e}")
-    return False
+    return None
 
 
 def send_telegram_message(text):
@@ -152,7 +154,23 @@ def send_telegram_message(text):
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
-    return _send_message(payload, success_message="Telegram message sent")
+    return bool(_send_message(payload, success_message="Telegram message sent"))
+
+
+# Редактирует ранее отправленное сообщение в Telegram.
+def edit_telegram_notification(message_id, text):
+    payload = {
+        "chat_id": channel_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    return bool(_send_message(
+        payload,
+        success_message=f"Telegram notification {message_id} updated",
+        api_url=TELEGRAM_EDIT_MESSAGE_URL,
+    ))
 
 
 def _save_notification(league, team1, team2, prediction, odds_value, match_url):
@@ -180,6 +198,7 @@ def send_telegram_notification(
     handicap_text=None,
     handicap_team_order=None,
     match_time='Unknown',
+    on_sent=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
     match_url = f"{site_url}oddscomp/{match_id}" if match_id else ""
@@ -206,10 +225,22 @@ def send_telegram_notification(
     if _is_duplicate_notification(match_url, prediction, match_id):
         return False
 
-    if not _send_message(payload, match_id):
+    telegram_response = _send_message(payload, match_id)
+    if not telegram_response:
         return False
 
     _save_notification(league, team1, team2, prediction, odds_value, match_url)
+    result = telegram_response.get('result')
+    telegram_message_id = (
+        result.get('message_id') if isinstance(result, dict) else None
+    )
+    if telegram_message_id is not None and on_sent:
+        try:
+            on_sent(telegram_message_id, message)
+        except Exception as callback_error:
+            logger.error(f"Failed to register Telegram notification: {callback_error}")
+    elif on_sent:
+        logger.error("Telegram response did not include a message_id for status tracking")
     return True
 
 

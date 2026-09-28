@@ -66,7 +66,24 @@ def _get_last_entry_before_closed(entries, field_name):
     return None, -1
 
 
-def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
+# Подготавливает callback с данными успешно отправленного сигнала.
+def _notification_sent_callback(on_notification_sent, match_id, market, league):
+    if not on_notification_sent:
+        return None
+
+    def register(message_id, message):
+        on_notification_sent({
+            'match_id': match_id,
+            'market': market,
+            'league': league,
+            'message_id': message_id,
+            'message': message,
+        })
+
+    return register
+
+
+def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on_notification_sent=None):
     # Отправляет Telegram-уведомление для найденного over-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
@@ -84,12 +101,15 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
             over_odds=last_over_odds,
             match_id=match_id,
             match_time=match_time,
+            on_sent=_notification_sent_callback(
+                on_notification_sent, match_id, 'ov', league
+            ),
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
-def _find_over_pattern(entries, match_id):
+def _find_over_pattern(entries, match_id, on_notification_sent=None):
     # Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
     if len(entries) < 2 or entries[-1].get("ov", {}).get("over") != "Closed":
         return False
@@ -118,14 +138,20 @@ def _find_over_pattern(entries, match_id):
             break
 
         if current_over_odds is not None and current_over_odds >= MAX_ODD:
-            _send_over_notification(match_id, last_entry, last_total, last_over_odds)
+            _send_over_notification(
+                match_id,
+                last_entry,
+                last_total,
+                last_over_odds,
+                on_notification_sent,
+            )
             return True
 
     logger.debug(f"Match {match_id}: No matching entry found above")
     return False
 
 
-def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side):
+def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side, on_notification_sent=None):
     # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
@@ -149,12 +175,15 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
             handicap_text=handicap,
             handicap_team_order=handicap_order,
             match_time=match_time,
+            on_sent=_notification_sent_callback(
+                on_notification_sent, match_id, 'ah', league
+            ),
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
-def _find_ah_pattern(entries, match_id):
+def _find_ah_pattern(entries, match_id, on_notification_sent=None):
     # Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
     if len(entries) < 2 or entries[-1].get("ah", {}).get("ah") != "Closed":
         return False
@@ -196,23 +225,30 @@ def _find_ah_pattern(entries, match_id):
             current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
 
         if current_ah_odds is not None and current_ah_odds >= MAX_ODD:
-            _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side)
+            _send_ah_notification(
+                match_id,
+                last_entry,
+                last_ah,
+                last_ah_odds,
+                odds_side,
+                on_notification_sent,
+            )
             return True
 
     return False
 
 
-def find_pattern_matches(match_history):
+def find_pattern_matches(match_history, on_notification_sent=None):
     # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
     sent_matches = []
 
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
 
-        if _find_over_pattern(entries, match_id):
+        if _find_over_pattern(entries, match_id, on_notification_sent):
             sent_matches.append(match_id)
 
-        if _find_ah_pattern(entries, match_id):
+        if _find_ah_pattern(entries, match_id, on_notification_sent):
             sent_matches.append(match_id)
 
     return sent_matches

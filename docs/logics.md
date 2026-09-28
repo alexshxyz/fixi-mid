@@ -309,7 +309,7 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
 ## 7. Главная функция `find_pattern_matches`
 
 ```python
-def find_pattern_matches(match_history):
+def find_pattern_matches(match_history, on_notification_sent=None):
 ```
 
 Это главная функция этого файла.
@@ -320,8 +320,9 @@ def find_pattern_matches(match_history):
 2. Для каждого матча собирает историю `entries`.
 3. Проверяет `over`-паттерн.
 4. Проверяет `AH`-паттерн.
-5. Если хотя бы один паттерн найден, добавляет `match_id` в список.
-6. Возвращает список совпавших матчей.
+5. При успешной отправке вызывает необязательный callback с ID матча, типом рынка, ID Telegram-сообщения и исходным текстом.
+6. Если хотя бы один паттерн найден, добавляет `match_id` в список.
+7. Возвращает список совпавших матчей.
 
 Это функция-оркестратор: она не сама вычисляет паттерны, а вызывает более мелкие функции, которые выполняют конкретные шаги.
 
