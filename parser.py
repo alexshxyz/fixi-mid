@@ -6,7 +6,6 @@ import json
 import os
 import time
 import random
-from datetime import datetime, timezone
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from config import (
     state_save_file,
@@ -21,7 +20,6 @@ logger = setup_logger(__name__)
 
 STATE_SAVE_FILE = state_save_file
 RESTART_HOURS = restart_hours
-DEBUG_DATA_FILE = os.path.join(os.path.dirname(__file__), 'data.json')
 
 
 # Исключение для перезапуска браузера после повторных падений страницы.
@@ -204,7 +202,6 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
 
 def _extract_all_match_data(page, match_ids):
     # Извлекает данные ВСЕ матчей за один evaluate() вызов.
-    # Вместо 70 evaluate, делаем 1 — это главная оптимизация.
     js = """
         (matchIds) => {
             const result = {};
@@ -299,23 +296,6 @@ def _extract_all_match_data(page, match_ids):
         raise
 
 
-def _write_debug_match_data(matches):
-    try:
-        with open(DEBUG_DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "collected_at": datetime.now(timezone.utc).isoformat(),
-                    "matches": matches,
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-            f.write("\n")
-    except Exception as e:
-        logger.warning(f"Failed to write match debug data to {DEBUG_DATA_FILE}: {e}")
-
-
 # Возвращает список ID матчей, которые сейчас видны в Live-таблице.
 def _collect_match_ids(page):
     return page.evaluate("""
@@ -407,7 +387,6 @@ class MatchMonitor:
     # Загружает стартовые данные для всех активных матчей.
     def _load_initial_data(self):
         initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
-        _write_debug_match_data(initial_all_data)
         self.consecutive_table_errors = 0
 
         for match_id in self.active_match_ids:
@@ -526,7 +505,6 @@ class MatchMonitor:
     # Проверяет изменение данных по текущим матчам и обновляет историю.
     def _poll_and_update(self):
         all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
-        _write_debug_match_data(all_match_data)
         self.consecutive_table_errors = 0
 
         updated_match_ids = []
