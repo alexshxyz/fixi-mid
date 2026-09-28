@@ -4,20 +4,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Настройки проекта
 APP_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=APP_DIR / '.env')
 
+# Настройки страницы
 SITE_URL = "https://live11.nowgoal26.com/"
 BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
+# Настройки файлов
 MATCHES_FILE = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))
 LEAGUES_FILE = str(APP_DIR / 'leagues.json')
 STATE_SAVE_FILE = str(APP_DIR / 'match_state.json')
 
+# Настройки Telegram-бота
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHANNEL_ID = os.environ.get('CHANNEL_ID')
 
+# Настройки прокси
 TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
 TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
 TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
@@ -25,6 +30,11 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
 THRESHOLD = 0.61 # Максимальное значение коэффициента последней строки перед closed (0.61)
 MAX_ODD = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
+
+# Перезагрузка страницы в секундах (случайное значение между min и max)
+PAGE_RELOAD_MIN_SECONDS = 100
+PAGE_RELOAD_MAX_SECONDS = 120
+
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала
 
@@ -96,10 +106,6 @@ SITE_COOKIES = [
         "expires": _cookie_expires("2026-10-13T11:57:02.000Z"),
     },
 ]
-
-# Перезагрузка страницы в секундах (случайное значение между min и max)
-PAGE_RELOAD_MIN_SECONDS = 100
-PAGE_RELOAD_MAX_SECONDS = 120
 
 with open(LEAGUES_FILE, 'r', encoding='utf-8') as f:
     LEAGUES_DATA = json.load(f)
