@@ -23,8 +23,8 @@ TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
 TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
 TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
-THRESHOLD = 1.10 # Максимальное значение коэффициента последней строки перед closed (0.61)
-MAX_ODD = 0.70 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
+THRESHOLD = 0.61 # Максимальное значение коэффициента последней строки перед closed (0.61)
+MAX_ODD = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала
 

@@ -73,13 +73,15 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
         return None
 
     # Передаёт callback-у данные об отправленном сообщении.
-    def register(message_id, message):
+    def register(message_id, message, link, prediction):
         on_notification_sent({
             'match_id': match_id,
             'market': market,
             'league': league,
             'message_id': message_id,
             'message': message,
+            'link': link,
+            'prediction': prediction,
         })
 
     return register
@@ -103,7 +105,7 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on
             over_odds=last_over_odds,
             match_id=match_id,
             match_time=match_time,
-            on_sent=_notification_sent_callback(
+            on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, 'ov', league
             ),
         )
@@ -177,7 +179,7 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
             handicap_text=handicap,
             handicap_team_order=handicap_order,
             match_time=match_time,
-            on_sent=_notification_sent_callback(
+            on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, 'ah', league
             ),
         )

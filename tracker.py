@@ -18,6 +18,7 @@ from config import (
 from logger import setup_logger
 from analyzer import find_pattern_matches
 from notifier import edit_telegram_notification
+from storage import update_match_mark
 
 logger = setup_logger(__name__)
 
@@ -425,10 +426,21 @@ class MatchMonitor:
                 notification['edited_message'] = notification['message'].replace(
                     '<b>', f'<b>{marker} ', 1
                 )
+                notification['mark'] = marker
 
             if edit_telegram_notification(
                 notification['message_id'], notification['edited_message']
             ):
+                if notification.get('link') and notification.get('prediction') and notification.get('mark'):
+                    if not update_match_mark(
+                        notification['link'],
+                        notification['prediction'],
+                        notification['mark'],
+                    ):
+                        logger.error(
+                            "Failed to persist Telegram mark for message %s",
+                            message_id,
+                        )
                 del self.pending_notifications[message_id]
                 match_id = str(notification['match_id'])
                 if (match_id not in self.active_match_ids and not any(

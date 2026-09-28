@@ -78,6 +78,31 @@ def check_duplicate_match(link, prediction):
     return False
 
 
+# Обновляет эмодзи для сохранённого уведомления.
+def update_match_mark(link, prediction, mark):
+    if not link or not prediction:
+        return False
+
+    matches = _load_matches()
+    for index, match in enumerate(matches):
+        if not isinstance(match, dict):
+            continue
+        if match.get('link') == link and match.get('prediction') == prediction:
+            matches[index] = {
+                'mark': mark,
+                **{key: value for key, value in match.items() if key != 'mark'},
+            }
+            try:
+                _save_matches(matches)
+            except Exception as e:
+                logger.error(f"Failed to update notification mark in matches.json: {e}")
+                return False
+            return True
+
+    logger.warning(f"Could not find notification to update mark: {link} | {prediction}")
+    return False
+
+
 def save_match(
     league,
     home_team,
@@ -99,6 +124,7 @@ def save_match(
         date_value = date.today().isoformat()
 
     match_record = {
+        'mark': None,
         'league': league,
         'home_team': home_team,
         'away_team': away_team,

@@ -207,6 +207,7 @@ def send_telegram_notification(
     handicap_team_order=None,
     match_time='Unknown',
     on_sent=None,
+    on_sent_details=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
@@ -242,12 +243,18 @@ def send_telegram_notification(
     telegram_message_id = (
         result.get('message_id') if isinstance(result, dict) else None
     )
-    if telegram_message_id is not None and on_sent:
-        try:
-            on_sent(telegram_message_id, message)
-        except Exception as callback_error:
-            logger.error(f"Failed to register Telegram notification: {callback_error}")
-    elif on_sent:
+    if telegram_message_id is not None:
+        if on_sent:
+            try:
+                on_sent(telegram_message_id, message)
+            except Exception as callback_error:
+                logger.error(f"Failed to register Telegram notification: {callback_error}")
+        if on_sent_details:
+            try:
+                on_sent_details(telegram_message_id, message, match_url, prediction)
+            except Exception as callback_error:
+                logger.error(f"Failed to register Telegram notification details: {callback_error}")
+    elif on_sent or on_sent_details:
         logger.error("Telegram response did not include a message_id for status tracking")
     return True
 
