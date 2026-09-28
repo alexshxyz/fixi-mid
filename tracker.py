@@ -37,7 +37,7 @@ def _install_live_change_observer(page):
             if (!table) {
                 throw new Error('Live table not found.');
             }
-            const observationRoot = table.parentElement || table;
+            const observationRoot = document.documentElement;
 
             const belongsToLiveTable = (node) => {
                 const element = node.nodeType === Node.ELEMENT_NODE
