@@ -1,10 +1,10 @@
-# Документация по файлу telegram_notifier.py
+# Документация по файлу notifier.py
 
 ## 1. Назначение файла
 
-Файл [telegram_notifier.py](../telegram_notifier.py) отвечает за отправку уведомлений о найденных ставочных паттернах в Telegram-канал.
+Файл [notifier.py](../notifier.py) отвечает за отправку уведомлений о найденных ставочных паттернах в Telegram-канал.
 
-Он получает данные матча из [logics.py](../logics.py), формирует HTML-сообщение, проверяет, не отправлялся ли такой прогноз раньше, отправляет сообщение через Telegram Bot API и после успешной отправки сохраняет матч в [storage.py](../storage.py).
+Он получает данные матча из [analyzer.py](../analyzer.py), формирует HTML-сообщение, проверяет, не отправлялся ли такой прогноз раньше, отправляет сообщение через Telegram Bot API и после успешной отправки сохраняет матч в [storage.py](../storage.py).
 
 Основные задачи файла:
 
@@ -17,24 +17,24 @@
 - сохранить успешно отправленный прогноз в `matches.json`;
 - записать результат операций в `bot.log` и консоль.
 
-Файл не ищет паттерны и не собирает данные с сайта. Поиск подходящего события выполняется в `logics.py`, а мониторинг коэффициентов — в `parser.py`.
+Файл не ищет паттерны и не собирает данные с сайта. Поиск подходящего события выполняется в `analyzer.py`, а мониторинг коэффициентов — в `tracker.py`.
 
 ---
 
-## 2. Место telegram_notifier.py в работе скрипта
+## 2. Место notifier.py в работе скрипта
 
 Общий поток данных выглядит так:
 
 ```text
-parser.py
+tracker.py
   |
   | передаёт историю изменений
   v
-logics.py
+analyzer.py
   |
   | находит подходящий over/AH-паттерн
   v
-telegram_notifier.py
+notifier.py
   |
   | проверяет дубликат, отправляет сообщение
   | и сохраняет успешный прогноз
@@ -45,10 +45,10 @@ storage.py
 matches.json
 ```
 
-В `logics.py` используется публичная функция:
+В `analyzer.py` используется публичная функция:
 
 ```python
-from telegram_notifier import send_telegram_notification
+from notifier import send_telegram_notification
 ```
 
 Необязательный `on_sent` позволяет передать монитору ID и исходный текст успешно отправленного сообщения. Существующие вызовы для over и handicap продолжают работать без изменений.
@@ -61,7 +61,7 @@ from telegram_notifier import send_telegram_notification
 
 - `requests` — отправка HTTP-запроса к Telegram Bot API;
 - `os` — чтение переменных окружения и построение путей;
-- `setup_logger` из [logging_config.py](../logging_config.py) — получение настроенного логгера;
+- `setup_logger` из [logger.py](../logger.py) — получение настроенного логгера;
 - `load_dotenv` — загрузка значений из `.env`;
 - `save_match`, `check_duplicate_match` из [storage.py](../storage.py) — сохранение матча и проверка дубликата.
 
@@ -73,7 +73,7 @@ from telegram_notifier import send_telegram_notification
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 ```
 
-Файл `.env` должен находиться в корне проекта рядом с `telegram_notifier.py`. Из него загружаются настройки:
+Файл `.env` должен находиться в корне проекта рядом с `notifier.py`. Из него загружаются настройки:
 
 ```text
 BOT_TOKEN=токен_бота
@@ -131,9 +131,9 @@ LEAGUES_LIST = [item['name'] for item in LEAGUES_DATA['leagues']]
 
 ## 5. Настройка логирования
 
-Модуль получает логгер через общую функцию `setup_logger()` из [logging_config.py](../logging_config.py). Для `telegram_notifier.py` используется файл `bot.log`.
+Модуль получает логгер через общую функцию `setup_logger()` из [logger.py](../logger.py). Для `notifier.py` используется файл `bot.log`.
 
-Настройка уровня `INFO`, файлового и консольного обработчиков выполняется только в `logging_config.py`.
+Настройка уровня `INFO`, файлового и консольного обработчиков выполняется только в `logger.py`.
 
 В лог записываются:
 
@@ -292,7 +292,7 @@ def send_telegram_notification(
 - `handicap_text` — значение handicap; если не задано, используется over;
 - `handicap_team_order` — сторона handicap, например `Home` или `Away`.
 
-Аргументы `over`, `over_odds`, `match_id`, `handicap_text` и `handicap_team_order` имеют значения по умолчанию, поэтому функция поддерживает оба текущих сценария из `logics.py`.
+Аргументы `over`, `over_odds`, `match_id`, `handicap_text` и `handicap_team_order` имеют значения по умолчанию, поэтому функция поддерживает оба текущих сценария из `analyzer.py`.
 
 ### Последовательность работы
 
@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
 Если `BOT_TOKEN` или `CHANNEL_ID` не заданы, в лог выводится предупреждение. Если настройки присутствуют, отправляется тестовое уведомление для матча с ID `1234567`.
 
-Обычно модуль запускается не напрямую, а импортируется из `logics.py`.
+Обычно модуль запускается не напрямую, а импортируется из `analyzer.py`.
 
 ---
 

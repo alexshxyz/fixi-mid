@@ -16,7 +16,7 @@ from config import (
     TELEGRAM_PROXY_USERNAME,
 )
 from storage import save_match, check_duplicate_match
-from logging_config import setup_logger
+from logger import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -153,8 +153,8 @@ def _send_message(payload, match_id=None, success_message=None, api_url=TELEGRAM
     return None
 
 
+# Отправляет произвольное HTML-сообщение в Telegram-канал.
 def send_telegram_message(text):
-    # Отправляет произвольное HTML-сообщение в Telegram-канал.
     payload = {
         "chat_id": CHANNEL_ID,
         "text": text,
@@ -253,8 +253,8 @@ def send_telegram_notification(
 
 
 
+# Для тестирования
 if __name__ == "__main__":
-    # Для тестирования
     if not BOT_TOKEN or not CHANNEL_ID:
         logger.warning("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
     else:

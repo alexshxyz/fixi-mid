@@ -1,8 +1,8 @@
-# Документация по файлу logging_config.py
+# Документация по файлу logger.py
 
 ## 1. Назначение файла
 
-Файл [logging_config.py](../logging_config.py) содержит общую настройку логирования проекта.
+Файл [logger.py](../logger.py) содержит общую настройку логирования проекта.
 
 Он устраняет дублирование конфигурации логгера в основных модулях и предоставляет единую функцию `setup_logger()`.
 
@@ -31,8 +31,8 @@
 
 ```text
 main.py       ─┐
-parser.py     ─┤
-logics.py     ─┤
+tracker.py     ─┤
+analyzer.py     ─┤
 storage.py    ─┼──> logging_config.setup_logger() ──> файл + консоль
                ┘
 ```
@@ -40,8 +40,8 @@ storage.py    ─┼──> logging_config.setup_logger() ──> файл + к�
 Основные модули используют `bot.log`:
 
 - `main.py`;
-- `parser.py`;
-- `logics.py`;
+- `tracker.py`;
+- `analyzer.py`;
 - `storage.py`.
 
 Основные модули используют общий журнал `bot.log`.
@@ -59,7 +59,7 @@ storage.py    ─┼──> logging_config.setup_logger() ──> файл + к�
 Имя логгера. Обычно передаётся специальная переменная `__name__`:
 
 ```python
-from logging_config import setup_logger
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 ```
@@ -76,7 +76,7 @@ logger = setup_logger(__name__)
 logger = setup_logger(__name__, 'custom.log')
 ```
 
-Путь к файлу строится относительно каталога, в котором находится `logging_config.py`.
+Путь к файлу строится относительно каталога, в котором находится `logger.py`.
 
 ### Возвращаемое значение
 
@@ -149,5 +149,5 @@ logger.error("Failed to save state")
 logger = setup_logger(__name__)
 ```
 
-Такой вариант используется в `main.py`, `parser.py`, `logics.py` и `storage.py`.
+Такой вариант используется в `main.py`, `tracker.py`, `analyzer.py` и `storage.py`.
 

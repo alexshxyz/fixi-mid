@@ -2,8 +2,8 @@ import json
 import re
 
 from config import MAX_ODD, THRESHOLD
-from telegram_notifier import send_telegram_notification
-from logging_config import setup_logger
+from notifier import send_telegram_notification
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -50,8 +50,8 @@ def _ah_sign(value):
     return -1 if text.startswith("-") else 1
 
 
+# Собирает историю матча в один список для дальнейшего анализа.
 def _collect_match_entries(data):
-    # Собирает историю матча в один список для дальнейшего анализа.
     entries = []
     if data.get("initial"):
         entries.append(data["initial"])
@@ -59,8 +59,8 @@ def _collect_match_entries(data):
     return entries
 
 
+# Находит последнюю запись до состояния Closed по конкретному полю: ov или ah.
 def _get_last_entry_before_closed(entries, field_name):
-    # Находит последнюю запись до состояния Closed по конкретному полю: ov или ah.
     for idx in range(len(entries) - 2, -1, -1):
         if entries[idx].get(field_name, {}).get(field_name) != "Closed":
             return entries[idx], idx
@@ -85,8 +85,8 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
     return register
 
 
+# Отправляет Telegram-уведомление для найденного over-паттерна.
 def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on_notification_sent=None):
-    # Отправляет Telegram-уведомление для найденного over-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -111,8 +111,8 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
+# Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
 def _find_over_pattern(entries, match_id, on_notification_sent=None):
-    # Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
     if len(entries) < 2 or entries[-1].get("ov", {}).get("over") != "Closed":
         return False
 
@@ -153,8 +153,8 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
     return False
 
 
+# Отправляет Telegram-уведомление для найденного handicaps-паттерна.
 def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side, on_notification_sent=None):
-    # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -185,8 +185,8 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
+# Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
 def _find_ah_pattern(entries, match_id, on_notification_sent=None):
-    # Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
     if len(entries) < 2 or entries[-1].get("ah", {}).get("ah") != "Closed":
         return False
 
@@ -240,8 +240,8 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
     return False
 
 
+# Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
 def find_pattern_matches(match_history, on_notification_sent=None):
-    # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
     sent_matches = []
 
     for match_id, data in match_history.items():
@@ -256,8 +256,8 @@ def find_pattern_matches(match_history, on_notification_sent=None):
     return sent_matches
 
 
+# Для тестирования, но в реальности match_history передается
 if __name__ == "__main__":
-    # Для тестирования, но в реальности match_history передается
     try:
         with open('matches_realtime.json', 'r', encoding='utf-8') as f:
             data = json.load(f)

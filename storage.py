@@ -4,7 +4,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 from config import MATCHES_FILE
-from logging_config import setup_logger
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -61,14 +61,14 @@ def _save_matches(matches):
         raise
 
 
+# Создаёт файл matches.json, если его ещё нет.
 def init_storage():
-    # Создаёт файл matches.json, если его ещё нет.
     _ensure_matches_file()
     return True
 
 
+# Проверяет, есть ли уже запись с таким же link и prediction.
 def check_duplicate_match(link, prediction):
-    # Проверяет, есть ли уже запись с таким же link и prediction.
     if not link or not prediction:
         return False
 

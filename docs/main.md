@@ -32,7 +32,7 @@
 
 - `os` — работа с путями к файлам и переменными окружения.
 - `sys` — работа с запуском процесса и перезапуском через `os.execv`.
-- `setup_logger` из [logging_config.py](../logging_config.py) — единая настройка логирования.
+- `setup_logger` из [logger.py](../logger.py) — единая настройка логирования.
 - `load_dotenv` — загрузка значений из `.env`.
 - `sync_playwright` — создание и управление браузером через Playwright.
 - `parse_and_monitor_match`, `load_state_from_json`, `PageRestartRequired` — логика парсинга и восстановления состояния.
@@ -55,12 +55,12 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 После загрузки настроек модуль получает логгер через общую функцию:
 
 ```python
-from logging_config import setup_logger
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 ```
 
-Настройка логирования находится только в [logging_config.py](../logging_config.py). Эта функция подключает вывод в консоль и запись в `bot.log`.
+Настройка логирования находится только в [logger.py](../logger.py). Эта функция подключает вывод в консоль и запись в `bot.log`.
 
 В `main.py` используется имя логгера `__name__` и файл `bot.log` по умолчанию.
 

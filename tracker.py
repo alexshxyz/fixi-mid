@@ -15,9 +15,9 @@ from config import (
     RESTART_HOURS,
     STATE_SAVE_FILE,
 )
-from logging_config import setup_logger
-from logics import find_pattern_matches
-from telegram_notifier import edit_telegram_notification
+from logger import setup_logger
+from analyzer import find_pattern_matches
+from notifier import edit_telegram_notification
 
 logger = setup_logger(__name__)
 

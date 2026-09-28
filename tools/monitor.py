@@ -19,7 +19,7 @@ from config import (
     TELEGRAM_PROXY_PORT,
     TELEGRAM_PROXY_USERNAME,
 )
-from logging_config import setup_logger
+from logger import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
 

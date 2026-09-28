@@ -3,10 +3,10 @@ import sys
 import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
-from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
+from tracker import parse_and_monitor_match, load_state_from_json, PageRestartRequired
 from storage import init_storage
 from config import BROWSER_HEADLESS, SITE_COOKIES, SITE_URL
-from logging_config import setup_logger
+from logger import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
