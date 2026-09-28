@@ -50,7 +50,7 @@ def _ah_sign(value):
 
 
 def _collect_match_entries(data):
-    """Собирает историю матча в один список для дальнейшего анализа."""
+    # Собирает историю матча в один список для дальнейшего анализа.
     entries = []
     if data.get("initial"):
         entries.append(data["initial"])
@@ -59,7 +59,7 @@ def _collect_match_entries(data):
 
 
 def _get_last_entry_before_closed(entries, field_name):
-    """Находит последнюю запись до состояния Closed по конкретному полю: ov или ah."""
+    # Находит последнюю запись до состояния Closed по конкретному полю: ov или ah.
     for idx in range(len(entries) - 2, -1, -1):
         if entries[idx].get(field_name, {}).get(field_name) != "Closed":
             return entries[idx], idx
@@ -67,7 +67,7 @@ def _get_last_entry_before_closed(entries, field_name):
 
 
 def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
-    """Отправляет Telegram-уведомление для найденного over-паттерна."""
+    # Отправляет Telegram-уведомление для найденного over-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -90,9 +90,8 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds):
 
 
 def _find_over_pattern(entries, match_id):
-    """Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом."""
+    # Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
     if len(entries) < 2 or entries[-1].get("ov", {}).get("over") != "Closed":
-        logger.debug(f"Match {match_id}: No 'Closed' in last entry or insufficient entries")
         return False
 
     last_entry, last_idx = _get_last_entry_before_closed(entries, "ov")
@@ -103,7 +102,6 @@ def _find_over_pattern(entries, match_id):
     last_total = last_entry.get("ov", {}).get("over")
 
     if last_over_odds is None or last_total is None or last_total == "Closed" or last_over_odds > THRESHOLD:
-        logger.debug(f"Match {match_id}: Base condition not met")
         return False
 
     start_search_idx = last_idx - 1
@@ -128,7 +126,7 @@ def _find_over_pattern(entries, match_id):
 
 
 def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side):
-    """Отправляет Telegram-уведомление для найденного handicaps-паттерна."""
+    # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -157,7 +155,7 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
 
 
 def _find_ah_pattern(entries, match_id):
-    """Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом."""
+    # Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
     if len(entries) < 2 or entries[-1].get("ah", {}).get("ah") != "Closed":
         return False
 
@@ -205,7 +203,7 @@ def _find_ah_pattern(entries, match_id):
 
 
 def find_pattern_matches(match_history):
-    """Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн."""
+    # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
     sent_matches = []
 
     for match_id, data in match_history.items():

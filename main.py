@@ -1,13 +1,11 @@
 import os
 import sys
 import time
-import threading
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from parser import parse_and_monitor_match, load_state_from_json, PageRestartRequired
-from stats import run_stats_service
 from storage import init_storage
-from config import site_url
+from config import SITE_COOKIES, browser_headless, site_url
 from logging_config import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -15,8 +13,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 logger = setup_logger(__name__)
 
 
-def _retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=True):
-    """Повторяет действие со страницей после ошибки."""
+# Повторяет действие со страницей после ошибки.
+def _retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=False):
     for attempt in range(1, max_retries + 1):
         try:
             return action()
@@ -32,18 +30,15 @@ def _retry_page_action(page, action, action_name, max_retries=3, reload_before_r
             )
             if reload_before_retry:
                 try:
-                    page.reload(
-                        wait_until="domcontentloaded",
-                        timeout=60000,
-                    )
+                    refresh_live_table(page)
                 except Exception as reload_error:
-                    logger.warning(f"Failed to reload page before retry: {reload_error}")
+                    logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
 
 
+# Инициализация браузера и страницы.
 def init_browser(p, max_navigation_retries=3):
-    """Инициализация браузера и страницы"""
-    logger.info("Initializing browser...")
-    browser = p.chromium.launch(headless=True, args=[
+    logger.info("Setup browser...")
+    browser = p.chromium.launch(headless=browser_headless, args=[
         "--disable-gpu",
         "--disable-dev-shm-usage",
         "--no-sandbox",
@@ -58,8 +53,15 @@ def init_browser(p, max_navigation_retries=3):
         "--metrics-recording-only",
         "--mute-audio",
     ])
-    page = browser.new_page()
+    context = browser.new_context()
+    page = context.new_page()
     page.set_viewport_size({"width": 1280, "height": 720})
+
+    try:
+        context.add_cookies(SITE_COOKIES)
+        logger.info("Cookies loaded")
+    except Exception as e:
+        logger.warning(f"Failed to add site cookies: {e}")
 
     def open_page():
         page.goto(
@@ -84,8 +86,8 @@ def init_browser(p, max_navigation_retries=3):
     return browser, page
 
 
+# Закрытие всплывающего окна.
 def close_popup(page):
-    """Закрытие всплывающего окна"""
     try:
         logger.info("Waiting for popup close button...")
         page.locator("i.closebtn").wait_for(timeout=10000)
@@ -95,9 +97,10 @@ def close_popup(page):
         logger.info("Popup did not appear or could not be closed")
 
 
+# Переключение на фильтр Live.
 def switch_to_live(page):
-    """Переключение на фильтр Live"""
     try:
+        page.locator("li#li_FilterLive").wait_for(timeout=10000)
         page.locator("li#li_FilterLive").click()
         page.locator("table#table_live").wait_for(timeout=10000)
         logger.info("Switched to Live")
@@ -106,42 +109,23 @@ def switch_to_live(page):
         raise
 
 
-def select_crown(page):
-    """Выбор компании Crown и ожидание загрузки данных"""
-    logger.info("Selecting company Crown...")
-    select = page.locator("select#CompanySel")
-
-    select.select_option(value="3")
-    page.wait_for_function(
-        "() => { const select = document.querySelector('#CompanySel'); return select && select.value === '3'; }",
-        timeout=5000,
-    )
-
-    page.wait_for_timeout(3000)
-    logger.info("Crown selected")
+# Обновление таблицы Live без полной перезагрузки страницы.
+def refresh_live_table(page):
+    try:
+        live_filter = page.locator("li#li_FilterLive")
+        live_filter.wait_for(timeout=10000)
+        live_filter.click()
+        page.locator("table#table_live").wait_for(timeout=10000)
+        logger.info("Live table refreshed")
+    except Exception as e:
+        logger.error(f"Failed to refresh Live table: {e}")
+        raise
 
 
-def configure_odds_settings(page):
-    """Настройка отображения odds через settings"""
-    logger.info("Opening settings...")
-    page.locator("span#settingBtn").click()
-    page.wait_for_selector("input#otc_2", timeout=5000)
-    page.wait_for_selector("input#otc_3", timeout=5000)
-
-    page.locator("input#otc_2").set_checked(False)
-    page.locator("input#otc_3").set_checked(True)
-
-    page.evaluate("MM_showHideLayers('soccerSettingWin','','none');")
-
-    page.wait_for_timeout(500)
-    logger.info("Settings configured")
-
-
+# Сбор списка ID матчей.
 def collect_matches(page):
-    """Сбор списка ID матчей"""
     matches = []
     try:
-        logger.info("Counting matches...")
         page.wait_for_timeout(1000)
         matches = page.evaluate("""
             () => {
@@ -192,14 +176,14 @@ def collect_matches(page):
                 return Array.from(matches);
             }
         """)
-        logger.info(f"Found {len(matches)} matches")
+        logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
     except Exception:
         pass
     return matches
 
 
+# Проверяем, что после загрузки доступны Crown и видимые odds.
 def has_valid_match_data(page):
-    """Проверяет, что после загрузки доступны Crown и видимые odds."""
     page.wait_for_timeout(1000)
     return page.evaluate("""
         () => {
@@ -225,12 +209,9 @@ def has_valid_match_data(page):
     """)
 
 
+# Главный цикл запуска бота.
 def main():
     init_storage()
-
-    # Run the statistics service in a background thread.
-    stats_thread = threading.Thread(target=run_stats_service, daemon=True)
-    stats_thread.start()
 
     while True:
         with sync_playwright() as p:
@@ -239,11 +220,10 @@ def main():
             try:
                 preparation_steps = [
                     ("switch_to_live", lambda: switch_to_live(page)),
-                    ("select_crown", lambda: select_crown(page)),
-                    ("configure_odds_settings", lambda: configure_odds_settings(page)),
                 ]
                 preparation_step = 0
 
+                # Подготавливаем страницу перед запуском мониторинга.
                 def prepare_page():
                     nonlocal preparation_step
 
@@ -259,32 +239,30 @@ def main():
                 _retry_page_action(page, prepare_page, "prepare page")
                 saved_state = load_state_from_json()
 
+                # Если есть сохранённое состояние, ждём готовности данных.
                 if saved_state:
                     while not has_valid_match_data(page):
                         logger.info("Saved-state data is not ready. Retrying in 30 seconds...")
                         time.sleep(30)
 
+                        # Обновляем Live-таблицу, пока данные не станут доступны.
                         def reload_page():
-                            page.reload(
-                                wait_until="domcontentloaded",
-                                timeout=60000,
-                            )
+                            refresh_live_table(page)
 
-                        _retry_page_action(page, reload_page, "reload page")
+                        _retry_page_action(page, reload_page, "refresh live table")
                     parse_and_monitor_match(page, saved_state=saved_state)
                 else:
+                    # Собираем матчи и ждём, пока они появятся.
                     matches = collect_matches(page)
                     while not matches:
                         logger.info("No matches found. Retrying in 60 seconds...")
                         time.sleep(60)
 
+                        # Обновляем Live-таблицу и проверяем, появились ли матчи.
                         def reload_page():
-                            page.reload(
-                                wait_until="domcontentloaded",
-                                timeout=60000,
-                            )
+                            refresh_live_table(page)
 
-                        _retry_page_action(page, reload_page, "reload page")
+                        _retry_page_action(page, reload_page, "refresh live table")
                         matches = collect_matches(page)
 
                     parse_and_monitor_match(page, matches)

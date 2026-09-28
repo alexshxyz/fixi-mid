@@ -16,7 +16,6 @@ def setup_logger(name, log_filename='bot.log'):
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
 
-    # Do not duplicate handlers for the same logger name in one process.
     if not logger.handlers:
         logger.addHandler(file_handler)
         logger.addHandler(console_handler)

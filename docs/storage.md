@@ -34,7 +34,7 @@ storage.py <---------------- telegram_notifier.py
   | хранит matches.json              | проверяет дубликат
   |                                  | и сохраняет найденный прогноз
   v                                  v
-stats.py и tools/stats_manual.py
+tools/stats_manual.py
   |
   | читают матчи и считают статистику
 ```
@@ -299,7 +299,7 @@ start_date <= match_date < end_date
 
 Так как дата хранится строкой в формате `YYYY-MM-DD`, лексикографическое сравнение работает корректно при условии, что все даты используют один формат.
 
-Функция используется в [stats.py](../stats.py) для расчёта статистики за текущий период и в `tools/stats_manual.py` для ручных отчётов.
+Функция используется в `tools/stats_manual.py` для ручных отчётов.
 
 ### 9.3. `calculate_stats(matches)`
 
@@ -342,26 +342,7 @@ start_date <= match_date < end_date
 
 ---
 
-## 10. Связь с stats.py и tools/stats_manual.py
-
-### `stats.py`
-
-Сервис статистики импортирует:
-
-```python
-from storage import get_matches_in_date_range, calculate_stats
-```
-
-Он получает матчи за нужный период и рассчитывает количество:
-
-- всех матчей;
-- побед;
-- поражений;
-- возвратов.
-
-Сервис запускается из `main.py` в отдельном фоновом потоке.
-
-### `tools/stats_manual.py`
+## 10. Ручная статистика через tools/stats_manual.py
 
 Ручной инструмент использует все публичные функции чтения и статистики:
 
@@ -406,7 +387,7 @@ from storage import get_matches_in_date_range, calculate_stats
 
 - `main.py` подготавливает файл через `init_storage()`;
 - `telegram_notifier.py` проверяет дубликаты и сохраняет найденные прогнозы;
-- `stats.py` и `tools/stats_manual.py` читают данные и считают статистику;
+- `tools/stats_manual.py` читает данные и считает статистику;
 - `parser.py` использует отдельное состояние мониторинга и напрямую не записывает прогнозы в `matches.json`.
 
 Таким образом, файл отделяет хранение данных от браузерного мониторинга, анализа паттернов и отправки уведомлений.

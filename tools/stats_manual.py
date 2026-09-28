@@ -13,12 +13,10 @@ from storage import get_all_matches, get_matches_in_date_range, calculate_stats,
 
 
 def get_full_stats():
-    """
-    Получает полную статистику со всех матчей в matches.json.
-    
-    Returns:
-        str: отформатированный HTML-текст с общей статистикой
-    """
+    # Получает полную статистику со всех матчей в matches.json.
+    #
+    # Returns:
+    # str: отформатированный HTML-текст с общей статистикой
     try:
         matches = get_all_matches()
         total_matches, wins, losses, voids = calculate_stats(matches)
@@ -53,12 +51,10 @@ def get_full_stats():
 
 
 def get_top_leagues():
-    """
-    Получает топ 3 лиги по количеству побед.
-    
-    Returns:
-        str: отформатированный HTML-текст с топ лигами
-    """
+    # Получает топ 3 лиги по количеству побед.
+    #
+    # Returns:
+    # str: отформатированный HTML-текст с топ лигами
     try:
         matches = get_all_matches()
         league_stats = get_stats_by_league(matches)
@@ -98,12 +94,10 @@ def get_top_leagues():
 
 
 def get_worst_leagues():
-    """
-    Получает худшие 3 лиги по количеству побед.
-    
-    Returns:
-        str: отформатированный HTML-текст с худшими лигами
-    """
+    # Получает худшие 3 лиги по количеству побед.
+    #
+    # Returns:
+    # str: отформатированный HTML-текст с худшими лигами
     try:
         matches = get_all_matches()
         league_stats = get_stats_by_league(matches)
@@ -143,12 +137,10 @@ def get_worst_leagues():
 
 
 def get_last_5_matches():
-    """
-    Получает последние 5 матчей из matches.json.
-    
-    Returns:
-        list: список данных матчей
-    """
+    # Получает последние 5 матчей из matches.json.
+    #
+    # Returns:
+    # list: список данных матчей
     try:
         matches = get_all_matches()
 
@@ -196,12 +188,10 @@ def get_last_5_matches():
 
 
 def format_last_5_matches(matches_data):
-    """
-    Форматирует последние 5 матчей для вывода.
-    
-    Returns:
-        str: отформатированный текст
-    """
+    # Форматирует последние 5 матчей для вывода.
+    #
+    # Returns:
+    # str: отформатированный текст
     if not matches_data:
         return "🕒 LAST 5 MATCHES\n\nNo recent matches available."
 
@@ -217,15 +207,13 @@ def format_last_5_matches(matches_data):
 
 
 def get_match_details_by_index(index):
-    """
-    Получает подробную информацию о конкретном матче по индексу.
-    
-    Args:
-        index: индекс матча в списке (0 для последнего)
-        
-    Returns:
-        dict: информация о матче или None если не найден
-    """
+    # Получает подробную информацию о конкретном матче по индексу.
+    #
+    # Args:
+    # index: индекс матча в списке (0 для последнего)
+    #
+    # Returns:
+    # dict: информация о матче или None если не найден
     try:
         matches = get_all_matches()
 
@@ -277,12 +265,10 @@ def get_match_details_by_index(index):
 
 
 def get_this_month_stats():
-    """
-    Получает статистику матчей за текущий месяц из matches.json.
-    
-    Returns:
-        str: отформатированный HTML-текст со статистикой за месяц
-    """
+    # Получает статистику матчей за текущий месяц из matches.json.
+    #
+    # Returns:
+    # str: отформатированный HTML-текст со статистикой за месяц
     try:
         # Получаем текущий год и месяц
         now = datetime.now()

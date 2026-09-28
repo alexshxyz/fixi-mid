@@ -11,6 +11,7 @@ logger = setup_logger(__name__)
 APP_DIR = Path(__file__).resolve().parent
 MATCHES_FILE = matches_file
 
+# Создаёт файл матчей, если он отсутствует.
 def _ensure_matches_file():
     path = Path(MATCHES_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -19,6 +20,7 @@ def _ensure_matches_file():
     return path
 
 
+# Загружает список матчей из JSON-файла.
 def _load_matches():
     path = _ensure_matches_file()
     try:
@@ -35,6 +37,7 @@ def _load_matches():
     return []
 
 
+# Сохраняет список матчей в JSON-файл.
 def _save_matches(matches):
     path = _ensure_matches_file()
     temp_path = None
@@ -61,16 +64,14 @@ def _save_matches(matches):
 
 
 def init_storage():
-    """Создаёт файл matches.json, если его ещё нет."""
+    # Создаёт файл matches.json, если его ещё нет.
     _ensure_matches_file()
     return True
 
 
 def check_duplicate_match(link, prediction):
-    """
-    Проверяет, есть ли уже запись с таким же link и prediction.
-    Логика та же, что и раньше, но данные читаются из JSON файла.
-    """
+    # Проверяет, есть ли уже запись с таким же link и prediction.
+    # Логика та же, что и раньше, но данные читаются из JSON файла.
     if not link or not prediction:
         return False
 
@@ -125,14 +126,13 @@ def save_match(
     return row_order, row_order
 
 
-# Statistics functions for JSON-based data
+# Возвращает все матчи из JSON-файла.
 def get_all_matches():
-    """Get all matches from JSON file."""
     return _load_matches()
 
 
+# Возвращает матчи в указанном диапазоне дат.
 def get_matches_in_date_range(start_date, end_date):
-    """Get matches within a date range (inclusive start, exclusive end)."""
     matches = _load_matches()
     filtered = []
     for match in matches:
@@ -142,11 +142,9 @@ def get_matches_in_date_range(start_date, end_date):
     return filtered
 
 
+# Подсчитывает общую статистику по списку матчей.
+# Возвращает кортеж: (total, wins, losses, voids).
 def calculate_stats(matches):
-    """
-    Calculate statistics from a list of matches.
-    Returns: (total, wins, losses, voids)
-    """
     total = len(matches)
     wins = sum(1 for m in matches if m.get('result') == 'Won')
     losses = sum(1 for m in matches if m.get('result') == 'Lost')
@@ -154,11 +152,9 @@ def calculate_stats(matches):
     return total, wins, losses, voids
 
 
+# Группирует статистику по лигам.
+# Возвращает словарь: лига -> (total, wins, losses, voids).
 def get_stats_by_league(matches):
-    """
-    Get statistics grouped by league.
-    Returns: dict with league as key and (total, wins, losses, voids) as value
-    """
     stats = {}
     for match in matches:
         league = match.get('league', 'Unknown')

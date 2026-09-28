@@ -79,10 +79,8 @@ def get_last_line():
 
 
 def parse_time(line):
-    """
-    Ожидаемый формат лога:
-    2026-04-16 18:30:10,123 - INFO - Match 123 updated
-    """
+    # Ожидаемый формат лога:
+    # 2026-04-16 18:30:10,123 - INFO - Match 123 updated
     try:
         if not line:
             return None

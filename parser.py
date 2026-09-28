@@ -6,6 +6,8 @@ import json
 import os
 import time
 import random
+from datetime import datetime, timezone
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from config import (
     state_save_file,
     restart_hours,
@@ -19,13 +21,95 @@ logger = setup_logger(__name__)
 
 STATE_SAVE_FILE = state_save_file
 RESTART_HOURS = restart_hours
+DEBUG_DATA_FILE = os.path.join(os.path.dirname(__file__), 'data.json')
 
 
+# Исключение для перезапуска браузера после повторных падений страницы.
 class PageRestartRequired(Exception):
-    """Raised when the page crashes repeatedly and the script needs to restart."""
     pass
 
 
+def _install_live_change_observer(page):
+    page.evaluate("""
+        () => {
+            const observerKey = "__fixi_live_table_observer";
+            const changeFlag = "__fixi_live_table_changed";
+            const table = document.querySelector('table#table_live');
+            if (!table) {
+                throw new Error('Live table not found.');
+            }
+            const observationRoot = table.parentElement || table;
+
+            const belongsToLiveTable = (node) => {
+                const element = node.nodeType === Node.ELEMENT_NODE
+                    ? node
+                    : node.parentElement;
+                return Boolean(element && element.closest('table#table_live'));
+            };
+            const containsLiveTable = (node) => {
+                const element = node.nodeType === Node.ELEMENT_NODE
+                    ? node
+                    : node.parentElement;
+                return Boolean(
+                    element && (
+                        element.matches('table#table_live') ||
+                        element.querySelector('table#table_live')
+                    )
+                );
+            };
+
+            window[changeFlag] = false;
+            const observer = new MutationObserver((records) => {
+                const liveTableChanged = records.some((record) => {
+                    if (belongsToLiveTable(record.target)) return true;
+                    return [...record.addedNodes, ...record.removedNodes].some(
+                        (node) => belongsToLiveTable(node) || containsLiveTable(node)
+                    );
+                });
+                if (liveTableChanged) window[changeFlag] = true;
+            });
+            observer.observe(observationRoot, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['class', 'style'],
+            });
+            window[observerKey] = observer;
+        }
+    """)
+
+
+def _remove_live_change_observer(page):
+    try:
+        page.evaluate("""
+            () => {
+                const observerKey = "__fixi_live_table_observer";
+                const changeFlag = "__fixi_live_table_changed";
+                window[observerKey]?.disconnect();
+                delete window[observerKey];
+                delete window[changeFlag];
+            }
+        """)
+    except Exception:
+        logger.warning("Could not stop live table observer.", exc_info=True)
+
+
+def _wait_for_live_change(page, timeout_ms):
+    try:
+        page.wait_for_function(
+            "() => window.__fixi_live_table_changed === true",
+            timeout=timeout_ms,
+            polling=100,
+        )
+    except PlaywrightTimeoutError:
+        return False
+
+    page.evaluate("window.__fixi_live_table_changed = false")
+    return True
+
+
+# Загружает сохранённое состояние матча из JSON-файла.
 def load_state_from_json(path=STATE_SAVE_FILE):
     if not os.path.exists(path):
         return None
@@ -40,13 +124,22 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         return None
 
 
+def _refresh_live_table(page):
+    # Обновляем Live-таблицу кликом по фильтру, не делая полной перезагрузки страницы.
+    live_filter = page.locator("li#li_FilterLive")
+    live_filter.wait_for(timeout=10000)
+    live_filter.click()
+    page.locator("table#table_live").wait_for(timeout=10000)
+    page.wait_for_timeout(1000)
+
+
+# Обновляет Live-таблицу с повторными попытками до успешного результата.
 def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max_crash_retries=3, max_timeout_retries=4):
     crash_retries = 0
     timeout_retries = 0
     while True:
         try:
-            page.reload(wait_until='domcontentloaded')
-            page.wait_for_timeout(1000)
+            _refresh_live_table(page)
             data_ready = page.evaluate(
                 """
                 () => {
@@ -80,7 +173,7 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
                 time.sleep(60)
                 continue
 
-            logger.info("Page reloaded and matches are ready")
+            logger.info("Live table refreshed")
             return
         except Exception as e:
             error_text = str(e)
@@ -110,10 +203,8 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
 
 
 def _extract_all_match_data(page, match_ids):
-    """
-    Извлекает данные ВСЕ матчей за один evaluate() вызов.
-    Вместо 70 evaluate, делаем 1 — это главная оптимизация.
-    """
+    # Извлекает данные ВСЕ матчей за один evaluate() вызов.
+    # Вместо 70 evaluate, делаем 1 — это главная оптимизация.
     js = """
         (matchIds) => {
             const result = {};
@@ -191,7 +282,7 @@ def _extract_all_match_data(page, match_ids):
                     },
                     team1: team1,
                     team2: team2,
-                    score: row.querySelector('td.f-b.blue.handpoint')?.textContent.trim() || 'Unknown',
+                    score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || 'Unknown',
                     league: league
                 };
             }
@@ -208,6 +299,24 @@ def _extract_all_match_data(page, match_ids):
         raise
 
 
+def _write_debug_match_data(matches):
+    try:
+        with open(DEBUG_DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "collected_at": datetime.now(timezone.utc).isoformat(),
+                    "matches": matches,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+            f.write("\n")
+    except Exception as e:
+        logger.warning(f"Failed to write match debug data to {DEBUG_DATA_FILE}: {e}")
+
+
+# Возвращает список ID матчей, которые сейчас видны в Live-таблице.
 def _collect_match_ids(page):
     return page.evaluate("""
         () => {
@@ -233,6 +342,7 @@ def _collect_match_ids(page):
     """)
 
 
+# Мониторит активные матчи и отслеживает изменения в их данных.
 class MatchMonitor:
     def __init__(self, page, match_ids=None, saved_state=None):
         self.page = page
@@ -242,20 +352,27 @@ class MatchMonitor:
         self.last_data = {}
         self.active_match_ids = []
         self.consecutive_table_errors = 0
-        self.reload_counter = 0
         self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
+        self.next_reload_at = time.monotonic() + self.reload_threshold
+        self.next_heartbeat_at = time.monotonic() + 100
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
+    # Запускает цикл мониторинга для текущего списка матчей.
     def run(self):
-        logger.info("parse_and_monitor_match started")
+        logger.info("Monitoring started")
         try:
             self._init_or_restore_state()
-            self._monitor_loop()
+            _install_live_change_observer(self.page)
+            try:
+                self._monitor_loop()
+            finally:
+                _remove_live_change_observer(self.page)
         except PageRestartRequired:
             raise
         except Exception as e:
             logger.error(f"Error in parse_and_monitor_match: {e}")
 
+    # Сохраняет текущее состояние матчей в JSON.
     def _save_state_to_json(self, active_match_ids, last_data, path=STATE_SAVE_FILE):
         try:
             payload = {
@@ -271,6 +388,7 @@ class MatchMonitor:
             logger.error(f"Failed to save state to {path}: {e}")
             return False
 
+    # Восстанавливает состояние из файла или инициализирует его заново.
     def _init_or_restore_state(self):
         if self.saved_state:
             self.active_match_ids = self.saved_state.get("active_match_ids", [])
@@ -281,15 +399,15 @@ class MatchMonitor:
             return
 
         self.active_match_ids = list(self.match_ids or [])
-        logger.info(f"Initializing monitoring for {len(self.active_match_ids)} matches")
         if self.active_match_ids:
             self._load_initial_data()
 
-        logger.info("Initial call to find_pattern_matches")
         find_pattern_matches(self.match_history)
 
+    # Загружает стартовые данные для всех активных матчей.
     def _load_initial_data(self):
         initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
+        _write_debug_match_data(initial_all_data)
         self.consecutive_table_errors = 0
 
         for match_id in self.active_match_ids:
@@ -301,37 +419,47 @@ class MatchMonitor:
                     'ov': initial_data['ov'],
                     'match_time': initial_data.get('match_time', 'Unknown'),
                 }
-                logger.info(f"Initial data loaded for match {match_id}")
             else:
                 logger.info(f"No initial data for match {match_id}")
 
+    # Ждёт мутации Live-таблицы и периодически обновляет её.
     def _monitor_loop(self):
-        loop_counter = 0
         while True:
-            time.sleep(1)
-            self.reload_counter += 1
-            loop_counter += 1
             data_changed = False
+            now = time.monotonic()
 
-            if loop_counter % 100 == 0:
-                logger.info(f"Heartbeat: {loop_counter} loops completed")
+            if now >= self.next_heartbeat_at:
+                logger.info("Heartbeat: OK")
+                self.next_heartbeat_at = now + 100
 
             if time.time() >= self.restart_deadline:
                 self._trigger_scheduled_restart()
 
-            if self.reload_counter >= self.reload_threshold:
-                if self._do_periodic_reload():
-                    data_changed = True
+            if now >= self.next_reload_at:
+                data_changed = self._do_periodic_reload()
+                if self.active_match_ids:
+                    changed, _ = self._poll_and_update()
+                    data_changed = data_changed or changed
+                if data_changed:
+                    find_pattern_matches(self.match_history)
+                continue
 
-            if self.active_match_ids:
-                changed, should_continue = self._poll_and_update()
-                if should_continue:
-                    continue
-                data_changed = data_changed or changed
+            wait_seconds = min(
+                self.next_reload_at - now,
+                self.restart_deadline - time.time(),
+                self.next_heartbeat_at - now,
+            )
+            changed = _wait_for_live_change(
+                self.page,
+                timeout_ms=max(1, int(wait_seconds * 1000)),
+            )
+            if changed and self.active_match_ids:
+                data_changed, _ = self._poll_and_update()
 
             if data_changed:
                 find_pattern_matches(self.match_history)
 
+    # Сохраняет состояние и запускает перезапуск по расписанию.
     def _trigger_scheduled_restart(self):
         logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
         if self._save_state_to_json(self.active_match_ids, self.last_data):
@@ -340,9 +468,8 @@ class MatchMonitor:
             logger.error("Failed to save state, but proceeding with restart.")
         raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
 
+    # Выполняет регулярное обновление Live-таблицы и синхронизацию матчей.
     def _do_periodic_reload(self):
-        self.reload_counter = 0
-        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
         _reload_page_with_retries(
             self.page,
             self.active_match_ids,
@@ -351,8 +478,12 @@ class MatchMonitor:
         )
 
         current_match_ids = _collect_match_ids(self.page)
-        return self._synchronize_matches(current_match_ids)
+        synchronized = self._synchronize_matches(current_match_ids)
+        self.reload_threshold = random.randint(page_reload_min_seconds, page_reload_max_seconds)
+        self.next_reload_at = time.monotonic() + self.reload_threshold
+        return synchronized
 
+    # Синхронизирует набор активных матчей после обновления таблицы.
     def _synchronize_matches(self, current_match_ids):
         current_match_ids = list(dict.fromkeys(current_match_ids))
         previous_match_ids = set(self.active_match_ids)
@@ -363,7 +494,6 @@ class MatchMonitor:
         for removed_id in removed_match_ids:
             self.match_history.pop(removed_id, None)
             self.last_data.pop(removed_id, None)
-            logger.info(f"Match {removed_id} removed")
 
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:
@@ -380,20 +510,26 @@ class MatchMonitor:
                         'match_time': initial_data.get('match_time', 'Unknown'),
                     }
                     initialized_match_ids.append(new_id)
-                    logger.info(f"New match {new_id} added")
 
         self.active_match_ids = initialized_match_ids
         logger.info(
-            f"Matches synchronized: active={len(self.active_match_ids)}, "
-            f"new={len(new_match_ids)}, removed={len(removed_match_ids)}"
+            "Matches synchronized: Active %d (%s) New %d (%s) Removed %d (%s)",
+            len(self.active_match_ids),
+            ", ".join(self.active_match_ids) or "-",
+            len(new_match_ids),
+            ", ".join(new_match_ids) or "-",
+            len(removed_match_ids),
+            ", ".join(removed_match_ids) or "-",
         )
         return bool(new_match_ids or removed_match_ids)
 
+    # Проверяет изменение данных по текущим матчам и обновляет историю.
     def _poll_and_update(self):
         all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
+        _write_debug_match_data(all_match_data)
         self.consecutive_table_errors = 0
 
-        data_changed = False
+        updated_match_ids = []
         for match_id in self.active_match_ids:
             if match_id not in self.last_data:
                 continue
@@ -410,17 +546,21 @@ class MatchMonitor:
                     'ov': current_data['ov'],
                     'match_time': current_data.get('match_time', 'Unknown'),
                 }
-                data_changed = True
-                logger.debug(f"Match {match_id} updated")
+                updated_match_ids.append(match_id)
 
-        return data_changed, False
+        if updated_match_ids:
+            logger.info(
+                "Matches updated: %d (%s)",
+                len(updated_match_ids),
+                ", ".join(updated_match_ids),
+            )
+
+        return bool(updated_match_ids), False
 
 
 def parse_and_monitor_match(page, match_ids=None, saved_state=None):
-    """
-    Парсит и мониторит все матчи по списку ID.
-    Сохраняет начальные и измененные данные в памяти.
-    """
+    # Парсит и мониторит все матчи по списку ID.
+    # Сохраняет начальные и измененные данные в памяти.
     MatchMonitor(page, match_ids=match_ids, saved_state=saved_state).run()
 
 

@@ -34,8 +34,7 @@ main.py       ─┐
 parser.py     ─┤
 logics.py     ─┤
 storage.py    ─┼──> logging_config.setup_logger() ──> файл + консоль
-stats.py      ─┘                    |
-                                     └── stats.py использует stats.log
+               ┘
 ```
 
 Основные модули используют `bot.log`:
@@ -45,7 +44,7 @@ stats.py      ─┘                    |
 - `logics.py`;
 - `storage.py`.
 
-Модуль `stats.py` передаёт отдельное имя файла `stats.log`, чтобы месячная статистика не смешивалась с основным журналом приложения.
+Основные модули используют общий журнал `bot.log`.
 
 ---
 
@@ -71,10 +70,10 @@ logger = setup_logger(__name__)
 
 Имя файла для записи логов. По умолчанию используется `bot.log`.
 
-Для отдельного файла статистики:
+Для отдельного файла журнала при необходимости:
 
 ```python
-logger = setup_logger(__name__, 'stats.log')
+logger = setup_logger(__name__, 'custom.log')
 ```
 
 Путь к файлу строится относительно каталога, в котором находится `logging_config.py`.
@@ -152,9 +151,3 @@ logger = setup_logger(__name__)
 
 Такой вариант используется в `main.py`, `parser.py`, `logics.py` и `storage.py`.
 
-```python
-# stats.log
-logger = setup_logger(__name__, 'stats.log')
-```
-
-Такой вариант используется в `stats.py`.

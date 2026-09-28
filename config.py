@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -7,6 +8,7 @@ APP_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=APP_DIR / '.env')
 
 site_url = "https://live11.nowgoal26.com/"
+browser_headless = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 telegram_api_url = "https://api.telegram.org/bot{token}/sendMessage"
 
 matches_file = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))
@@ -25,9 +27,78 @@ threshold = 0.61 # Максимальное значение коэффицие�
 max_odd = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
 restart_hours = 8 # Плановая перезагрузка скрипта
 
+
+# Преобразуем timestamp cookie в Unix-время.
+def _cookie_expires(raw_value):
+    return int(
+        datetime.strptime(raw_value, "%Y-%m-%dT%H:%M:%S.%fZ")
+        .replace(tzinfo=timezone.utc)
+        .timestamp()
+    )
+
+
+SITE_COOKIES = [
+    {
+        "name": "nowgoal26_SelCompany_V2",
+        "value": "3",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:54:21.000Z"),
+    },
+    {
+        "name": "orderby",
+        "value": "time",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:51:32.000Z"),
+    },
+    {
+        "name": "Default_TimeZone",
+        "value": "3",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:51:00.000Z"),
+    },
+    {
+        "name": "isOddsShow",
+        "value": "1",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:55:57.000Z"),
+    },
+    {
+        "name": "OddsShowType",
+        "value": "9",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:55:57.000Z"),
+    },
+    {
+        "name": "goalWindowCheck",
+        "value": "0",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:56:28.000Z"),
+    },
+    {
+        "name": "redWindowCheck",
+        "value": "0",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:56:47.000Z"),
+    },
+    {
+        "name": "YellowCheck",
+        "value": "0",
+        "domain": "live11.nowgoal26.com",
+        "path": "/",
+        "expires": _cookie_expires("2026-10-13T11:57:02.000Z"),
+    },
+]
+
 # Перезагрузка страницы в секундах (случайное значение между min и max)
-page_reload_min_seconds = 420 
-page_reload_max_seconds = 480
+page_reload_min_seconds = 100
+page_reload_max_seconds = 120
 
 with open(leagues_file, 'r', encoding='utf-8') as f:
     leagues_data = json.load(f)

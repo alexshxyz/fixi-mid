@@ -136,7 +136,7 @@ dmypy.json
 .DS_Store
 Thumbs.db
 
-# Logs and stats files
+# Logs and legacy monthly stats files
 bot.log
 stats.log
 stats.txt

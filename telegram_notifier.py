@@ -77,15 +77,14 @@ def _build_prediction(over, handicap_text, handicap_team_order):
 
 
 def _format_prediction_for_message(prediction, odds_value):
-    """Return a Telegram-safe HTML line for the prediction and odds value.
-
-    Rules:
-      - all normal text remains plain
-      - the predictive number token (over or handicap_text) is wrapped in <code>
-      - the odds token is also wrapped in <code>
-      - the FT label remains plain text
-      - the separator between prediction and odds stays as · and spaced
-    """
+    # Return a Telegram-safe HTML line for the prediction and odds value.
+    #
+    # Rules:
+    # - all normal text remains plain
+    # - the predictive number token (over or handicap_text) is wrapped in <code>
+    # - the odds token is also wrapped in <code>
+    # - the FT label remains plain text
+    # - the separator between prediction and odds stays as · and spaced
     if prediction.startswith('Over '):
         m = re.match(r'^Over\s+([^\s]+)\s+FT$', prediction)
         if m:
@@ -120,9 +119,6 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
 
 def _is_duplicate_notification(match_url, prediction, match_id):
     if check_duplicate_match(match_url, prediction):
-        logger.info(
-            f"[DUPLICATE] Match {match_id} with prediction '{prediction}' already sent. Skipping."
-        )
         return True
     return False
 
@@ -149,7 +145,7 @@ def _send_message(payload, match_id=None, success_message=None):
 
 
 def send_telegram_message(text):
-    """Отправляет произвольное HTML-сообщение в Telegram-канал."""
+    # Отправляет произвольное HTML-сообщение в Telegram-канал.
     payload = {
         "chat_id": channel_id,
         "text": text,
@@ -185,7 +181,7 @@ def send_telegram_notification(
     handicap_team_order=None,
     match_time='Unknown',
 ):
-    """Отправляет уведомление о матче в Telegram канал."""
+    # Отправляет уведомление о матче в Telegram канал.
     match_url = f"{site_url}oddscomp/{match_id}" if match_id else ""
     odds_value = _prepare_odds(over_odds)
     prediction = _build_prediction(over, handicap_text, handicap_team_order)

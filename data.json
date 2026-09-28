@@ -1,0 +1,95 @@
+{
+  "collected_at": "2026-09-28T12:59:26.467862+00:00",
+  "matches": {
+    "3088945": {
+      "time": "28",
+      "match_time": "28",
+      "ah": {
+        "home_ah_odds": "0.90",
+        "ah": "-0.5",
+        "away_ah_odds": "0.96"
+      },
+      "ov": {
+        "over_odds": "0.92",
+        "over": "2",
+        "under_odds": "0.92"
+      },
+      "team1": "Malaysia",
+      "team2": "Indonesia",
+      "score": "0 - 0",
+      "league": "FIFA ASEAN Cup"
+    },
+    "3091497": {
+      "time": "HT",
+      "match_time": "HT",
+      "ah": {
+        "home_ah_odds": "0.95",
+        "ah": "0/-0.5",
+        "away_ah_odds": "0.87"
+      },
+      "ov": {
+        "over_odds": "1.00",
+        "over": "2",
+        "under_odds": "0.80"
+      },
+      "team1": "Tajikistan",
+      "team2": "Palestine",
+      "score": "2 - 2",
+      "league": "International Friendly"
+    },
+    "3094466": {
+      "time": "HT",
+      "match_time": "HT",
+      "ah": {
+        "home_ah_odds": "0.81",
+        "ah": "0",
+        "away_ah_odds": "1.01"
+      },
+      "ov": {
+        "over_odds": "0.91",
+        "over": "3/3.5",
+        "under_odds": "0.89"
+      },
+      "team1": "Kenya U23",
+      "team2": "Tanzania U23",
+      "score": "2 - 0",
+      "league": "Africa Cup of Nations U23"
+    },
+    "3095282": {
+      "time": "HT",
+      "match_time": "HT",
+      "ah": {
+        "home_ah_odds": "0.69",
+        "ah": "0",
+        "away_ah_odds": "1.14"
+      },
+      "ov": {
+        "over_odds": "0.91",
+        "over": "2",
+        "under_odds": "0.89"
+      },
+      "team1": "Social Atletico Television (W)",
+      "team2": "Gimnasia LP (W)",
+      "score": "1 - 0",
+      "league": "The women´s league of Argentina"
+    },
+    "3096146": {
+      "time": "HT",
+      "match_time": "HT",
+      "ah": {
+        "home_ah_odds": "0.82",
+        "ah": "0",
+        "away_ah_odds": "1.00"
+      },
+      "ov": {
+        "over_odds": "1.00",
+        "over": "1.5",
+        "under_odds": "0.80"
+      },
+      "team1": "CA River Plate Reserves",
+      "team2": "Montevideo City Torque Reserves",
+      "score": "0 - 0",
+      "league": "Uruguay Reserve League"
+    }
+  }
+}
