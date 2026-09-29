@@ -5,16 +5,14 @@
 import json
 import os
 import time
-import random
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from config import (
     LEAGUES_LIST,
     NOTIFICATION_CHECK_DELAY_SECONDS,
-    PAGE_RELOAD_MAX_SECONDS,
-    PAGE_RELOAD_MIN_SECONDS,
-    PAGE_REFRESH_INTERVAL_SECONDS,
+    PAGE_LIVE_RELOAD,
     RESTART_HOURS,
     STATE_SAVE_FILE,
+    TABLE_LIVE_RELOAD,
 )
 from logger import setup_logger
 from analyzer import find_pattern_matches
@@ -346,9 +344,8 @@ class MatchMonitor:
         self.pending_notifications = {}
         self.active_match_ids = []
         self.consecutive_table_errors = 0
-        self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
-        self.next_reload_at = time.monotonic() + self.reload_threshold
-        self.next_page_refresh_at = time.monotonic() + PAGE_REFRESH_INTERVAL_SECONDS
+        self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
+        self.next_page_refresh_at = time.monotonic() + PAGE_LIVE_RELOAD
         self.next_heartbeat_at = time.monotonic() + 100
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
@@ -522,12 +519,9 @@ class MatchMonitor:
             if self.page_refresh_callback and now >= self.next_page_refresh_at:
                 try:
                     data_changed = self._do_scheduled_page_refresh()
-                    self.reload_threshold = random.randint(
-                        PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS
-                    )
-                    self.next_reload_at = time.monotonic() + self.reload_threshold
+                    self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
                     self.next_page_refresh_at = (
-                        time.monotonic() + PAGE_REFRESH_INTERVAL_SECONDS
+                        time.monotonic() + PAGE_LIVE_RELOAD
                     )
                 except Exception as e:
                     logger.error("Scheduled page refresh failed: %s", e)
@@ -597,8 +591,7 @@ class MatchMonitor:
 
         current_match_ids = _collect_match_ids(self.page)
         synchronized = self._synchronize_matches(current_match_ids)
-        self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
-        self.next_reload_at = time.monotonic() + self.reload_threshold
+        self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
         return synchronized
 
     # Перезагружает страницу, не пересоздавая состояние монитора.
