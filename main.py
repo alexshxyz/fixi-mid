@@ -3,7 +3,11 @@ import sys
 import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
-from tracker import parse_and_monitor_match, load_state_from_json, PageRestartRequired
+from tracker import (
+    parse_and_monitor_match,
+    load_state_from_json,
+    PageRestartRequired,
+)
 from storage import init_storage
 from config import BROWSER_HEADLESS, SITE_COOKIES, SITE_URL
 from logger import setup_logger
@@ -109,16 +113,38 @@ def switch_to_live(page):
         raise
 
 
-# Обновление таблицы Live без полной перезагрузки страницы.
+# Обновляет Live-таблицу кликом по фильтру без полной перезагрузки страницы.
 def refresh_live_table(page):
+    logger.info("Refreshing...")
     try:
         live_filter = page.locator("li#li_FilterLive")
         live_filter.wait_for(timeout=10000)
         live_filter.click()
         page.locator("table#table_live").wait_for(timeout=10000)
+        page.wait_for_timeout(1000)
         logger.info("Live table refreshed")
     except Exception as e:
-        logger.error(f"Failed to refresh Live table: {e}")
+        logger.error("Failed to refresh Live table: %s", e)
+        raise
+
+
+# Полностью перезагружает страницу и ждёт готовности данных Live.
+def refresh_page(page):
+    logger.info("Refreshing...")
+    try:
+        page.reload(wait_until="domcontentloaded", timeout=60000)
+        page.locator("table#table_live").wait_for(timeout=10000)
+
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if has_valid_match_data(page):
+                logger.info("Page refreshed")
+                return
+            page.wait_for_timeout(1000)
+
+        raise TimeoutError("Live table data did not become ready after page refresh")
+    except Exception as e:
+        logger.error(f"Failed to refresh page: {e}")
         raise
 
 
@@ -250,7 +276,12 @@ def main():
                             refresh_live_table(page)
 
                         _retry_page_action(page, reload_page, "refresh live table")
-                    parse_and_monitor_match(page, saved_state=saved_state)
+                    parse_and_monitor_match(
+                        page,
+                        saved_state=saved_state,
+                        live_refresh_callback=refresh_live_table,
+                        page_refresh_callback=refresh_page,
+                    )
                 else:
                     # Собираем матчи и ждём, пока они появятся.
                     matches = collect_matches(page)
@@ -265,7 +296,12 @@ def main():
                         _retry_page_action(page, reload_page, "refresh live table")
                         matches = collect_matches(page)
 
-                    parse_and_monitor_match(page, matches)
+                    parse_and_monitor_match(
+                        page,
+                        matches,
+                        live_refresh_callback=refresh_live_table,
+                        page_refresh_callback=refresh_page,
+                    )
             except PageRestartRequired as e:
                 logger.warning(f"{e}. Restarting script after saving state...")
                 try:

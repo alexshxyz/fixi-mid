@@ -12,6 +12,7 @@ from config import (
     NOTIFICATION_CHECK_DELAY_SECONDS,
     PAGE_RELOAD_MAX_SECONDS,
     PAGE_RELOAD_MIN_SECONDS,
+    PAGE_REFRESH_INTERVAL_SECONDS,
     RESTART_HOURS,
     STATE_SAVE_FILE,
 )
@@ -125,22 +126,21 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         return None
 
 
-# Обновляет Live-таблицу кликом по фильтру без полной перезагрузки страницы.
-def _refresh_live_table(page):
-    live_filter = page.locator("li#li_FilterLive")
-    live_filter.wait_for(timeout=10000)
-    live_filter.click()
-    page.locator("table#table_live").wait_for(timeout=10000)
-    page.wait_for_timeout(1000)
-
-
 # Обновляет Live-таблицу с повторными попытками до успешного результата.
-def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max_crash_retries=3, max_timeout_retries=4):
+def _reload_page_with_retries(
+    page,
+    active_match_ids,
+    last_data,
+    save_state,
+    live_refresh_callback,
+    max_crash_retries=3,
+    max_timeout_retries=4,
+):
     crash_retries = 0
     timeout_retries = 0
     while True:
         try:
-            _refresh_live_table(page)
+            live_refresh_callback(page)
             data_ready = page.evaluate(
                 """
                 () => {
@@ -174,7 +174,6 @@ def _reload_page_with_retries(page, active_match_ids, last_data, save_state, max
                 time.sleep(60)
                 continue
 
-            logger.info("Live table refreshed")
             return
         except Exception as e:
             error_text = str(e)
@@ -328,10 +327,20 @@ def _collect_match_ids(page):
 # Мониторит активные матчи и отслеживает изменения в их данных.
 class MatchMonitor:
     # Создаёт монитор и инициализирует состояние и расписание проверок.
-    def __init__(self, page, match_ids=None, saved_state=None):
+    def __init__(
+        self,
+        page,
+        match_ids=None,
+        saved_state=None,
+        *,
+        live_refresh_callback,
+        page_refresh_callback=None,
+    ):
         self.page = page
         self.match_ids = match_ids
         self.saved_state = saved_state
+        self.live_refresh_callback = live_refresh_callback
+        self.page_refresh_callback = page_refresh_callback
         self.match_history = {}
         self.last_data = {}
         self.pending_notifications = {}
@@ -339,6 +348,7 @@ class MatchMonitor:
         self.consecutive_table_errors = 0
         self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
         self.next_reload_at = time.monotonic() + self.reload_threshold
+        self.next_page_refresh_at = time.monotonic() + PAGE_REFRESH_INTERVAL_SECONDS
         self.next_heartbeat_at = time.monotonic() + 100
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
@@ -509,10 +519,31 @@ class MatchMonitor:
             if time.time() >= self.restart_deadline:
                 self._trigger_scheduled_restart()
 
+            if self.page_refresh_callback and now >= self.next_page_refresh_at:
+                try:
+                    data_changed = self._do_scheduled_page_refresh()
+                    self.reload_threshold = random.randint(
+                        PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS
+                    )
+                    self.next_reload_at = time.monotonic() + self.reload_threshold
+                    self.next_page_refresh_at = (
+                        time.monotonic() + PAGE_REFRESH_INTERVAL_SECONDS
+                    )
+                except Exception as e:
+                    logger.error("Scheduled page refresh failed: %s", e)
+                    self.next_page_refresh_at = time.monotonic() + 300
+
+                if data_changed:
+                    find_pattern_matches(
+                        self.match_history, self._register_pending_notification
+                    )
+                self._process_due_notifications()
+                continue
+
             if now >= self.next_reload_at:
                 data_changed = self._do_periodic_reload()
                 if self.active_match_ids:
-                    changed, _ = self._poll_and_update()
+                    changed, _ = self._poll_and_update(log_data_loaded=True)
                     data_changed = data_changed or changed
                 if data_changed:
                     find_pattern_matches(
@@ -523,6 +554,9 @@ class MatchMonitor:
 
             wait_seconds = min(
                 self.next_reload_at - now,
+                self.next_page_refresh_at - now
+                if self.page_refresh_callback
+                else float("inf"),
                 self.restart_deadline - time.time(),
                 self.next_heartbeat_at - now,
             )
@@ -558,6 +592,7 @@ class MatchMonitor:
             self.active_match_ids,
             self.last_data,
             self._save_state_to_json,
+            self.live_refresh_callback,
         )
 
         current_match_ids = _collect_match_ids(self.page)
@@ -565,6 +600,18 @@ class MatchMonitor:
         self.reload_threshold = random.randint(PAGE_RELOAD_MIN_SECONDS, PAGE_RELOAD_MAX_SECONDS)
         self.next_reload_at = time.monotonic() + self.reload_threshold
         return synchronized
+
+    # Перезагружает страницу, не пересоздавая состояние монитора.
+    def _do_scheduled_page_refresh(self):
+        self.page_refresh_callback(self.page)
+        _install_live_change_observer(self.page)
+
+        current_match_ids = _collect_match_ids(self.page)
+        data_changed = self._synchronize_matches(current_match_ids)
+        if self.active_match_ids:
+            changed, _ = self._poll_and_update(log_data_loaded=True)
+            data_changed = data_changed or changed
+        return data_changed
 
     # Синхронизирует набор активных матчей после обновления таблицы.
     def _synchronize_matches(self, current_match_ids):
@@ -611,9 +658,12 @@ class MatchMonitor:
         return bool(new_match_ids or removed_match_ids)
 
     # Проверяет изменение данных по текущим матчам и обновляет историю.
-    def _poll_and_update(self):
+    def _poll_and_update(self, log_data_loaded=False):
         all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
         self.consecutive_table_errors = 0
+
+        if log_data_loaded:
+            logger.info("Matches data reloaded")
 
         updated_match_ids = []
         for match_id in self.active_match_ids:
@@ -645,9 +695,26 @@ class MatchMonitor:
 
 
 # Запускает мониторинг матчей с новым или восстановленным состоянием.
-def parse_and_monitor_match(page, match_ids=None, saved_state=None):
-    MatchMonitor(page, match_ids=match_ids, saved_state=saved_state).run()
+def parse_and_monitor_match(
+    page,
+    match_ids=None,
+    saved_state=None,
+    *,
+    live_refresh_callback,
+    page_refresh_callback=None,
+):
+    MatchMonitor(
+        page,
+        match_ids=match_ids,
+        saved_state=saved_state,
+        live_refresh_callback=live_refresh_callback,
+        page_refresh_callback=page_refresh_callback,
+    ).run()
 
 
 # Экспорт функций
-__all__ = ['parse_and_monitor_match', 'MatchMonitor', 'PageRestartRequired']
+__all__ = [
+    'parse_and_monitor_match',
+    'MatchMonitor',
+    'PageRestartRequired',
+]

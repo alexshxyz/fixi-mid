@@ -31,9 +31,9 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 THRESHOLD = 0.61 # Максимальное значение коэффициента последней строки перед closed (0.61)
 MAX_ODD = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
 
-# Перезагрузка страницы в секундах (случайное значение между min и max)
-PAGE_RELOAD_MIN_SECONDS = 100
-PAGE_RELOAD_MAX_SECONDS = 120
+PAGE_RELOAD_MIN_SECONDS = 100 # Перезагрузка через клик по live
+PAGE_RELOAD_MAX_SECONDS = 120 # Перезагрузка через клик по live
+PAGE_REFRESH_INTERVAL_SECONDS = 3600 # Жесткая перезагрузка страницы
 
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала
