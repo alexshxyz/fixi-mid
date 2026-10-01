@@ -144,3 +144,4 @@ stats.txt
 # Runtime JSON data
 matches.json
 match_state.json
+matches.csv
