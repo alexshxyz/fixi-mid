@@ -1,7 +1,6 @@
 import requests
 import os
 import json
-import re
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -81,28 +80,7 @@ def _build_prediction(over, handicap_text, handicap_team_order):
 
 # Форматирует прогноз и коэффициент с HTML-разметкой Telegram.
 def _format_prediction_for_message(prediction, odds_value):
-    # Return a Telegram-safe HTML line for the prediction and odds value.
-    #
-    # Rules:
-    # - all normal text remains plain
-    # - the predictive number token (over or handicap_text) is wrapped in <code>
-    # - the odds token is also wrapped in <code>
-    # - the FT label remains plain text
-    # - the separator between prediction and odds stays as · and spaced
-    if prediction.startswith('Over '):
-        m = re.match(r'^Over\s+([^\s]+)\s+FT$', prediction)
-        if m:
-            over = m.group(1)
-            return f"Over <code>{over}</code> FT · <code>{odds_value}</code>"
-
-    if prediction.startswith('Handicap '):
-        m = re.match(r'^Handicap\s+([^\s]+)\s+([^\s]+)\s+FT$', prediction)
-        if m:
-            handicap = m.group(1)
-            side = m.group(2)
-            return f"Handicap <code>{handicap}</code> {side} FT · <code>{odds_value}</code>"
-
-    return f"{prediction} · <code>{odds_value}</code>"
+    return f"{prediction} · {odds_value}"
 
 
 # Формирует HTML-текст уведомления о матче.
@@ -115,8 +93,8 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
     linkified_match_text = f'<a href="{match_url}">{match_text}</a>' if match_url else match_text
 
     return (
-        f"<b>{league}</b>\n\n"
-        f"⌛️ <code>{clean_match_time}’</code> {linkified_match_text}\n\n"
+        f"<b>{league}</b>\n"
+        f"⚽️ {clean_match_time}’ {linkified_match_text}\n\n"
         f"{_format_prediction_for_message(prediction, odds_value)}"
     )
 
