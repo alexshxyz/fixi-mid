@@ -40,9 +40,8 @@ def load_state_from_json(path=STATE_SAVE_FILE):
         return None
 
 
-# Мониторит активные матчи и отслеживает изменения в их данных.
+# Создаёт монитор и инициализирует состояние и расписание проверок.
 class MatchMonitor:
-    # Создаёт монитор и инициализирует состояние и расписание проверок.
     def __init__(
         self,
         page,
@@ -241,6 +240,8 @@ class MatchMonitor:
                     self.next_page_refresh_at = (
                         time.monotonic() + PAGE_LIVE_RELOAD
                     )
+                except PageRestartRequired:
+                    raise
                 except Exception as e:
                     logger.error("Scheduled page refresh failed: %s", e)
                     self.next_page_refresh_at = time.monotonic() + 300
@@ -299,13 +300,13 @@ class MatchMonitor:
 
     # Выполняет регулярное обновление Live-таблицы и синхронизацию матчей.
     def _do_periodic_reload(self):
-        _reload_page_with_retries(
+        live_refresh_succeeded = _reload_page_with_retries(
             self.page,
-            self.active_match_ids,
-            self.last_data,
-            self._save_state_to_json,
             self.live_refresh_callback,
         )
+        if not live_refresh_succeeded:
+            logger.warning("Live refresh failed. Escalating to a full page refresh.")
+            self._do_hard_page_refresh_with_retries()
 
         current_match_ids = _collect_match_ids(self.page)
         synchronized = self._synchronize_matches(current_match_ids)
@@ -314,8 +315,7 @@ class MatchMonitor:
 
     # Перезагружает страницу, не пересоздавая состояние монитора.
     def _do_scheduled_page_refresh(self):
-        self.page_refresh_callback(self.page)
-        _install_live_change_observer(self.page)
+        self._do_hard_page_refresh_with_retries()
 
         current_match_ids = _collect_match_ids(self.page)
         data_changed = self._synchronize_matches(current_match_ids)
@@ -323,6 +323,45 @@ class MatchMonitor:
             changed, _ = self._poll_and_update(log_data_loaded=True)
             data_changed = data_changed or changed
         return data_changed
+
+    # Повторяет полную перезагрузку страницы и сохраняет состояние при отказе.
+    def _do_hard_page_refresh_with_retries(self, max_retries=3, retry_delay=60):
+        for attempt in range(1, max_retries + 1):
+            try:
+                if self.page_refresh_callback is None:
+                    raise RuntimeError("Full page refresh callback is not configured")
+                self.page_refresh_callback(self.page)
+                _install_live_change_observer(self.page)
+                return
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(
+                        "Full page refresh attempt %s/%s failed: %s. "
+                        "Retrying in %s seconds...",
+                        attempt,
+                        max_retries,
+                        e,
+                        retry_delay,
+                    )
+                    time.sleep(retry_delay)
+                    continue
+
+                if self._save_state_to_json(self.active_match_ids, self.last_data):
+                    logger.error(
+                        "Full page refresh failed after %s attempts. "
+                        "Saved state to %s and requesting restart.",
+                        max_retries,
+                        STATE_SAVE_FILE,
+                    )
+                else:
+                    logger.error(
+                        "Full page refresh failed after %s attempts and state save "
+                        "failed. Requesting restart anyway.",
+                        max_retries,
+                    )
+                raise PageRestartRequired(
+                    f"Full page refresh failed after {max_retries} attempts: {e}"
+                ) from e
 
     # Синхронизирует набор активных матчей после обновления таблицы.
     def _synchronize_matches(self, current_match_ids):

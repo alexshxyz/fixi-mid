@@ -2,7 +2,6 @@ import time
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from config import STATE_SAVE_FILE
 from logger import setup_logger
 
 logger = setup_logger('tracker')
@@ -95,19 +94,14 @@ def _wait_for_live_change(page, timeout_ms):
     return True
 
 
-# Обновляет Live-таблицу с повторными попытками до успешного результата.
+# Обновляет Live-таблицу с ограниченным числом повторных попыток.
 def _reload_page_with_retries(
     page,
-    active_match_ids,
-    last_data,
-    save_state,
     live_refresh_callback,
-    max_crash_retries=3,
-    max_timeout_retries=4,
+    max_retries=3,
+    retry_delay=5,
 ):
-    crash_retries = 0
-    timeout_retries = 0
-    while True:
+    for attempt in range(1, max_retries + 1):
         try:
             live_refresh_callback(page)
             data_ready = page.evaluate(
@@ -136,39 +130,26 @@ def _reload_page_with_retries(
             )
 
             if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOddsPair"]:
-                logger.warning(
-                    "Matches not found after reload. "
-                    "Waiting 60 seconds before reloading again..."
-                )
-                time.sleep(60)
-                continue
+                raise RuntimeError("Live table data is not ready after live refresh")
 
-            return
+            return True
         except Exception as e:
-            error_text = str(e)
-            if "Page.reload: Page crashed" in error_text or "Page crashed" in error_text:
-                crash_retries += 1
-                timeout_retries = 0  # Сброс timeout retries при crash
-            else:
-                timeout_retries += 1
-                crash_retries = 0  # Сброс crash retries при timeout
+            if attempt == max_retries:
+                logger.error(
+                    "Live refresh failed after %s attempts: %s",
+                    max_retries,
+                    e,
+                )
+                return False
 
-            if crash_retries >= max_crash_retries:
-                if save_state(active_match_ids, last_data):
-                    logger.error(f"Page crashed {crash_retries} times. Saved state to {STATE_SAVE_FILE} and requesting restart.")
-                else:
-                    logger.error(f"Page crashed {crash_retries} times and state save failed. Requesting restart anyway.")
-                raise PageRestartRequired(f"Page crashed {crash_retries} times during reload")
-
-            if timeout_retries >= max_timeout_retries:
-                if save_state(active_match_ids, last_data):
-                    logger.error(f"Reload timed out {timeout_retries} times in a row. Saved state to {STATE_SAVE_FILE} and requesting restart.")
-                else:
-                    logger.error(f"Reload timed out {timeout_retries} times and state save failed. Requesting restart anyway.")
-                raise PageRestartRequired(f"Reload timed out {timeout_retries} times in a row during reload")
-
-            logger.error(f"Reload failed: {e}. Retrying in 3 seconds...")
-            time.sleep(3)
+            logger.warning(
+                "Live refresh attempt %s/%s failed: %s. Retrying in %s seconds...",
+                attempt,
+                max_retries,
+                e,
+                retry_delay,
+            )
+            time.sleep(retry_delay)
 
 
 # Возвращает список ID матчей, которые сейчас видны в Live-таблице.
