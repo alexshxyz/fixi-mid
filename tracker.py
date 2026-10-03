@@ -79,7 +79,12 @@ class MatchMonitor:
         except PageRestartRequired:
             raise
         except Exception as e:
-            logger.error(f"Error in parse_and_monitor_match: {e}")
+            logger.exception("Error in parse_and_monitor_match")
+            if not self._save_state_to_json(self.active_match_ids, self.last_data):
+                logger.error("Could not save monitoring state before restart")
+            raise PageRestartRequired(
+                f"Monitoring failed; restarting after error: {e}"
+            ) from e
 
     # Сохраняет текущее состояние матчей в JSON.
     def _save_state_to_json(self, active_match_ids, last_data, path=STATE_SAVE_FILE):
@@ -244,7 +249,7 @@ class MatchMonitor:
                     raise
                 except Exception as e:
                     logger.error("Scheduled page refresh failed: %s", e)
-                    self.next_page_refresh_at = time.monotonic() + 300
+                    self.next_page_refresh_at = time.monotonic() + 60
 
                 if data_changed:
                     find_pattern_matches(

@@ -267,8 +267,7 @@ def _extract_all_match_data(page, match_ids):
     """
     
     try:
-        handle = page.wait_for_function(js, arg=match_ids, timeout=5000)
-        return handle.json_value()
+        return page.evaluate(js, match_ids)
     except Exception as e:
         logger.error(f"Error in _extract_all_match_data: {e}")
         raise
