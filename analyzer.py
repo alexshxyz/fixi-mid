@@ -1,7 +1,8 @@
 import json
+import math
 import re
 
-from config import MAX_ODD, THRESHOLD
+from config import MAX_ODD, OVER_TOTAL_DROP_THRESHOLD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
 
@@ -13,6 +14,24 @@ def _to_float(value):
         return float(value)
     except (ValueError, TypeError):
         return None
+
+
+# Преобразует значение тотала в конечное число или возвращает None.
+def _to_total(value):
+    if value is None:
+        return None
+    text = str(value).strip().replace(",", ".")
+    try:
+        parts = text.split("/")
+        if len(parts) == 1:
+            total = float(parts[0])
+        elif len(parts) == 2:
+            total = (float(parts[0].strip()) + float(parts[1].strip())) / 2
+        else:
+            return None
+    except (ValueError, TypeError):
+        return None
+    return total if math.isfinite(total) else None
 
 
 # Приводит значение форы к очищенной строке или возвращает None.
@@ -155,6 +174,59 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
     return False
 
 
+# Проверяет снижение тотала без изменения счёта.
+def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
+    anchor_entry = None
+    anchor_idx = -1
+    anchor_total = None
+
+    for idx in range(len(entries) - 1, -1, -1):
+        current_total = _to_total(entries[idx].get("ov", {}).get("over"))
+        if current_total is not None:
+            anchor_entry = entries[idx]
+            anchor_idx = idx
+            anchor_total = current_total
+            break
+
+    if anchor_entry is None or anchor_total is None:
+        return False
+
+    anchor_score = anchor_entry.get("score")
+    if anchor_score is None or str(anchor_score).strip().lower() in {"", "-", "unknown"}:
+        return False
+
+    for idx in range(anchor_idx - 1, -1, -1):
+        current_entry = entries[idx]
+        current_total = _to_total(current_entry.get("ov", {}).get("over"))
+        if current_total is None:
+            continue
+
+        if current_entry.get("score") != anchor_score:
+            break
+
+        if (
+            current_total < anchor_total
+            and anchor_total - current_total >= OVER_TOTAL_DROP_THRESHOLD
+        ):
+            _send_over_notification(
+                match_id,
+                anchor_entry,
+                anchor_entry.get("ov", {}).get("over"),
+                _to_float(anchor_entry.get("ov", {}).get("over_odds")),
+                on_notification_sent,
+            )
+            return True
+
+    return False
+
+
+# Запускает Over-стратегии, не допуская двух уведомлений для одного матча за проход.
+def _find_over_coordinator(entries, match_id, on_notification_sent=None):
+    if _find_over_pattern(entries, match_id, on_notification_sent):
+        return True
+    return _find_over_total_drop_pattern(entries, match_id, on_notification_sent)
+
+
 # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
 def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side, on_notification_sent=None):
     team1 = last_entry.get("team1", "Unknown")
@@ -249,7 +321,7 @@ def find_pattern_matches(match_history, on_notification_sent=None):
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
 
-        if _find_over_pattern(entries, match_id, on_notification_sent):
+        if _find_over_coordinator(entries, match_id, on_notification_sent):
             sent_matches.append(match_id)
 
         if _find_ah_pattern(entries, match_id, on_notification_sent):

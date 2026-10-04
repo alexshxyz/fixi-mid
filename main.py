@@ -159,18 +159,17 @@ def collect_matches(page):
                     document.querySelectorAll('td.oddstd[onclick]')
                 ).some(cell => /,\\s*["']3["']\\s*,/.test(cell.getAttribute('onclick') || ''));
 
-                const hasVisibleOddsPair = Array.from(
+                const hasVisibleOdds = Array.from(
                     document.querySelectorAll('td.oddstd')
                 ).some(cell => {
                     if (cell.offsetParent === null) return false;
                     const odds1 = cell.querySelector('p.odds1');
                     const odds3 = cell.querySelector('p.odds3');
-                    return odds1 && odds3 &&
-                        odds1.offsetParent !== null &&
-                        odds3.offsetParent !== null;
+                    return (odds1 && odds1.offsetParent !== null) ||
+                        (odds3 && odds3.offsetParent !== null);
                 });
 
-                if (!hasCrownOdds || !hasVisibleOddsPair) {
+                if (!hasCrownOdds || !hasVisibleOdds) {
                     return [];
                 }
 
@@ -179,9 +178,9 @@ def collect_matches(page):
 
                 for (const row of rows) {
                     if (row.offsetParent === null) continue;
-                    const timeElem = row.querySelector('[id^="time_"]');
-                    if (!timeElem || timeElem.offsetParent === null) continue;
-                    const matchId = timeElem.id.replace(/^time_/, '');
+                    const match = row.id.match(/^tr1_(.+)$/);
+                    if (!match) continue;
+                    const matchId = match[1];
                     if (!matchId) continue;
 
                     const hasOdds = Array.from(row.querySelectorAll('td.oddstd'))
@@ -189,9 +188,8 @@ def collect_matches(page):
                             if (cell.offsetParent === null) return false;
                             const odds1 = cell.querySelector('p.odds1');
                             const odds3 = cell.querySelector('p.odds3');
-                            return odds1 && odds3 &&
-                                odds1.offsetParent !== null &&
-                                odds3.offsetParent !== null;
+                            return (odds1 && odds1.offsetParent !== null) ||
+                                (odds3 && odds3.offsetParent !== null);
                         });
 
                     if (hasOdds) {
@@ -219,18 +217,17 @@ def has_valid_match_data(page):
                 cell.getAttribute('onclick') || ''
             ));
 
-            const hasVisibleOddsPair = Array.from(
+            const hasVisibleOdds = Array.from(
                 document.querySelectorAll('td.oddstd')
             ).some(cell => {
                 if (cell.offsetParent === null) return false;
                 const odds1 = cell.querySelector('p.odds1');
                 const odds3 = cell.querySelector('p.odds3');
-                return odds1 && odds3 &&
-                    odds1.offsetParent !== null &&
-                    odds3.offsetParent !== null;
+                return (odds1 && odds1.offsetParent !== null) ||
+                    (odds3 && odds3.offsetParent !== null);
             });
 
-            return hasCrownOdds && hasVisibleOddsPair;
+            return hasCrownOdds && hasVisibleOdds;
         }
     """)
 

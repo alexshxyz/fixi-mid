@@ -42,14 +42,6 @@ TELEGRAM_API_URL = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
 TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
 
 
-# Приводит коэффициент к числу и прибавляет единицу для сообщения.
-def _prepare_odds(over_odds):
-    try:
-        return round(float(over_odds) + 1, 2)
-    except (ValueError, TypeError):
-        return over_odds
-
-
 # Нормализует отображение игрового времени в Telegram-сообщении.
 def _normalize_match_time_for_message(raw_time):
     if raw_time is None:
@@ -189,7 +181,7 @@ def send_telegram_notification(
 ):
     # Отправляет уведомление о матче в Telegram канал.
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
-    odds_value = _prepare_odds(over_odds)
+    odds_value = over_odds
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
     message = _build_message(
         league,
@@ -249,6 +241,6 @@ if __name__ == "__main__":
             team2="Team 2",
             score="1 - 0",
             over="2.5",
-            over_odds="0.60",
+            over_odds="1.60",
             match_id="1234567"
         )

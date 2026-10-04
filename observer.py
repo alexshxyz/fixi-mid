@@ -113,23 +113,22 @@ def _reload_page_with_retries(
                         cell.getAttribute('onclick') || ''
                     ));
 
-                    const hasVisibleOddsPair = Array.from(
+                    const hasVisibleOdds = Array.from(
                         document.querySelectorAll('td.oddstd')
                     ).some(cell => {
                         if (cell.offsetParent === null) return false;
                         const odds1 = cell.querySelector('p.odds1');
                         const odds3 = cell.querySelector('p.odds3');
-                        return odds1 && odds3 &&
-                            odds1.offsetParent !== null &&
-                            odds3.offsetParent !== null;
+                        return (odds1 && odds1.offsetParent !== null) ||
+                            (odds3 && odds3.offsetParent !== null);
                     });
 
-                    return {hasCrownOdds, hasVisibleOddsPair};
+                    return {hasCrownOdds, hasVisibleOdds};
                 }
                 """
             )
 
-            if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOddsPair"]:
+            if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOdds"]:
                 raise RuntimeError("Live table data is not ready after live refresh")
 
             return True
@@ -161,9 +160,9 @@ def _collect_match_ids(page):
 
             for (const row of rows) {
                 if (row.offsetParent === null) continue;
-                const timeElem = row.querySelector('[id^="time_"]');
-                if (!timeElem || timeElem.offsetParent === null) continue;
-                const matchId = timeElem.id.replace(/^time_/, '');
+                const match = row.id.match(/^tr1_(.+)$/);
+                if (!match) continue;
+                const matchId = match[1];
                 if (!matchId) continue;
 
                 const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
@@ -185,17 +184,13 @@ def _extract_all_match_data(page, match_ids):
             const result = {};
             
             for (const match_id of matchIds) {
-                const timeElem = document.querySelector('td#time_' + match_id);
-                if (!timeElem) {
-                    result[match_id] = null;
-                    continue;
-                }
-                
-                const row = timeElem.closest('tr');
+                const row = document.getElementById('tr1_' + match_id);
                 if (!row) {
                     result[match_id] = null;
                     continue;
                 }
+
+                const timeElem = document.querySelector('td#time_' + match_id);
                 
                 const tds = Array.from(row.querySelectorAll('td.oddstd'));
                 if (tds.length < 3) {
@@ -217,8 +212,9 @@ def _extract_all_match_data(page, match_ids):
                     odds3.push(normalize(td.querySelector('p.odds3')));
                 });
                 
-                const timeTd = document.querySelector('td#time_' + match_id);
-                const onclick = timeTd.getAttribute('onclick');
+                const timeTd = row.querySelector('td#time_' + match_id);
+                const onclick = timeTd?.getAttribute('onclick') ||
+                    row.querySelector('[onclick*="soccerInPage.detail"]')?.getAttribute('onclick');
                 let league = 'Unknown';
                 let team1 = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
                 let team2 = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
@@ -226,7 +222,7 @@ def _extract_all_match_data(page, match_ids):
                 let match_time = gotSpan?.textContent.trim() || 'Unknown';
 
                 if (!gotSpan || !gotSpan.textContent.trim()) {
-                    const statusCell = row.querySelector('td#time_' + match_id);
+                    const statusCell = timeTd;
                     const statusText = statusCell?.textContent.trim();
                     if (statusText && statusText !== 'Unknown') {
                         match_time = statusText;
@@ -243,7 +239,7 @@ def _extract_all_match_data(page, match_ids):
                 }
                 
                 result[match_id] = {
-                    time: timeElem.textContent.trim() || 'Unknown',
+                    time: timeElem?.textContent.trim() || 'Unknown',
                     match_time: match_time,
                     ah: {
                         home_ah_odds: odds1[0],
