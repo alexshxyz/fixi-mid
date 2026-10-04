@@ -9,7 +9,7 @@ APP_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=APP_DIR / '.env')
 
 # Настройки страницы
-SITE_URL = "https://live11.nowgoal26.com/"
+SITE_URL = "https://www.goaloo.com/"
 BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
@@ -30,7 +30,7 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
 THRESHOLD = 0.61 # Максимальное значение коэффициента последней строки перед closed (0.61)
 MAX_ODD = 0.80 # Минимально допустимый коэффициент для начала отслеживания матча (0.80)
-OVER_TOTAL_DROP_THRESHOLD = 0.25 # Минимальное снижение тотала для новой Over-стратегии
+OVER_TOTAL_DROP_THRESHOLD = 10 # Минимальное снижение тотала для новой Over-стратегии
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
 PAGE_LIVE_RELOAD = 900 # Полная перезагрузка страницы
@@ -39,11 +39,11 @@ RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала
 
 # Куки сайта
-SITE_COOKIE_DOMAIN = "live11.nowgoal26.com"
+SITE_COOKIE_DOMAIN = "www.goaloo.com"
 SITE_COOKIES = [
     {"name": name, "value": value, "domain": SITE_COOKIE_DOMAIN, "path": "/"}
     for name, value in [
-        ("nowgoal26_SelCompany_V2", "3"),
+        ("goaloo_SelCompany_V2", "3"),
         ("orderby", "time"),
         ("Default_TimeZone", "3"),
         ("isOddsShow", "1"),
