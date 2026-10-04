@@ -145,3 +145,5 @@ stats.txt
 matches.json
 match_state.json
 matches.csv
+data.json
+data.py

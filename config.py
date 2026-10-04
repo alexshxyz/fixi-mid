@@ -30,7 +30,7 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
 THRESHOLD = 1.61 # Максимальный коэффициент перед Closed (1.61)
 MAX_ODD = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
-OVER_TOTAL_DROP_THRESHOLD = 10 # Минимальное снижение тотала для новой Over-стратегии
+OVER_TOTAL_DROP_THRESHOLD = 0.25 # Минимальное снижение тотала для новой Over-стратегии
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
 PAGE_LIVE_RELOAD = 1200 # Полная перезагрузка страницы

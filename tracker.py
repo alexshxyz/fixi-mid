@@ -110,6 +110,14 @@ class MatchMonitor:
             restored_history = self.saved_state.get("match_history", {})
             self.match_history.update(restored_history)
             self.last_data = self.saved_state.get("last_data", {})
+            for match_id, match_data in self.match_history.items():
+                last_data = self.last_data.get(match_id)
+                if last_data is None or 'score' in last_data:
+                    continue
+                changes = match_data.get('changes', [])
+                latest_entry = changes[-1] if changes else match_data.get('initial', {})
+                if 'score' in latest_entry:
+                    last_data['score'] = latest_entry['score']
             self.pending_notifications = self.saved_state.get("pending_notifications", {})
             logger.info(f"Restored state for {len(self.active_match_ids)} matches from {STATE_SAVE_FILE}")
             return
@@ -117,6 +125,23 @@ class MatchMonitor:
         self.active_match_ids = list(self.match_ids or [])
         if self.active_match_ids:
             self._load_initial_data()
+
+        self._run_analyzer()
+
+    # Сохраняет передаваемую анализатору историю в локальный отладочный файл.
+    def _run_analyzer(self):
+        snapshot_path = os.path.join(os.path.dirname(__file__), "data.json")
+        try:
+            with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+                json.dump(
+                    self.match_history,
+                    snapshot_file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                snapshot_file.write("\n")
+        except OSError:
+            logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
         find_pattern_matches(self.match_history, self._register_pending_notification)
 
@@ -220,6 +245,7 @@ class MatchMonitor:
                     'ah': initial_data['ah'],
                     'ov': initial_data['ov'],
                     'match_time': initial_data.get('match_time', 'Unknown'),
+                    'score': initial_data.get('score', 'Unknown'),
                 }
             else:
                 logger.info(f"No initial data for match {match_id}")
@@ -252,9 +278,7 @@ class MatchMonitor:
                     self.next_page_refresh_at = time.monotonic() + 60
 
                 if data_changed:
-                    find_pattern_matches(
-                        self.match_history, self._register_pending_notification
-                    )
+                    self._run_analyzer()
                 self._process_due_notifications()
                 continue
 
@@ -264,9 +288,7 @@ class MatchMonitor:
                     changed, _ = self._poll_and_update(log_data_loaded=True)
                     data_changed = data_changed or changed
                 if data_changed:
-                    find_pattern_matches(
-                        self.match_history, self._register_pending_notification
-                    )
+                    self._run_analyzer()
                 self._process_due_notifications()
                 continue
 
@@ -289,9 +311,7 @@ class MatchMonitor:
                 data_changed, _ = self._poll_and_update()
 
             if data_changed:
-                find_pattern_matches(
-                    self.match_history, self._register_pending_notification
-                )
+                self._run_analyzer()
             self._process_due_notifications()
 
     # Сохраняет состояние и запускает перезапуск по расписанию.
@@ -397,6 +417,7 @@ class MatchMonitor:
                         'ah': initial_data['ah'],
                         'ov': initial_data['ov'],
                         'match_time': initial_data.get('match_time', 'Unknown'),
+                        'score': initial_data.get('score', 'Unknown'),
                     }
                     initialized_match_ids.append(new_id)
 
@@ -428,14 +449,17 @@ class MatchMonitor:
             if not current_data:
                 continue
             old_match_time = self.last_data[match_id].get('match_time', 'Unknown')
+            old_score = self.last_data[match_id].get('score', 'Unknown')
             if (current_data['ah'] != self.last_data[match_id]['ah'] or
                     current_data['ov'] != self.last_data[match_id]['ov'] or
-                    current_data.get('match_time', 'Unknown') != old_match_time):
+                    current_data.get('match_time', 'Unknown') != old_match_time or
+                    current_data.get('score', 'Unknown') != old_score):
                 self.match_history[match_id]['changes'].append(current_data)
                 self.last_data[match_id] = {
                     'ah': current_data['ah'],
                     'ov': current_data['ov'],
                     'match_time': current_data.get('match_time', 'Unknown'),
+                    'score': current_data.get('score', 'Unknown'),
                 }
                 updated_match_ids.append(match_id)
 
