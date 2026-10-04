@@ -2,6 +2,7 @@ import json
 import os
 import time
 from config import (
+    DEBUGMODE,
     LEAGUES_LIST,
     NOTIFICATION_CHECK_DELAY_SECONDS,
     PAGE_LIVE_RELOAD,
@@ -130,18 +131,19 @@ class MatchMonitor:
 
     # Сохраняет передаваемую анализатору историю в локальный отладочный файл.
     def _run_analyzer(self):
-        snapshot_path = os.path.join(os.path.dirname(__file__), "data.json")
-        try:
-            with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
-                json.dump(
-                    self.match_history,
-                    snapshot_file,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                snapshot_file.write("\n")
-        except OSError:
-            logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
+        if DEBUGMODE == 1:
+            snapshot_path = os.path.join(os.path.dirname(__file__), "data.json")
+            try:
+                with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+                    json.dump(
+                        self.match_history,
+                        snapshot_file,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    snapshot_file.write("\n")
+            except OSError:
+                logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
         find_pattern_matches(self.match_history, self._register_pending_notification)
 

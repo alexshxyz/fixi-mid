@@ -2,7 +2,7 @@ import json
 import math
 import re
 
-from config import MAX_ODD, OVER_TOTAL_DROP_THRESHOLD, THRESHOLD
+from config import MAX_ODD, OVER_TOTAL_DROP_MAX, OVER_TOTAL_DROP_THRESHOLD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
 
@@ -174,7 +174,7 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
     return False
 
 
-# Проверяет снижение тотала без изменения счёта.
+# Проверяет снижение тотала без изменения счёта в допустимом диапазоне.
 def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
     anchor_entry = None
     anchor_idx = -1
@@ -204,10 +204,8 @@ def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
         if current_entry.get("score") != anchor_score:
             break
 
-        if (
-            current_total < anchor_total
-            and anchor_total - current_total >= OVER_TOTAL_DROP_THRESHOLD
-        ):
+        total_drop = anchor_total - current_total
+        if OVER_TOTAL_DROP_THRESHOLD <= total_drop < OVER_TOTAL_DROP_MAX:
             _send_over_notification(
                 match_id,
                 anchor_entry,
