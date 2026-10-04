@@ -9,8 +9,9 @@ from tracker import (
     PageRestartRequired,
 )
 from storage import init_storage
-from config import BROWSER_HEADLESS, SITE_COOKIES, SITE_URL
+from config import BROWSER_HEADLESS, DEBUGMODE, SITE_COOKIES, SITE_URL
 from logger import setup_logger
+from observer import _collect_match_status, _write_match_count
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -151,58 +152,18 @@ def refresh_page(page):
 # Сбор списка ID матчей.
 def collect_matches(page):
     matches = []
+    match_status = None
     try:
         page.wait_for_timeout(1000)
-        matches = page.evaluate("""
-            () => {
-                const hasCrownOdds = Array.from(
-                    document.querySelectorAll('td.oddstd[onclick]')
-                ).some(cell => /,\\s*["']3["']\\s*,/.test(cell.getAttribute('onclick') || ''));
-
-                const hasVisibleOdds = Array.from(
-                    document.querySelectorAll('td.oddstd')
-                ).some(cell => {
-                    if (cell.offsetParent === null) return false;
-                    const odds1 = cell.querySelector('p.odds1');
-                    const odds3 = cell.querySelector('p.odds3');
-                    return (odds1 && odds1.offsetParent !== null) ||
-                        (odds3 && odds3.offsetParent !== null);
-                });
-
-                if (!hasCrownOdds || !hasVisibleOdds) {
-                    return [];
-                }
-
-                const matches = new Set();
-                const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
-
-                for (const row of rows) {
-                    if (row.offsetParent === null) continue;
-                    const match = row.id.match(/^tr1_(.+)$/);
-                    if (!match) continue;
-                    const matchId = match[1];
-                    if (!matchId) continue;
-
-                    const hasOdds = Array.from(row.querySelectorAll('td.oddstd'))
-                        .some(cell => {
-                            if (cell.offsetParent === null) return false;
-                            const odds1 = cell.querySelector('p.odds1');
-                            const odds3 = cell.querySelector('p.odds3');
-                            return (odds1 && odds1.offsetParent !== null) ||
-                                (odds3 && odds3.offsetParent !== null);
-                        });
-
-                    if (hasOdds) {
-                        matches.add(matchId);
-                    }
-                }
-
-                return Array.from(matches);
-            }
-        """)
+        match_status = _collect_match_status(page, require_crown=True)
+        matches = list(dict.fromkeys(
+            item['match_id'] for item in match_status if item['active']
+        ))
         logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
     except Exception:
         pass
+    if DEBUGMODE == 1 and match_status is not None:
+        _write_match_count(match_status, matches)
     return matches
 
 

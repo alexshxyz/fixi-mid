@@ -16,12 +16,13 @@ from notifier import edit_telegram_notification
 from storage import update_match_mark
 from observer import (
     PageRestartRequired,
-    _collect_match_ids,
+    _collect_match_status,
     _extract_all_match_data,
     _install_live_change_observer,
     _reload_page_with_retries,
     _remove_live_change_observer,
     _wait_for_live_change,
+    _write_match_count,
 )
 
 logger = setup_logger(__name__)
@@ -335,8 +336,12 @@ class MatchMonitor:
             logger.warning("Live refresh failed. Escalating to a full page refresh.")
             self._do_hard_page_refresh_with_retries()
 
-        current_match_ids = _collect_match_ids(self.page)
+        match_status = _collect_match_status(self.page)
+        current_match_ids = [
+            item['match_id'] for item in match_status if item['active']
+        ]
         synchronized = self._synchronize_matches(current_match_ids)
+        _write_match_count(match_status, self.active_match_ids)
         self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
         return synchronized
 
@@ -344,8 +349,12 @@ class MatchMonitor:
     def _do_scheduled_page_refresh(self):
         self._do_hard_page_refresh_with_retries()
 
-        current_match_ids = _collect_match_ids(self.page)
+        match_status = _collect_match_status(self.page)
+        current_match_ids = [
+            item['match_id'] for item in match_status if item['active']
+        ]
         data_changed = self._synchronize_matches(current_match_ids)
+        _write_match_count(match_status, self.active_match_ids)
         if self.active_match_ids:
             changed, _ = self._poll_and_update(log_data_loaded=True)
             data_changed = data_changed or changed
