@@ -176,11 +176,49 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
 
 # Проверяет снижение тотала без изменения счёта в допустимом диапазоне.
 def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
+    last_known_score = None
+    score_change_idx = None
+
+    for idx, entry in enumerate(entries):
+        score = entry.get("score")
+        if score is None or str(score).strip().lower() in {"", "-", "unknown"}:
+            continue
+
+        if last_known_score is not None and score != last_known_score:
+            score_change_idx = idx
+        last_known_score = score
+
+    comparison_start_idx = 0
+    post_score_change = score_change_idx is not None
+    if post_score_change:
+        closed_idx = next(
+            (
+                idx
+                for idx in range(score_change_idx, len(entries))
+                if entries[idx].get("ov", {}).get("over") == "Closed"
+            ),
+            None,
+        )
+        if closed_idx is None:
+            return False
+
+        comparison_start_idx = next(
+            (
+                idx
+                for idx in range(closed_idx + 1, len(entries))
+                if _to_total(entries[idx].get("ov", {}).get("over")) is not None
+            ),
+            None,
+        )
+        if comparison_start_idx is None:
+            return False
+
     anchor_entry = None
     anchor_idx = -1
     anchor_total = None
 
-    for idx in range(len(entries) - 1, -1, -1):
+    anchor_search_end = comparison_start_idx if post_score_change else -1
+    for idx in range(len(entries) - 1, anchor_search_end, -1):
         current_total = _to_total(entries[idx].get("ov", {}).get("over"))
         if current_total is not None:
             anchor_entry = entries[idx]
@@ -195,7 +233,7 @@ def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
     if anchor_score is None or str(anchor_score).strip().lower() in {"", "-", "unknown"}:
         return False
 
-    for idx in range(anchor_idx - 1, -1, -1):
+    for idx in range(anchor_idx - 1, comparison_start_idx - 1, -1):
         current_entry = entries[idx]
         current_total = _to_total(current_entry.get("ov", {}).get("over"))
         if current_total is None:

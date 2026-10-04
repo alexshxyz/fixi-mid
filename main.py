@@ -43,21 +43,25 @@ def _retry_page_action(page, action, action_name, max_retries=3, reload_before_r
 # Инициализация браузера и страницы.
 def init_browser(p, max_navigation_retries=3):
     logger.info("Setup browser...")
-    browser = p.chromium.launch(headless=BROWSER_HEADLESS, args=[
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-infobars",
-        "--disable-notifications",
-        "--disable-background-networking",
-        "--disable-background-timer-throttling",
-        "--disable-renderer-backgrounding",
-        "--disable-extensions",
-        "--disable-sync",
-        "--metrics-recording-only",
-        "--mute-audio",
-    ])
+    browser = p.chromium.launch(
+        headless=BROWSER_HEADLESS,
+        proxy={"server": "socks5://127.0.0.1:10808"},
+        args=[
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-infobars",
+            "--disable-notifications",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-renderer-backgrounding",
+            "--disable-extensions",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--mute-audio",
+        ],
+    )
     context = browser.new_context()
     page = context.new_page()
     page.set_viewport_size({"width": 1280, "height": 720})
