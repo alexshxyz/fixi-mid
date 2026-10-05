@@ -134,11 +134,15 @@ def refresh_live_table(page):
 
 
 # Полностью перезагружает страницу и ждёт готовности данных Live.
-def refresh_page(page):
+def refresh_page(page, wait_for_data=True):
     logger.info("Refreshing...")
     try:
         page.reload(wait_until="domcontentloaded", timeout=60000)
         page.locator("table#table_live").wait_for(timeout=10000)
+
+        if not wait_for_data:
+            logger.info("Page refreshed")
+            return
 
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
@@ -227,17 +231,17 @@ def main():
                 _retry_page_action(page, prepare_page, "prepare page")
                 saved_state = load_state_from_json()
 
-                # Если есть сохранённое состояние, ждём готовности данных.
+                # Если есть сохранённое состояние, ждём появления строк матчей.
                 if saved_state:
-                    while not has_valid_match_data(page):
-                        logger.info("Saved-state data is not ready. Retrying in 30 seconds...")
-                        time.sleep(30)
-
-                        # Обновляем Live-таблицу, пока данные не станут доступны.
-                        def reload_page():
-                            refresh_live_table(page)
-
-                        _retry_page_action(page, reload_page, "refresh live table")
+                    while not any(
+                        item['active'] for item in _collect_match_status(page)
+                    ):
+                        logger.info(
+                            "No active matches found for saved state. "
+                            "Retrying with a full page refresh in 60 seconds..."
+                        )
+                        time.sleep(60)
+                        refresh_page(page, wait_for_data=False)
                     parse_and_monitor_match(
                         page,
                         saved_state=saved_state,
@@ -250,12 +254,7 @@ def main():
                     while not matches:
                         logger.info("No matches found. Retrying in 60 seconds...")
                         time.sleep(60)
-
-                        # Обновляем Live-таблицу и проверяем, появились ли матчи.
-                        def reload_page():
-                            refresh_live_table(page)
-
-                        _retry_page_action(page, reload_page, "refresh live table")
+                        refresh_page(page, wait_for_data=False)
                         matches = collect_matches(page)
 
                     parse_and_monitor_match(

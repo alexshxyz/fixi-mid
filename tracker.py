@@ -332,11 +332,15 @@ class MatchMonitor:
             self.page,
             self.live_refresh_callback,
         )
-        if not live_refresh_succeeded:
+        if live_refresh_succeeded is False:
+            match_status = self._wait_for_match_rows_with_hard_refresh()
+        elif live_refresh_succeeded is None:
             logger.warning("Live refresh failed. Escalating to a full page refresh.")
             self._do_hard_page_refresh_with_retries()
+            match_status = _collect_match_status(self.page)
+        else:
+            match_status = _collect_match_status(self.page)
 
-        match_status = _collect_match_status(self.page)
         current_match_ids = [
             item['match_id'] for item in match_status if item['active']
         ]
@@ -344,6 +348,21 @@ class MatchMonitor:
         _write_match_count(match_status, self.active_match_ids)
         self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
         return synchronized
+
+    # Ждёт появления строк матчей, повторяя жёсткую перезагрузку раз в минуту.
+    def _wait_for_match_rows_with_hard_refresh(self):
+        match_status = _collect_match_status(self.page)
+        while not any(item['active'] for item in match_status):
+            logger.info(
+                "No active matches found. "
+                "Retrying with a full page refresh in 60 seconds..."
+            )
+            time.sleep(60)
+            if self.page_refresh_callback is None:
+                raise RuntimeError("Full page refresh callback is not configured")
+            self.page_refresh_callback(self.page, wait_for_data=False)
+            match_status = _collect_match_status(self.page)
+        return match_status
 
     # Перезагружает страницу, не пересоздавая состояние монитора.
     def _do_scheduled_page_refresh(self):
