@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from datetime import datetime
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -319,7 +320,14 @@ def _extract_all_match_data(page, match_ids):
     """
     
     try:
-        return page.evaluate(js, match_ids)
+        match_data = page.evaluate(js, match_ids)
     except Exception as e:
         logger.error(f"Error in _extract_all_match_data: {e}")
         raise
+
+    observed_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    for entry in match_data.values():
+        if entry is not None:
+            entry["date"] = observed_at
+
+    return match_data

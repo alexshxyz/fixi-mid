@@ -35,7 +35,7 @@ OVER_TOTAL_DROP_MAX = 75 # Максимальное снижение тотал�
 DEBUGMODE = 0 # Запись истории матчей в data.json: 0 — выключена, 1 — включена
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
-PAGE_LIVE_RELOAD = 1200 # Полная перезагрузка страницы
+PAGE_LIVE_RELOAD = 1800 # Полная перезагрузка страницы
 
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала

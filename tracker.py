@@ -111,6 +111,11 @@ class MatchMonitor:
             self.active_match_ids = self.saved_state.get("active_match_ids", [])
             restored_history = self.saved_state.get("match_history", {})
             self.match_history.update(restored_history)
+            for match_data in self.match_history.values():
+                entries = [match_data.get("initial"), *match_data.get("changes", [])]
+                for entry in entries:
+                    if entry is not None:
+                        entry.setdefault("date", None)
             self.last_data = self.saved_state.get("last_data", {})
             for match_id, match_data in self.match_history.items():
                 last_data = self.last_data.get(match_id)
