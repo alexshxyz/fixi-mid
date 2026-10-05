@@ -45,7 +45,7 @@ def init_browser(p, max_navigation_retries=3):
     logger.info("Setup browser...")
     browser = p.chromium.launch(
         headless=BROWSER_HEADLESS,
-        # proxy={"server": "socks5://127.0.0.1:10808"},
+        proxy={"server": "socks5://127.0.0.1:10808"},
         args=[
             "--disable-gpu",
             "--disable-dev-shm-usage",
@@ -234,11 +234,11 @@ def main():
                 # Если есть сохранённое состояние, ждём появления строк матчей.
                 if saved_state:
                     while not any(
-                        item['active'] for item in _collect_match_status(page)
+                        item['active']
+                        for item in _collect_match_status(page, require_crown=True)
                     ):
                         logger.info(
-                            "No active matches found for saved state. "
-                            "Retrying with a full page refresh in 60 seconds..."
+                            "No matches found. Retrying in 60 seconds..."
                         )
                         time.sleep(60)
                         refresh_page(page, wait_for_data=False)

@@ -1,7 +1,14 @@
+import json
 import math
+import os
 from datetime import datetime, timedelta
 
-from config import OVER_TOTAL_DROP_MAX, OVER_TOTAL_DROP_THRESHOLD
+from config import (
+    DEBUGMODE,
+    OVER_TOTAL_DROP_MAX,
+    OVER_TOTAL_DROP_THRESHOLD,
+    SKIPMATCH,
+)
 from logger import setup_logger
 from notifier import send_telegram_notification
 
@@ -34,6 +41,15 @@ def _to_total(value):
     return total if math.isfinite(total) else None
 
 
+# Проверяет, что у открытой линии есть тотал и оба коэффициента Over/Under.
+def _has_valid_open_over_data(entry):
+    return (
+        _to_total(entry.get("ov", {}).get("over")) is not None
+        and _to_float(entry.get("ov", {}).get("over_odds")) is not None
+        and _to_float(entry.get("ov", {}).get("under_odds")) is not None
+    )
+
+
 # Проверяет, укладывается ли разница дат записей в 10 минут.
 def _dates_within_ten_minutes(first_entry, second_entry):
     try:
@@ -52,11 +68,38 @@ def _dates_within_ten_minutes(first_entry, second_entry):
     return abs(first_date - second_date) <= timedelta(minutes=10)
 
 
-# Подменяет устаревший счёт до закрытия линии, не изменяя исходные записи.
-def _relabel_stale_score_entries(entries):
+# Проверяет, не относится ли запись к времени матча из списка исключений.
+def _is_skipped_match_entry(entry):
+    skip_values = {str(value).strip().upper() for value in SKIPMATCH}
+
+    for field_name in ("time", "match_time"):
+        value = entry.get(field_name)
+        if value is None:
+            continue
+
+        normalized_value = "".join(str(value).upper().split())
+        if normalized_value in skip_values:
+            return True
+
+        if (
+            "ET" in skip_values
+            and normalized_value.startswith("ET+")
+            and normalized_value[3:].isdigit()
+        ):
+            return True
+
+    return False
+
+
+# Подменяет устаревший счёт, пока новая линия после гола не будет подтверждена.
+def _normalize_score_transitions(entries):
     normalized_entries = []
     last_score = None
-    waiting_for_over_reopen = False
+    last_numeric_entry = None
+    waiting_for_new_total = False
+    saw_over_closed = False
+    pending_score = None
+    transition_baseline = None
 
     for entry in entries:
         normalized_entry = entry.copy()
@@ -67,24 +110,126 @@ def _relabel_stale_score_entries(entries):
             "unknown",
         }
         is_over_closed = entry.get("ov", {}).get("over") == "Closed"
+        has_valid_open_data = _has_valid_open_over_data(entry)
 
-        if waiting_for_over_reopen:
+        if has_score and last_score is None:
+            last_score = score
+
+        if waiting_for_new_total:
+            if has_score and score != last_score:
+                pending_score = score
+
             if is_over_closed:
-                waiting_for_over_reopen = False
-                if has_score:
+                saw_over_closed = True
+
+            if is_over_closed or not has_valid_open_data or not saw_over_closed:
+                normalized_entry["score"] = last_score
+            elif transition_baseline is None:
+                normalized_entry["score"] = pending_score or score or last_score
+                last_score = normalized_entry["score"]
+                last_numeric_entry = normalized_entry
+                waiting_for_new_total = False
+                saw_over_closed = False
+                pending_score = None
+            else:
+                baseline_total = _to_total(
+                    transition_baseline.get("ov", {}).get("over")
+                )
+                current_total = _to_total(entry.get("ov", {}).get("over"))
+                if current_total == baseline_total:
+                    normalized_entry["score"] = last_score
+                else:
+                    normalized_entry["score"] = pending_score or score or last_score
+                    last_score = normalized_entry["score"]
+                    last_numeric_entry = normalized_entry
+                    waiting_for_new_total = False
+                    saw_over_closed = False
+                    pending_score = None
+                    transition_baseline = None
+        elif has_score and score != last_score:
+            pending_score = score
+            transition_baseline = last_numeric_entry
+            waiting_for_new_total = True
+            saw_over_closed = is_over_closed
+            normalized_entry["score"] = last_score
+
+            if not is_over_closed and has_valid_open_data and saw_over_closed:
+                if transition_baseline is None:
+                    normalized_entry["score"] = score
                     last_score = score
-            else:
-                normalized_entry["score"] = last_score
-        elif has_score:
-            if last_score is not None and score != last_score and not is_over_closed:
-                normalized_entry["score"] = last_score
-                waiting_for_over_reopen = True
-            else:
+                    last_numeric_entry = normalized_entry
+                    waiting_for_new_total = False
+                    saw_over_closed = False
+                    pending_score = None
+                else:
+                    baseline_total = _to_total(
+                        transition_baseline.get("ov", {}).get("over")
+                    )
+                    current_total = _to_total(entry.get("ov", {}).get("over")                    )
+                    if current_total != baseline_total:
+                        normalized_entry["score"] = score
+                        last_score = score
+                        last_numeric_entry = normalized_entry
+                        waiting_for_new_total = False
+                        saw_over_closed = False
+                        pending_score = None
+                        transition_baseline = None
+        else:
+            if has_score:
                 last_score = score
+
+            if not is_over_closed and has_valid_open_data:
+                normalized_entry["score"] = last_score or score
+                last_numeric_entry = normalized_entry
 
         normalized_entries.append(normalized_entry)
 
     return normalized_entries
+
+
+# Возвращает историю со счётом, скорректированным для анализа стратегии.
+def _relabel_stale_score_entries(entries):
+    return _normalize_score_transitions(entries)
+
+
+# Возвращает историю для Over-стратегии с корректировкой счёта и сохраняет её для отладки.
+def _prepare_over_total_drop_history(match_history):
+    prepared_history = {}
+
+    for match_id, match_data in match_history.items():
+        prepared_match = match_data.copy()
+        has_initial = bool(match_data.get("initial"))
+        entries = (
+            [match_data["initial"]] if has_initial else []
+        ) + list(match_data.get("changes", []))
+        normalized_entries = _normalize_score_transitions(entries)
+
+        if has_initial:
+            prepared_match["initial"] = normalized_entries[0]
+            prepared_match["changes"] = normalized_entries[1:]
+        else:
+            prepared_match["changes"] = normalized_entries
+        prepared_history[match_id] = prepared_match
+        prepared_history[match_id] = prepared_match
+
+    if DEBUGMODE == 1:
+        snapshot_path = os.path.join(os.path.dirname(__file__), "data2.json")
+        try:
+            with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+                json.dump(
+                    prepared_history,
+                    snapshot_file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                snapshot_file.write("\n")
+        except OSError:
+            logger.exception(
+                "Failed to write Over strategy input snapshot to %s",
+                snapshot_path,
+            )
+
+    return prepared_history
 
 
 # Создаёт callback для регистрации отправленного Over-сигнала.
@@ -130,8 +275,15 @@ def _send_over_notification(match_id, entry, total, odds, on_notification_sent=N
 
 
 # Ищет рост тотала в пределах одного счёта и временного окна.
-def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
-    entries = _relabel_stale_score_entries(entries)
+def _find_over_total_drop_pattern(
+    entries,
+    match_id,
+    on_notification_sent=None,
+    *,
+    scores_relabelled=False,
+):
+    if not scores_relabelled:
+        entries = _normalize_score_transitions(entries)
 
     anchor_entry = None
     anchor_idx = -1
@@ -151,6 +303,7 @@ def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
     if anchor_score is None or str(anchor_score).strip().lower() in {"", "-", "unknown"}:
         return False
     baseline_total = None
+    baseline_entry = None
     for idx in range(anchor_idx - 1, -1, -1):
         current_entry = entries[idx]
         if current_entry.get("score") != anchor_score:
@@ -162,19 +315,22 @@ def _find_over_total_drop_pattern(entries, match_id, on_notification_sent=None):
             and _dates_within_ten_minutes(anchor_entry, current_entry)
         ):
             baseline_total = current_total
+            baseline_entry = current_entry
 
-    if baseline_total is None:
-        return False
-
-    total_increase = anchor_total - baseline_total
-    if OVER_TOTAL_DROP_THRESHOLD <= total_increase < OVER_TOTAL_DROP_MAX:
-        _send_over_notification(
-            match_id,
-            anchor_entry,
-            anchor_entry.get("ov", {}).get("over"),
-            _to_float(anchor_entry.get("ov", {}).get("over_odds")),
-            on_notification_sent,
-        )
-        return True
+    if baseline_total is not None and baseline_entry is not None:
+        total_increase = anchor_total - baseline_total
+        if OVER_TOTAL_DROP_THRESHOLD <= total_increase < OVER_TOTAL_DROP_MAX:
+            if not (
+                _is_skipped_match_entry(anchor_entry)
+                or _is_skipped_match_entry(baseline_entry)
+            ):
+                _send_over_notification(
+                    match_id,
+                    anchor_entry,
+                    anchor_entry.get("ov", {}).get("over"),
+                    _to_float(anchor_entry.get("ov", {}).get("over_odds")),
+                    on_notification_sent,
+                )
+                return True
 
     return False

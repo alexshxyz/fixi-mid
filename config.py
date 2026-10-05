@@ -30,9 +30,10 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
 THRESHOLD = 1.61 # Максимальный коэффициент перед Closed (1.61)
 MAX_ODD = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
-OVER_TOTAL_DROP_THRESHOLD = 0.5 # Минимальное снижение тотала для новой Over-стратегии (0.50)
-OVER_TOTAL_DROP_MAX = 0.75 # Максимальное снижение тотала (не включая границу) (0.75)
-DEBUGMODE = 1 # Запись истории матчей в data.json: 0 — выключена, 1 — включена
+OVER_TOTAL_DROP_THRESHOLD = 25 # Минимальное снижение тотала для новой Over-стратегии (0.50)
+OVER_TOTAL_DROP_MAX = 75 # Максимальное снижение тотала (не включая границу) (0.75)
+SKIPMATCH = ["FT", "ET"] # Время матча, при котором новая Over-стратегия не анализирует пару записей
+DEBUGMODE = 0 # Запись историй анализа в data.json и data2.json и count.json: 0 — выключена, 1 — включена
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
 PAGE_LIVE_RELOAD = 1800 # Полная перезагрузка страницы

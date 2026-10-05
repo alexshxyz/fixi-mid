@@ -146,5 +146,6 @@ matches.json
 match_state.json
 matches.csv
 data.json
+data2.json
 data.py
 count.json

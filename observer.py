@@ -108,8 +108,8 @@ def _reload_page_with_retries(
     for attempt in range(1, max_retries + 1):
         try:
             live_refresh_callback(page)
-            if not _collect_match_status(page):
-                logger.info("No match rows found after Live refresh")
+            match_status = _collect_match_status(page, require_crown=True)
+            if not any(item['active'] for item in match_status):
                 return False
 
             data_ready = page.evaluate(

@@ -4,7 +4,10 @@ import re
 from config import MAX_ODD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
-from analyzer_2 import _find_over_total_drop_pattern
+from analyzer_2 import (
+    _find_over_total_drop_pattern,
+    _prepare_over_total_drop_history,
+)
 
 logger = setup_logger(__name__)
 
@@ -246,9 +249,13 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
 # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
 def find_pattern_matches(match_history, on_notification_sent=None):
     sent_matches = []
+    over_total_drop_history = _prepare_over_total_drop_history(match_history)
 
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
+        over_total_drop_entries = _collect_match_entries(
+            over_total_drop_history[match_id]
+        )
 
         old_over_matched = _find_over_pattern(
             entries, match_id, on_notification_sent
@@ -260,7 +267,10 @@ def find_pattern_matches(match_history, on_notification_sent=None):
             sent_matches.append(match_id)
 
         if not old_over_matched and _find_over_total_drop_pattern(
-            entries, match_id, on_notification_sent
+            over_total_drop_entries,
+            match_id,
+            on_notification_sent,
+            scores_relabelled=True,
         ):
             sent_matches.append(match_id)
 
