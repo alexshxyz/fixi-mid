@@ -156,13 +156,6 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
     return False
 
 
-# Запускает Over-стратегии, не допуская двух уведомлений для одного матча за проход.
-def _find_over_coordinator(entries, match_id, on_notification_sent=None):
-    if _find_over_pattern(entries, match_id, on_notification_sent):
-        return True
-    return _find_over_total_drop_pattern(entries, match_id, on_notification_sent)
-
-
 # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
 def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side, on_notification_sent=None):
     team1 = last_entry.get("team1", "Unknown")
@@ -257,10 +250,18 @@ def find_pattern_matches(match_history, on_notification_sent=None):
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
 
-        if _find_over_coordinator(entries, match_id, on_notification_sent):
+        old_over_matched = _find_over_pattern(
+            entries, match_id, on_notification_sent
+        )
+        if old_over_matched:
             sent_matches.append(match_id)
 
         if _find_ah_pattern(entries, match_id, on_notification_sent):
+            sent_matches.append(match_id)
+
+        if not old_over_matched and _find_over_total_drop_pattern(
+            entries, match_id, on_notification_sent
+        ):
             sent_matches.append(match_id)
 
     return sent_matches
