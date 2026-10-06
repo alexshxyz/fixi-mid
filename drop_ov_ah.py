@@ -1,12 +1,14 @@
 import json
 import math
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from config import (
     DEBUGMODE,
     OVER_TOTAL_DROP_MAX,
     OVER_TOTAL_DROP_THRESHOLD,
+    OVER_TOTAL_DROP_WINDOW_MINUTES,
     OVER_STRATEGY_CHANNEL_ID,
     SKIPMATCH,
 )
@@ -51,8 +53,8 @@ def _has_valid_open_over_data(entry):
     )
 
 
-# Проверяет, укладывается ли разница дат записей в 10 минут.
-def _dates_within_ten_minutes(first_entry, second_entry):
+# Проверяет, укладывается ли разница дат записей в окно сравнения.
+def _dates_within_over_window(first_entry, second_entry):
     try:
         first_date = datetime.fromisoformat(
             str(first_entry["date"]).replace("Z", "+00:00")
@@ -66,7 +68,9 @@ def _dates_within_ten_minutes(first_entry, second_entry):
     if (first_date.utcoffset() is None) != (second_date.utcoffset() is None):
         return False
 
-    return abs(first_date - second_date) <= timedelta(minutes=10)
+    return abs(first_date - second_date) <= timedelta(
+        minutes=OVER_TOTAL_DROP_WINDOW_MINUTES
+    )
 
 
 # Разбирает timestamp записи для отсчёта ожидания подтверждения нового счёта.
@@ -102,16 +106,111 @@ def _is_skipped_match_entry(entry):
     return False
 
 
+# Хранит состояние ожидания подтверждения смены счёта.
+@dataclass
+class _ScoreTransitionState:
+    last_score: object = None
+    last_numeric_entry: object = None
+    waiting_for_new_total: bool = False
+    saw_over_closed: bool = False
+    pending_score: object = None
+    transition_baseline: object = None
+    score_change_datetime: object = None
+
+
+# Проверяет, истёк ли трёхминутный срок ожидания новой линии.
+def _score_transition_timeout_elapsed(entry, state):
+    entry_datetime = _entry_datetime(entry)
+    if entry_datetime is None or state.score_change_datetime is None:
+        return False
+    if (entry_datetime.utcoffset() is None) != (
+        state.score_change_datetime.utcoffset() is None
+    ):
+        return False
+    return (
+        entry_datetime - state.score_change_datetime
+        >= timedelta(minutes=3)
+    )
+
+
+# Завершает ожидание подтверждения новой линии.
+def _reset_score_transition(state):
+    state.waiting_for_new_total = False
+    state.saw_over_closed = False
+    state.pending_score = None
+    state.transition_baseline = None
+    state.score_change_datetime = None
+
+
+# Принимает новую линию и обновляет текущий счёт.
+def _accept_score_transition(
+    normalized_entry, score, state, *, keep_entry_score=False
+):
+    if keep_entry_score:
+        state.last_score = (
+            score
+            if score is not None
+            else state.pending_score or state.last_score
+        )
+    else:
+        normalized_entry["score"] = state.pending_score or score or state.last_score
+        state.last_score = normalized_entry["score"]
+    state.last_numeric_entry = normalized_entry
+    _reset_score_transition(state)
+
+
+# Обрабатывает запись, пока новая линия после смены счёта ещё не подтверждена.
+def _process_waiting_score_transition(
+    entry,
+    normalized_entry,
+    score,
+    has_score,
+    is_over_closed,
+    has_valid_open_data,
+    state,
+):
+    if has_score and score != state.last_score:
+        state.pending_score = score
+
+    if is_over_closed:
+        state.saw_over_closed = True
+
+    if _score_transition_timeout_elapsed(entry, state) and has_valid_open_data:
+        _accept_score_transition(
+            normalized_entry,
+            score if has_score else None,
+            state,
+            keep_entry_score=True,
+        )
+    elif is_over_closed or not has_valid_open_data or not state.saw_over_closed:
+        normalized_entry["score"] = state.last_score
+    elif state.transition_baseline is None:
+        _accept_score_transition(normalized_entry, score, state)
+    else:
+        baseline_total = _to_total(
+            state.transition_baseline.get("ov", {}).get("over")
+        )
+        current_total = _to_total(entry.get("ov", {}).get("over"))
+        if current_total == baseline_total:
+            normalized_entry["score"] = state.last_score
+        else:
+            _accept_score_transition(normalized_entry, score, state)
+
+
+# Начинает ожидание подтверждения нового счёта.
+def _start_score_transition(entry, normalized_entry, score, is_over_closed, state):
+    state.pending_score = score
+    state.transition_baseline = state.last_numeric_entry
+    state.waiting_for_new_total = True
+    state.saw_over_closed = is_over_closed
+    state.score_change_datetime = _entry_datetime(entry)
+    normalized_entry["score"] = state.last_score
+
+
 # Подменяет устаревший счёт, пока новая линия после гола не будет подтверждена.
 def _normalize_score_transitions(entries):
     normalized_entries = []
-    last_score = None
-    last_numeric_entry = None
-    waiting_for_new_total = False
-    saw_over_closed = False
-    pending_score = None
-    transition_baseline = None
-    score_change_datetime = None
+    state = _ScoreTransitionState()
 
     for entry in entries:
         normalized_entry = entry.copy()
@@ -124,99 +223,45 @@ def _normalize_score_transitions(entries):
         is_over_closed = entry.get("ov", {}).get("over") == "Closed"
         has_valid_open_data = _has_valid_open_over_data(entry)
 
-        if has_score and last_score is None:
-            last_score = score
+        if has_score and state.last_score is None:
+            state.last_score = score
 
-        if waiting_for_new_total:
-            if has_score and score != last_score:
-                pending_score = score
+        if state.waiting_for_new_total:
+            _process_waiting_score_transition(
+                entry,
+                normalized_entry,
+                score,
+                has_score,
+                is_over_closed,
+                has_valid_open_data,
+                state,
+            )
+        elif has_score and score != state.last_score:
+            _start_score_transition(
+                entry, normalized_entry, score, is_over_closed, state
+            )
 
-            if is_over_closed:
-                saw_over_closed = True
-
-            entry_datetime = _entry_datetime(entry)
-            timeout_elapsed = False
-            if entry_datetime is not None and score_change_datetime is not None:
-                if (entry_datetime.utcoffset() is None) == (
-                    score_change_datetime.utcoffset() is None
-                ):
-                    timeout_elapsed = (
-                        entry_datetime - score_change_datetime
-                        >= timedelta(minutes=3)
+            if not is_over_closed and has_valid_open_data and state.saw_over_closed:
+                if state.transition_baseline is None:
+                    _accept_score_transition(
+                        normalized_entry, score, state
                     )
-
-            if timeout_elapsed and has_valid_open_data:
-                last_score = score if has_score else pending_score or last_score
-                last_numeric_entry = normalized_entry
-                waiting_for_new_total = False
-                saw_over_closed = False
-                pending_score = None
-                transition_baseline = None
-                score_change_datetime = None
-            elif is_over_closed or not has_valid_open_data or not saw_over_closed:
-                normalized_entry["score"] = last_score
-            elif transition_baseline is None:
-                normalized_entry["score"] = pending_score or score or last_score
-                last_score = normalized_entry["score"]
-                last_numeric_entry = normalized_entry
-                waiting_for_new_total = False
-                saw_over_closed = False
-                pending_score = None
-                score_change_datetime = None
-            else:
-                baseline_total = _to_total(
-                    transition_baseline.get("ov", {}).get("over")
-                )
-                current_total = _to_total(entry.get("ov", {}).get("over"))
-                if current_total == baseline_total:
-                    normalized_entry["score"] = last_score
-                else:
-                    normalized_entry["score"] = pending_score or score or last_score
-                    last_score = normalized_entry["score"]
-                    last_numeric_entry = normalized_entry
-                    waiting_for_new_total = False
-                    saw_over_closed = False
-                    pending_score = None
-                    transition_baseline = None
-                    score_change_datetime = None
-        elif has_score and score != last_score:
-            pending_score = score
-            transition_baseline = last_numeric_entry
-            waiting_for_new_total = True
-            saw_over_closed = is_over_closed
-            score_change_datetime = _entry_datetime(entry)
-            normalized_entry["score"] = last_score
-
-            if not is_over_closed and has_valid_open_data and saw_over_closed:
-                if transition_baseline is None:
-                    normalized_entry["score"] = score
-                    last_score = score
-                    last_numeric_entry = normalized_entry
-                    waiting_for_new_total = False
-                    saw_over_closed = False
-                    pending_score = None
-                    score_change_datetime = None
                 else:
                     baseline_total = _to_total(
-                        transition_baseline.get("ov", {}).get("over")
+                        state.transition_baseline.get("ov", {}).get("over")
                     )
-                    current_total = _to_total(entry.get("ov", {}).get("over")                    )
+                    current_total = _to_total(entry.get("ov", {}).get("over"))
                     if current_total != baseline_total:
-                        normalized_entry["score"] = score
-                        last_score = score
-                        last_numeric_entry = normalized_entry
-                        waiting_for_new_total = False
-                        saw_over_closed = False
-                        pending_score = None
-                        transition_baseline = None
-                        score_change_datetime = None
+                        _accept_score_transition(
+                            normalized_entry, score, state
+                        )
         else:
             if has_score:
-                last_score = score
+                state.last_score = score
 
             if not is_over_closed and has_valid_open_data:
-                normalized_entry["score"] = last_score or score
-                last_numeric_entry = normalized_entry
+                normalized_entry["score"] = state.last_score or score
+                state.last_numeric_entry = normalized_entry
 
         normalized_entries.append(normalized_entry)
 
@@ -361,7 +406,7 @@ def _find_over_total_drop_pattern(
         current_total = _to_total(current_entry.get("ov", {}).get("over"))
         if current_total is None or not _has_valid_open_over_data(current_entry):
             continue
-        if not _dates_within_ten_minutes(anchor_entry, current_entry):
+        if not _dates_within_over_window(anchor_entry, current_entry):
             continue
         if _is_skipped_match_entry(current_entry):
             continue
