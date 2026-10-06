@@ -103,6 +103,13 @@ def _is_skipped_match_entry(entry):
         ):
             return True
 
+        if (
+            "90" in skip_values
+            and normalized_value.startswith("90+")
+            and normalized_value[3:].isdigit()
+        ):
+            return True
+
     return False
 
 
