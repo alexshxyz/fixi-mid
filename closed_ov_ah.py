@@ -4,7 +4,7 @@ import re
 from config import MAX_ODD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
-from analyzer_2 import (
+from drop_ov_ah import (
     _find_over_total_drop_pattern,
     _prepare_over_total_drop_history,
 )

@@ -32,7 +32,7 @@
 ```text
 main.py       ─┐
 tracker.py     ─┤
-analyzer.py     ─┤
+closed_ov_ah.py ─┤
 storage.py    ─┼──> logging_config.setup_logger() ──> файл + консоль
                ┘
 ```
@@ -41,7 +41,7 @@ storage.py    ─┼──> logging_config.setup_logger() ──> файл + к�
 
 - `main.py`;
 - `tracker.py`;
-- `analyzer.py`;
+- `closed_ov_ah.py`;
 - `storage.py`.
 
 Основные модули используют общий журнал `bot.log`.
@@ -149,5 +149,4 @@ logger.error("Failed to save state")
 logger = setup_logger(__name__)
 ```
 
-Такой вариант используется в `main.py`, `tracker.py`, `analyzer.py` и `storage.py`.
-
+Такой вариант используется в `main.py`, `tracker.py`, `closed_ov_ah.py` и `storage.py`.

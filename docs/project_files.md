@@ -20,7 +20,7 @@ CHANNEL_ID=id Telegram-канала
 
 Основной лог приложения.
 
-В него записываются события из `main.py`, `tracker.py`, `analyzer.py`, `storage.py` и `notifier.py`, в том числе:
+В него записываются события из `main.py`, `tracker.py`, `closed_ov_ah.py`, `drop_ov_ah.py`, `storage.py` и `notifier.py`, в том числе:
 
 - запуск и настройка браузера;
 - переходы по страницам и обновление таблицы матчей;

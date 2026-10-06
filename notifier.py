@@ -92,8 +92,8 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
 
 
 # Проверяет, отправлялся ли уже такой прогноз для матча.
-def _is_duplicate_notification(match_url, prediction, match_id):
-    if check_duplicate_match(match_url, prediction):
+def _is_duplicate_notification(match_url, prediction, channel_id):
+    if check_duplicate_match(match_url, prediction, channel_id):
         return True
     return False
 
@@ -135,9 +135,9 @@ def send_telegram_message(text):
 
 
 # Редактирует ранее отправленное сообщение в Telegram.
-def edit_telegram_notification(message_id, text):
+def edit_telegram_notification(message_id, text, channel_id=CHANNEL_ID):
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": channel_id or CHANNEL_ID,
         "message_id": message_id,
         "text": text,
         "parse_mode": "HTML",
@@ -151,7 +151,15 @@ def edit_telegram_notification(message_id, text):
 
 
 # Сохраняет отправленное уведомление в хранилище.
-def _save_notification(league, team1, team2, prediction, odds_value, match_url):
+def _save_notification(
+    league,
+    team1,
+    team2,
+    prediction,
+    odds_value,
+    match_url,
+    channel_id,
+):
     try:
         save_match(
             league=league,
@@ -160,6 +168,7 @@ def _save_notification(league, team1, team2, prediction, odds_value, match_url):
             prediction=prediction,
             odds=odds_value,
             link=match_url,
+            channel_id=channel_id,
         )
     except Exception as db_error:
         logger.error(f"Failed to save match: {db_error}")
@@ -178,8 +187,10 @@ def send_telegram_notification(
     match_time='Unknown',
     on_sent=None,
     on_sent_details=None,
+    channel_id=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
+    target_channel_id = channel_id or CHANNEL_ID
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = over_odds
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
@@ -195,20 +206,28 @@ def send_telegram_notification(
     )
 
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": target_channel_id,
         "text": message,
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
 
-    if _is_duplicate_notification(match_url, prediction, match_id):
+    if _is_duplicate_notification(match_url, prediction, target_channel_id):
         return False
 
     telegram_response = _send_message(payload, match_id)
     if not telegram_response:
         return False
 
-    _save_notification(league, team1, team2, prediction, odds_value, match_url)
+    _save_notification(
+        league,
+        team1,
+        team2,
+        prediction,
+        odds_value,
+        match_url,
+        target_channel_id,
+    )
     result = telegram_response.get('result')
     telegram_message_id = (
         result.get('message_id') if isinstance(result, dict) else None

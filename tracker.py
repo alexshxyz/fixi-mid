@@ -11,7 +11,7 @@ from config import (
     TABLE_LIVE_RELOAD,
 )
 from logger import setup_logger
-from analyzer import find_pattern_matches
+from closed_ov_ah import find_pattern_matches
 from notifier import edit_telegram_notification
 from storage import update_match_mark
 from observer import (
@@ -138,7 +138,9 @@ class MatchMonitor:
     # Сохраняет передаваемую анализатору историю в локальный отладочный файл.
     def _run_analyzer(self):
         if DEBUGMODE == 1:
-            snapshot_path = os.path.join(os.path.dirname(__file__), "data.json")
+            snapshot_path = os.path.join(
+                os.path.dirname(__file__), "data_closed_ov_ah.json"
+            )
             try:
                 with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
                     json.dump(
@@ -191,13 +193,16 @@ class MatchMonitor:
                 notification['mark'] = marker
 
             if edit_telegram_notification(
-                notification['message_id'], notification['edited_message']
+                notification['message_id'],
+                notification['edited_message'],
+                notification.get('channel_id'),
             ):
                 if notification.get('link') and notification.get('prediction') and notification.get('mark'):
                     if not update_match_mark(
                         notification['link'],
                         notification['prediction'],
                         notification['mark'],
+                        notification.get('channel_id'),
                     ):
                         logger.error(
                             "Failed to persist Telegram mark for message %s",

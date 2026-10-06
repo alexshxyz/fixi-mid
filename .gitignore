@@ -145,7 +145,7 @@ stats.txt
 matches.json
 match_state.json
 matches.csv
-data.json
-data2.json
+data_closed_ov_ah.json
+data_drop_ov_ah.json
 data.py
 count.json

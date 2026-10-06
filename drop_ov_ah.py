@@ -7,6 +7,7 @@ from config import (
     DEBUGMODE,
     OVER_TOTAL_DROP_MAX,
     OVER_TOTAL_DROP_THRESHOLD,
+    OVER_STRATEGY_CHANNEL_ID,
     SKIPMATCH,
 )
 from logger import setup_logger
@@ -248,7 +249,9 @@ def _prepare_over_total_drop_history(match_history):
         prepared_history[match_id] = prepared_match
 
     if DEBUGMODE == 1:
-        snapshot_path = os.path.join(os.path.dirname(__file__), "data2.json")
+        snapshot_path = os.path.join(
+            os.path.dirname(__file__), "data_drop_ov_ah.json"
+        )
         try:
             with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
                 json.dump(
@@ -278,6 +281,7 @@ def _notification_sent_callback(on_notification_sent, match_id, league):
             "match_id": match_id,
             "market": "ov",
             "league": league,
+            "channel_id": OVER_STRATEGY_CHANNEL_ID,
             "message_id": message_id,
             "message": message,
             "link": link,
@@ -290,6 +294,13 @@ def _notification_sent_callback(on_notification_sent, match_id, league):
 # Отправляет уведомление о найденном движении тотала.
 def _send_over_notification(match_id, entry, total, odds, on_notification_sent=None):
     league = entry.get("league", "Unknown")
+
+    if not OVER_STRATEGY_CHANNEL_ID:
+        logger.error(
+            "Cannot send Over strategy notification: "
+            "OVER_STRATEGY_CHANNEL_ID is not configured"
+        )
+        return
 
     try:
         send_telegram_notification(
@@ -304,6 +315,7 @@ def _send_over_notification(match_id, entry, total, odds, on_notification_sent=N
             on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, league
             ),
+            channel_id=OVER_STRATEGY_CHANNEL_ID,
         )
     except Exception as error:
         logger.error(f"Match {match_id}: Failed to send notification: {error}")
