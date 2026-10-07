@@ -72,9 +72,6 @@ def _to_ah_line(value):
         return None
 
     magnitude = sum(abs(part) for part in values) / len(values)
-    if math.isclose(magnitude, 0.25, abs_tol=1e-9):
-        return 0.0, None, True
-
     side_value = next((part for part in values if part != 0), 0)
     if side_value == 0:
         return 0.0, None, True
