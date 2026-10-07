@@ -76,7 +76,7 @@ def init_browser(p, max_navigation_retries=3):
         page.goto(
             SITE_URL,
             wait_until="domcontentloaded",
-            timeout=60000,
+            timeout=30000,
         )
 
     try:
@@ -137,8 +137,8 @@ def refresh_live_table(page):
 def refresh_page(page, wait_for_data=True):
     logger.info("Refreshing...")
     try:
-        page.reload(wait_until="domcontentloaded", timeout=60000)
-        page.locator("table#table_live").wait_for(timeout=10000)
+        page.reload(wait_until="domcontentloaded", timeout=30000)
+        page.locator("table#table_live").wait_for(timeout=20000)
 
         if not wait_for_data:
             logger.info("Page refreshed")
