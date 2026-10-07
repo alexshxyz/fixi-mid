@@ -92,7 +92,14 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
 
 
 # Отправляет Telegram-уведомление для найденного over-паттерна.
-def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on_notification_sent=None):
+def _send_over_notification(
+    match_id,
+    last_entry,
+    last_total,
+    last_over_odds,
+    drop_type,
+    on_notification_sent=None,
+):
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -107,6 +114,7 @@ def _send_over_notification(match_id, last_entry, last_total, last_over_odds, on
             score=score,
             over=last_total,
             over_odds=last_over_odds,
+            drop_type=drop_type,
             match_id=match_id,
             match_time=match_time,
             on_sent_details=_notification_sent_callback(
@@ -151,6 +159,7 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
                 last_entry,
                 last_total,
                 last_over_odds,
+                f"ODDS {current_over_odds:.2f} -> {last_over_odds:.2f}",
                 on_notification_sent,
             )
             return True
@@ -160,7 +169,15 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
 
 
 # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
-def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side, on_notification_sent=None):
+def _send_ah_notification(
+    match_id,
+    last_entry,
+    last_ah,
+    last_ah_odds,
+    odds_side,
+    drop_type,
+    on_notification_sent=None,
+):
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
@@ -180,6 +197,7 @@ def _send_ah_notification(match_id, last_entry, last_ah, last_ah_odds, odds_side
             score=score,
             match_id=match_id,
             over_odds=last_ah_odds,
+            drop_type=drop_type,
             handicap_text=handicap,
             handicap_team_order=handicap_order,
             match_time=match_time,
@@ -239,6 +257,7 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
                 last_ah,
                 last_ah_odds,
                 odds_side,
+                f"ODDS {current_ah_odds:.2f} -> {last_ah_odds:.2f}",
                 on_notification_sent,
             )
             return True

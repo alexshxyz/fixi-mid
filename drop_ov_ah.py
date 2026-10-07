@@ -344,7 +344,9 @@ def _notification_sent_callback(on_notification_sent, match_id, league):
 
 
 # Отправляет уведомление о найденном движении тотала.
-def _send_over_notification(match_id, entry, total, odds, on_notification_sent=None):
+def _send_over_notification(
+    match_id, entry, total, odds, drop_type, on_notification_sent=None
+):
     league = entry.get("league", "Unknown")
 
     if not OVER_STRATEGY_CHANNEL_ID:
@@ -362,6 +364,7 @@ def _send_over_notification(match_id, entry, total, odds, on_notification_sent=N
             score=entry.get("score", "Unknown"),
             over=total,
             over_odds=odds,
+            drop_type=drop_type,
             match_id=match_id,
             match_time=entry.get("match_time", "Unknown"),
             on_sent_details=_notification_sent_callback(
@@ -425,6 +428,7 @@ def _find_over_total_drop_pattern(
                 anchor_entry,
                 anchor_entry.get("ov", {}).get("over"),
                 _to_float(anchor_entry.get("ov", {}).get("over_odds")),
+                f"LINE {current_total} -> {anchor_total}",
                 on_notification_sent,
             )
             return True

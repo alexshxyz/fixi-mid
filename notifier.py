@@ -66,13 +66,8 @@ def _normalize_match_time_for_message(raw_time):
 # Собирает текст прогноза для тотала или форы.
 def _build_prediction(over, handicap_text, handicap_team_order):
     if handicap_text is None:
-        return f"Over {over} FT"
-    return f"Handicap {handicap_text} {handicap_team_order} FT"
-
-
-# Форматирует прогноз и коэффициент с HTML-разметкой Telegram.
-def _format_prediction_for_message(prediction, odds_value):
-    return f"{prediction} · {odds_value}"
+        return f"Over {over}"
+    return f"Handicap {handicap_text} {handicap_team_order}"
 
 
 # Формирует HTML-текст уведомления о матче.
@@ -87,7 +82,7 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
     return (
         f"<b>{league}</b>\n"
         f"⚽️ {clean_match_time}’ {linkified_match_text}\n\n"
-        f"{_format_prediction_for_message(prediction, odds_value)}"
+        f"{prediction} · {odds_value}"
     )
 
 
@@ -157,6 +152,7 @@ def _save_notification(
     team2,
     prediction,
     odds_value,
+    drop_type,
     match_url,
     channel_id,
 ):
@@ -167,6 +163,7 @@ def _save_notification(
             away_team=team2,
             prediction=prediction,
             odds=odds_value,
+            drop_type=drop_type,
             link=match_url,
             channel_id=channel_id,
         )
@@ -188,6 +185,7 @@ def send_telegram_notification(
     on_sent=None,
     on_sent_details=None,
     channel_id=None,
+    drop_type=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
     target_channel_id = channel_id or CHANNEL_ID
@@ -225,6 +223,7 @@ def send_telegram_notification(
         team2,
         prediction,
         odds_value,
+        drop_type,
         match_url,
         target_channel_id,
     )

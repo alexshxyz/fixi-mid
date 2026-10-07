@@ -69,7 +69,7 @@ CHANNEL_ID=id Telegram-канала
   "league": "Example League",
   "home_team": "Team A",
   "away_team": "Team B",
-  "prediction": "Over 2.5 FT",
+  "prediction": "Over 2.5",
   "odds": 1.6,
   "final_score": null,
   "result": null,

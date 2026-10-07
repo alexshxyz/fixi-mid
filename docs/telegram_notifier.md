@@ -165,18 +165,18 @@ _prepare_odds("0.60")  # 1.6
 
 ### 6.2. `_build_prediction(over, handicap_text, handicap_team_order)`
 
-Формирует строку прогноза, которая используется одновременно в сообщении и при проверке дубликатов.
+Формирует строку прогноза без суффикса `FT`. Эта же строка отображается в Telegram, используется при проверке дубликатов и сохраняется в истории прогнозов.
 
 Для over:
 
 ```text
-Over 2.5 FT
+Over 2.5
 ```
 
 Для handicap:
 
 ```text
-Handicap -0.5 Home FT
+Handicap -0.5 Home
 ```
 
 Если `handicap_text` равен `None`, создаётся вариант over. Иначе создаётся вариант handicap с указанной стороной команды.
@@ -197,7 +197,7 @@ Handicap -0.5 Home FT
 <b>Example League</b>
 ⚽️ 5’ <a href="https://live5.nowgoal26.com/oddscomp/1234567">Team 1 0 - 0 Team 2</a>
 
-Over 2/2.5 FT · 1.58
+Over 2/2.5 · 1.58
 ```
 
 ### 6.4. `_is_duplicate_notification(match_url, prediction, match_id)`
@@ -348,7 +348,7 @@ send_telegram_notification(
 )
 ```
 
-Будет сформирован прогноз `Over 2.5 FT`, а значение коэффициента станет `1.6`.
+Будет сформирован и сохранён прогноз `Over 2.5`, а значение коэффициента станет `1.6`.
 
 ### Handicap-прогноз
 
@@ -365,7 +365,7 @@ send_telegram_notification(
 )
 ```
 
-Будет сформирован прогноз `Handicap -0.5 Home FT`.
+Будет сформирован прогноз `Handicap -0.5 Home`.
 
 ---
 

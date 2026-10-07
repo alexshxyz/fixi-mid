@@ -126,6 +126,7 @@ def save_match(
     result=None,
     date_value=None,
     channel_id=CHANNEL_ID,
+    drop_type=None,
 ):
     target_channel_id = channel_id or CHANNEL_ID
     if odds is not None:
@@ -143,6 +144,7 @@ def save_match(
         'home_team': home_team,
         'away_team': away_team,
         'prediction': prediction,
+        'drop_type': drop_type,
         'odds': odds,
         'final_score': final_score,
         'result': result,
