@@ -1,7 +1,7 @@
 import json
 import re
 
-from config import MAX_ODD, THRESHOLD
+from config import START_ODD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
 from storage import get_match_notification_states
@@ -156,7 +156,7 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
         if current_total != last_total:
             break
 
-        if current_over_odds is not None and current_over_odds >= MAX_ODD:
+        if current_over_odds is not None and current_over_odds >= START_ODD:
             _send_over_notification(
                 match_id,
                 last_entry,
@@ -254,7 +254,7 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
         else:
             current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
 
-        if current_ah_odds is not None and current_ah_odds >= MAX_ODD:
+        if current_ah_odds is not None and current_ah_odds >= START_ODD:
             _send_ah_notification(
                 match_id,
                 last_entry,

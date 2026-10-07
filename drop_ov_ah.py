@@ -6,10 +6,10 @@ from datetime import datetime, timedelta
 
 from config import (
     DEBUGMODE,
-    OVER_TOTAL_DROP_MAX,
-    OVER_TOTAL_DROP_THRESHOLD,
-    OVER_TOTAL_DROP_WINDOW_MINUTES,
-    OVER_STRATEGY_CHANNEL_ID,
+    MAX_DROP_THRESHOLD,
+    MIN_DROP_THRESHOLD,
+    DROP_WINDOW_MINUTES,
+    NEW_STRATEGY_CHANNEL_ID,
     SKIPMATCH,
 )
 from logger import setup_logger
@@ -376,7 +376,7 @@ def _notification_sent_callback(on_notification_sent, match_id, league):
             "match_id": match_id,
             "market": "ov",
             "league": league,
-            "channel_id": OVER_STRATEGY_CHANNEL_ID,
+            "channel_id": NEW_STRATEGY_CHANNEL_ID,
             "message_id": message_id,
             "message": message,
             "link": link,
@@ -392,10 +392,10 @@ def _send_over_notification(
 ):
     league = entry.get("league", "Unknown")
 
-    if not OVER_STRATEGY_CHANNEL_ID:
+    if not NEW_STRATEGY_CHANNEL_ID:
         logger.error(
             "Cannot send Over strategy notification: "
-            "OVER_STRATEGY_CHANNEL_ID is not configured"
+            "NEW_STRATEGY_CHANNEL_ID is not configured"
         )
         return
 
@@ -413,7 +413,7 @@ def _send_over_notification(
             on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, league
             ),
-            channel_id=OVER_STRATEGY_CHANNEL_ID,
+            channel_id=NEW_STRATEGY_CHANNEL_ID,
             strategy="new",
         )
     except Exception as error:
@@ -430,7 +430,7 @@ def _ah_notification_sent_callback(on_notification_sent, match_id, league):
             "match_id": match_id,
             "market": "ah",
             "league": league,
-            "channel_id": OVER_STRATEGY_CHANNEL_ID,
+            "channel_id": NEW_STRATEGY_CHANNEL_ID,
             "message_id": message_id,
             "message": message,
             "link": link,
@@ -445,11 +445,17 @@ def _send_ah_line_drop_notification(
     match_id, entry, ah_line, odds, side, previous_line, on_notification_sent=None
 ):
     league = entry.get("league", "Unknown")
+    handicap_text = str(ah_line).strip()
+    if side == "home":
+        if handicap_text.startswith("+"):
+            handicap_text = handicap_text[1:]
+        if not handicap_text.startswith("-"):
+            handicap_text = f"-{handicap_text}"
 
-    if not OVER_STRATEGY_CHANNEL_ID:
+    if not NEW_STRATEGY_CHANNEL_ID:
         logger.error(
             "Cannot send AH strategy notification: "
-            "OVER_STRATEGY_CHANNEL_ID is not configured"
+            "NEW_STRATEGY_CHANNEL_ID is not configured"
         )
         return
 
@@ -460,7 +466,7 @@ def _send_ah_line_drop_notification(
             team2=entry.get("team2", "Unknown"),
             score=entry.get("score", "Unknown"),
             over_odds=odds,
-            handicap_text=ah_line,
+            handicap_text=handicap_text,
             handicap_team_order="Home" if side == "home" else "Away",
             drop_type=f"LINE {previous_line} -> {ah_line}",
             match_id=match_id,
@@ -468,7 +474,7 @@ def _send_ah_line_drop_notification(
             on_sent_details=_ah_notification_sent_callback(
                 on_notification_sent, match_id, league
             ),
-            channel_id=OVER_STRATEGY_CHANNEL_ID,
+            channel_id=NEW_STRATEGY_CHANNEL_ID,
             strategy="new",
         )
     except Exception as error:
@@ -516,14 +522,14 @@ def _find_over_total_drop_pattern(
         if current_total is None or not _has_valid_open_over_data(current_entry):
             continue
         if not _dates_within_window(
-            anchor_entry, current_entry, OVER_TOTAL_DROP_WINDOW_MINUTES
+            anchor_entry, current_entry, DROP_WINDOW_MINUTES
         ):
             continue
         if _is_skipped_match_entry(current_entry):
             continue
 
         total_increase = anchor_total - current_total
-        if OVER_TOTAL_DROP_THRESHOLD <= total_increase < OVER_TOTAL_DROP_MAX:
+        if MIN_DROP_THRESHOLD <= total_increase < MAX_DROP_THRESHOLD:
             _send_over_notification(
                 match_id,
                 anchor_entry,
@@ -593,7 +599,7 @@ def _find_ah_line_drop_pattern(
         if current_line is None or not _has_valid_open_ah_data(current_entry):
             continue
         if not _dates_within_window(
-            anchor_entry, current_entry, OVER_TOTAL_DROP_WINDOW_MINUTES
+            anchor_entry, current_entry, DROP_WINDOW_MINUTES
         ):
             continue
         if _is_skipped_match_entry(current_entry):
@@ -604,7 +610,7 @@ def _find_ah_line_drop_pattern(
             continue
 
         line_increase = anchor_magnitude - current_magnitude
-        if OVER_TOTAL_DROP_THRESHOLD <= line_increase < OVER_TOTAL_DROP_MAX:
+        if MIN_DROP_THRESHOLD <= line_increase < MAX_DROP_THRESHOLD:
             _send_ah_line_drop_notification(
                 match_id,
                 anchor_entry,
