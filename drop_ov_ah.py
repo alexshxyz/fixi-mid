@@ -53,8 +53,53 @@ def _has_valid_open_over_data(entry):
     )
 
 
+# Разбирает AH-линию и возвращает её величину, сторону и признак нулевой группы.
+def _to_ah_line(value):
+    if value is None:
+        return None
+
+    text = str(value).strip().replace(",", ".")
+    parts = text.split("/")
+    if len(parts) not in (1, 2):
+        return None
+
+    try:
+        values = [float(part.strip()) for part in parts]
+    except (ValueError, TypeError):
+        return None
+
+    if not all(math.isfinite(part) for part in values):
+        return None
+
+    magnitude = sum(abs(part) for part in values) / len(values)
+    if math.isclose(magnitude, 0.25, abs_tol=1e-9):
+        return 0.0, None, True
+
+    side_value = next((part for part in values if part != 0), 0)
+    if side_value == 0:
+        return 0.0, None, True
+
+    side = "home" if side_value > 0 else "away"
+    return magnitude, side, False
+
+
+# Проверяет, что открытая AH-линия и оба её коэффициента числовые.
+def _has_valid_open_ah_data(entry):
+    ah_data = entry.get("ah", {})
+    line = _to_ah_line(ah_data.get("ah"))
+    home_odds = _to_float(ah_data.get("home_ah_odds"))
+    away_odds = _to_float(ah_data.get("away_ah_odds"))
+    return (
+        line is not None
+        and home_odds is not None
+        and math.isfinite(home_odds)
+        and away_odds is not None
+        and math.isfinite(away_odds)
+    )
+
+
 # Проверяет, укладывается ли разница дат записей в окно сравнения.
-def _dates_within_over_window(first_entry, second_entry):
+def _dates_within_window(first_entry, second_entry, window_minutes):
     try:
         first_date = datetime.fromisoformat(
             str(first_entry["date"]).replace("Z", "+00:00")
@@ -68,9 +113,7 @@ def _dates_within_over_window(first_entry, second_entry):
     if (first_date.utcoffset() is None) != (second_date.utcoffset() is None):
         return False
 
-    return abs(first_date - second_date) <= timedelta(
-        minutes=OVER_TOTAL_DROP_WINDOW_MINUTES
-    )
+    return abs(first_date - second_date) <= timedelta(minutes=window_minutes)
 
 
 # Разбирает timestamp записи для отсчёта ожидания подтверждения нового счёта.
@@ -371,9 +414,65 @@ def _send_over_notification(
                 on_notification_sent, match_id, league
             ),
             channel_id=OVER_STRATEGY_CHANNEL_ID,
+            strategy="new",
         )
     except Exception as error:
         logger.error(f"Match {match_id}: Failed to send notification: {error}")
+
+
+# Создаёт callback для регистрации отправленного AH-сигнала.
+def _ah_notification_sent_callback(on_notification_sent, match_id, league):
+    if not on_notification_sent:
+        return None
+
+    def register(message_id, message, link, prediction):
+        on_notification_sent({
+            "match_id": match_id,
+            "market": "ah",
+            "league": league,
+            "channel_id": OVER_STRATEGY_CHANNEL_ID,
+            "message_id": message_id,
+            "message": message,
+            "link": link,
+            "prediction": prediction,
+        })
+
+    return register
+
+
+# Отправляет уведомление о найденном движении AH-линии.
+def _send_ah_line_drop_notification(
+    match_id, entry, ah_line, odds, side, previous_line, on_notification_sent=None
+):
+    league = entry.get("league", "Unknown")
+
+    if not OVER_STRATEGY_CHANNEL_ID:
+        logger.error(
+            "Cannot send AH strategy notification: "
+            "OVER_STRATEGY_CHANNEL_ID is not configured"
+        )
+        return
+
+    try:
+        send_telegram_notification(
+            league=league,
+            team1=entry.get("team1", "Unknown"),
+            team2=entry.get("team2", "Unknown"),
+            score=entry.get("score", "Unknown"),
+            over_odds=odds,
+            handicap_text=ah_line,
+            handicap_team_order="Home" if side == "home" else "Away",
+            drop_type=f"LINE {previous_line} -> {ah_line}",
+            match_id=match_id,
+            match_time=entry.get("match_time", "Unknown"),
+            on_sent_details=_ah_notification_sent_callback(
+                on_notification_sent, match_id, league
+            ),
+            channel_id=OVER_STRATEGY_CHANNEL_ID,
+            strategy="new",
+        )
+    except Exception as error:
+        logger.error(f"Match {match_id}: Failed to send AH notification: {error}")
 
 
 # Ищет рост тотала в пределах одного счёта и временного окна.
@@ -416,7 +515,9 @@ def _find_over_total_drop_pattern(
         current_total = _to_total(current_entry.get("ov", {}).get("over"))
         if current_total is None or not _has_valid_open_over_data(current_entry):
             continue
-        if not _dates_within_over_window(anchor_entry, current_entry):
+        if not _dates_within_window(
+            anchor_entry, current_entry, OVER_TOTAL_DROP_WINDOW_MINUTES
+        ):
             continue
         if _is_skipped_match_entry(current_entry):
             continue
@@ -429,6 +530,88 @@ def _find_over_total_drop_pattern(
                 anchor_entry.get("ov", {}).get("over"),
                 _to_float(anchor_entry.get("ov", {}).get("over_odds")),
                 f"LINE {current_total} -> {anchor_total}",
+                on_notification_sent,
+            )
+            return True
+
+    return False
+
+
+# Ищет рост величины AH-форы в пределах одного нормализованного счёта.
+def _find_ah_line_drop_pattern(
+    entries,
+    match_id,
+    on_notification_sent=None,
+    *,
+    scores_relabelled=False,
+):
+    if not scores_relabelled:
+        entries = _normalize_score_transitions(entries)
+
+    anchor_entry = None
+    anchor_idx = -1
+    anchor_line = None
+    for idx in range(len(entries) - 1, -1, -1):
+        current_entry = entries[idx]
+        current_line = _to_ah_line(current_entry.get("ah", {}).get("ah"))
+        if (
+            current_line is not None
+            and current_line[0] > 0.25
+            and _has_valid_open_ah_data(current_entry)
+        ):
+            anchor_entry = current_entry
+            anchor_idx = idx
+            anchor_line = current_line
+            break
+
+    if anchor_entry is None or anchor_line is None:
+        return False
+
+    anchor_score = anchor_entry.get("score")
+    if anchor_score is None or str(anchor_score).strip().lower() in {
+        "",
+        "-",
+        "unknown",
+    }:
+        return False
+    if _is_skipped_match_entry(anchor_entry):
+        return False
+
+    anchor_magnitude, anchor_side, _ = anchor_line
+    anchor_ah = anchor_entry.get("ah", {}).get("ah")
+    anchor_odds_key = (
+        "home_ah_odds" if anchor_side == "home" else "away_ah_odds"
+    )
+    anchor_odds = _to_float(anchor_entry.get("ah", {}).get(anchor_odds_key))
+
+    for idx in range(anchor_idx - 1, -1, -1):
+        current_entry = entries[idx]
+        if current_entry.get("score") != anchor_score:
+            break
+
+        current_line = _to_ah_line(current_entry.get("ah", {}).get("ah"))
+        if current_line is None or not _has_valid_open_ah_data(current_entry):
+            continue
+        if not _dates_within_window(
+            anchor_entry, current_entry, OVER_TOTAL_DROP_WINDOW_MINUTES
+        ):
+            continue
+        if _is_skipped_match_entry(current_entry):
+            continue
+
+        current_magnitude, current_side, is_zero_group = current_line
+        if not is_zero_group and current_side != anchor_side:
+            continue
+
+        line_increase = anchor_magnitude - current_magnitude
+        if OVER_TOTAL_DROP_THRESHOLD <= line_increase < OVER_TOTAL_DROP_MAX:
+            _send_ah_line_drop_notification(
+                match_id,
+                anchor_entry,
+                anchor_ah,
+                anchor_odds,
+                anchor_side,
+                current_entry.get("ah", {}).get("ah"),
                 on_notification_sent,
             )
             return True

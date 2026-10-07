@@ -14,7 +14,11 @@ from config import (
     TELEGRAM_PROXY_PORT,
     TELEGRAM_PROXY_USERNAME,
 )
-from storage import save_match, check_duplicate_match
+from storage import (
+    save_match,
+    check_duplicate_match,
+    check_duplicate_market,
+)
 from logger import setup_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -155,6 +159,9 @@ def _save_notification(
     drop_type,
     match_url,
     channel_id,
+    match_id,
+    market,
+    strategy,
 ):
     try:
         save_match(
@@ -166,6 +173,9 @@ def _save_notification(
             drop_type=drop_type,
             link=match_url,
             channel_id=channel_id,
+            match_id=match_id,
+            market=market,
+            strategy=strategy,
         )
     except Exception as db_error:
         logger.error(f"Failed to save match: {db_error}")
@@ -186,12 +196,15 @@ def send_telegram_notification(
     on_sent_details=None,
     channel_id=None,
     drop_type=None,
+    strategy=None,
 ):
     # Отправляет уведомление о матче в Telegram канал.
     target_channel_id = channel_id or CHANNEL_ID
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = over_odds
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
+    market = "ah" if handicap_text is not None else "ov"
+    strategy = strategy or "old"
     message = _build_message(
         league,
         team1,
@@ -210,6 +223,14 @@ def send_telegram_notification(
         "disable_web_page_preview": True
     }
 
+    if check_duplicate_market(match_id, market):
+        logger.info(
+            "Duplicate %s notification blocked for match %s",
+            market,
+            match_id,
+        )
+        return False
+
     if _is_duplicate_notification(match_url, prediction, target_channel_id):
         return False
 
@@ -226,6 +247,9 @@ def send_telegram_notification(
         drop_type,
         match_url,
         target_channel_id,
+        match_id,
+        market,
+        strategy,
     )
     result = telegram_response.get('result')
     telegram_message_id = (

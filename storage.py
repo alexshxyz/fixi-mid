@@ -3,6 +3,7 @@ import os
 import tempfile
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 from config import CHANNEL_ID, MATCHES_FILE
 from logger import setup_logger
 
@@ -84,6 +85,82 @@ def check_duplicate_match(link, prediction, channel_id=CHANNEL_ID):
     return False
 
 
+# Возвращает match_id записи из явного поля или ссылки на матч.
+def _get_match_id(item):
+    match_id = item.get('match_id')
+    if match_id is not None:
+        return str(match_id)
+
+    link = item.get('link')
+    if not link:
+        return None
+    path_parts = [part for part in urlparse(link).path.split('/') if part]
+    return unquote(path_parts[-1]) if path_parts else None
+
+
+# Определяет рынок записи с поддержкой старых записей без поля market.
+def _get_market(item):
+    market = item.get('market')
+    if market in {'ov', 'ah'}:
+        return market
+
+    prediction = str(item.get('prediction', ''))
+    if prediction.startswith('Over '):
+        return 'ov'
+    if prediction.startswith('Handicap '):
+        return 'ah'
+    return None
+
+
+# Определяет семейство стратегии, включая записи, созданные до поля strategy.
+def _get_strategy(item):
+    strategy = item.get('strategy')
+    if strategy in {'old', 'new'}:
+        return strategy
+
+    drop_type = str(item.get('drop_type') or '')
+    if drop_type.startswith('LINE '):
+        return 'new'
+    return 'old'
+
+
+# Возвращает отправленные рынки и семейства стратегий для всех матчей.
+def get_match_notification_states():
+    states = {}
+    for item in _load_matches():
+        if not isinstance(item, dict):
+            continue
+
+        match_id = _get_match_id(item)
+        if match_id is None:
+            continue
+
+        state = states.setdefault(
+            match_id,
+            {'sent_markets': set(), 'strategies': set()},
+        )
+        market = _get_market(item)
+        strategy = _get_strategy(item)
+        if market is not None:
+            state['sent_markets'].add(market)
+        state['strategies'].add(strategy)
+
+    return states
+
+
+# Возвращает отправленные рынки и семейства стратегий для матча.
+def get_match_notification_state(match_id):
+    return get_match_notification_states().get(
+        str(match_id),
+        {'sent_markets': set(), 'strategies': set()},
+    )
+
+
+# Проверяет, отправлялся ли уже сигнал этого рынка по match_id.
+def check_duplicate_market(match_id, market):
+    return market in get_match_notification_state(match_id)['sent_markets']
+
+
 # Обновляет эмодзи для сохранённого уведомления.
 def update_match_mark(link, prediction, mark, channel_id=CHANNEL_ID):
     if not link or not prediction:
@@ -127,6 +204,9 @@ def save_match(
     date_value=None,
     channel_id=CHANNEL_ID,
     drop_type=None,
+    match_id=None,
+    market=None,
+    strategy=None,
 ):
     target_channel_id = channel_id or CHANNEL_ID
     if odds is not None:
@@ -149,6 +229,9 @@ def save_match(
         'final_score': final_score,
         'result': result,
         'link': link,
+        'match_id': str(match_id) if match_id is not None else None,
+        'market': market,
+        'strategy': strategy,
         'date': date_value,
         'source': 'Crown',
         'channel_id': target_channel_id,
