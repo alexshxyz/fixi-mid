@@ -17,6 +17,8 @@ from notifier import send_telegram_notification
 
 logger = setup_logger(__name__)
 
+RED_CARD_LOOKBACK_MINUTES = 20
+
 
 # Преобразует значение коэффициента в число.
 def _to_float(value):
@@ -121,6 +123,33 @@ def _entry_datetime(entry):
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+# Проверяет красные карточки в пределах 20 минут до anchor включительно.
+def _has_recent_redcard(entries, anchor_idx):
+    anchor_datetime = _entry_datetime(entries[anchor_idx])
+    if anchor_datetime is None:
+        return False
+
+    lookback = timedelta(minutes=RED_CARD_LOOKBACK_MINUTES)
+    for entry in entries[:anchor_idx + 1]:
+        redcard_count = _to_float(entry.get("redcard"))
+        if redcard_count is None or redcard_count <= 0:
+            continue
+
+        entry_datetime = _entry_datetime(entry)
+        if entry_datetime is None:
+            continue
+        if (entry_datetime.utcoffset() is None) != (
+            anchor_datetime.utcoffset() is None
+        ):
+            continue
+
+        elapsed = anchor_datetime - entry_datetime
+        if timedelta(0) <= elapsed <= lookback:
+            return True
+
+    return False
 
 
 # Проверяет, не относится ли запись к времени матча из списка исключений.
@@ -509,6 +538,8 @@ def _find_over_total_drop_pattern(
         return False
     if _is_skipped_match_entry(anchor_entry):
         return False
+    if _has_recent_redcard(entries, anchor_idx):
+        return False
 
     for idx in range(anchor_idx - 1, -1, -1):
         current_entry = entries[idx]
@@ -578,6 +609,9 @@ def _find_ah_line_drop_pattern(
     }:
         return False
     if _is_skipped_match_entry(anchor_entry):
+        return False
+
+    if _has_recent_redcard(entries, anchor_idx):
         return False
 
     anchor_magnitude, anchor_side, _ = anchor_line

@@ -270,15 +270,28 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
 
 
 # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
-def find_pattern_matches(match_history, on_notification_sent=None):
+def find_pattern_matches(
+    match_history,
+    on_notification_sent=None,
+    *,
+    new_strategy_match_history=None,
+):
     sent_matches = []
-    over_total_drop_history = _prepare_over_total_drop_history(match_history)
+    strategy_match_history = (
+        match_history
+        if new_strategy_match_history is None
+        else new_strategy_match_history
+    )
+    over_total_drop_history = _prepare_over_total_drop_history(
+        strategy_match_history
+    )
     notification_states = get_match_notification_states()
 
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
+        strategy_match_data = over_total_drop_history.get(match_id)
         over_total_drop_entries = _collect_match_entries(
-            over_total_drop_history[match_id]
+            strategy_match_data if strategy_match_data is not None else data
         )
 
         notification_state = notification_states.get(

@@ -27,6 +27,31 @@ from observer import (
 
 logger = setup_logger(__name__)
 
+
+def _get_analysis_history(match_history):
+    analysis_history = {}
+    tracked_fields = ('ah', 'ov', 'match_time', 'score')
+
+    for match_id, match_data in match_history.items():
+        changes = []
+        previous_entry = match_data.get('initial')
+        for entry in match_data.get('changes', []):
+            if previous_entry is None or any(
+                entry.get(field, 'Unknown') !=
+                previous_entry.get(field, 'Unknown')
+                for field in tracked_fields
+            ):
+                changes.append(entry)
+                previous_entry = entry
+
+        analysis_history[match_id] = {
+            **match_data,
+            'changes': changes,
+        }
+
+    return analysis_history
+
+
 # Загружает сохранённое состояние матча из JSON-файла.
 def load_state_from_json(path=STATE_SAVE_FILE):
     if not os.path.exists(path):
@@ -137,6 +162,7 @@ class MatchMonitor:
 
     # Сохраняет передаваемую анализатору историю в локальный отладочный файл.
     def _run_analyzer(self):
+        analysis_history = _get_analysis_history(self.match_history)
         if DEBUGMODE == 1:
             snapshot_path = os.path.join(
                 os.path.dirname(__file__), "data_closed_ov_ah.json"
@@ -144,7 +170,7 @@ class MatchMonitor:
             try:
                 with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
                     json.dump(
-                        self.match_history,
+                        analysis_history,
                         snapshot_file,
                         ensure_ascii=False,
                         indent=2,
@@ -153,7 +179,11 @@ class MatchMonitor:
             except OSError:
                 logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
-        find_pattern_matches(self.match_history, self._register_pending_notification)
+        find_pattern_matches(
+            analysis_history,
+            self._register_pending_notification,
+            new_strategy_match_history=self.match_history,
+        )
 
     # Регистрирует отдельный таймер для отправленного сообщения.
     def _register_pending_notification(self, notification):
@@ -259,6 +289,7 @@ class MatchMonitor:
                     'ov': initial_data['ov'],
                     'match_time': initial_data.get('match_time', 'Unknown'),
                     'score': initial_data.get('score', 'Unknown'),
+                    'redcard': initial_data['redcard'],
                 }
             else:
                 logger.info(f"No initial data for match {match_id}")
@@ -455,6 +486,7 @@ class MatchMonitor:
                         'ov': initial_data['ov'],
                         'match_time': initial_data.get('match_time', 'Unknown'),
                         'score': initial_data.get('score', 'Unknown'),
+                        'redcard': initial_data['redcard'],
                     }
                     initialized_match_ids.append(new_id)
 
@@ -479,26 +511,39 @@ class MatchMonitor:
             logger.info("Matches data reloaded")
 
         updated_match_ids = []
+        analysis_data_changed = False
         for match_id in self.active_match_ids:
             if match_id not in self.last_data:
                 continue
             current_data = all_match_data.get(match_id)
             if not current_data:
                 continue
-            old_match_time = self.last_data[match_id].get('match_time', 'Unknown')
-            old_score = self.last_data[match_id].get('score', 'Unknown')
-            if (current_data['ah'] != self.last_data[match_id]['ah'] or
-                    current_data['ov'] != self.last_data[match_id]['ov'] or
-                    current_data.get('match_time', 'Unknown') != old_match_time or
-                    current_data.get('score', 'Unknown') != old_score):
+            last_match_data = self.last_data[match_id]
+            existing_data_changed = (
+                current_data['ah'] != last_match_data['ah'] or
+                current_data['ov'] != last_match_data['ov'] or
+                current_data.get('match_time', 'Unknown') !=
+                last_match_data.get('match_time', 'Unknown') or
+                current_data.get('score', 'Unknown') !=
+                last_match_data.get('score', 'Unknown')
+            )
+            redcard_changed = current_data['redcard'] != last_match_data.get(
+                'redcard', current_data['redcard']
+            )
+
+            if existing_data_changed or redcard_changed:
                 self.match_history[match_id]['changes'].append(current_data)
                 self.last_data[match_id] = {
                     'ah': current_data['ah'],
                     'ov': current_data['ov'],
                     'match_time': current_data.get('match_time', 'Unknown'),
                     'score': current_data.get('score', 'Unknown'),
+                    'redcard': current_data['redcard'],
                 }
                 updated_match_ids.append(match_id)
+                analysis_data_changed = (
+                    analysis_data_changed or existing_data_changed
+                )
 
         if updated_match_ids:
             logger.info(
@@ -507,7 +552,7 @@ class MatchMonitor:
                 ", ".join(updated_match_ids),
             )
 
-        return bool(updated_match_ids), False
+        return analysis_data_changed, False
 
 
 # Запускает мониторинг матчей с новым или восстановленным состоянием.
