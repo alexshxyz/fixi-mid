@@ -28,8 +28,8 @@ TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
 TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
 TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 
-THRESHOLD = 2.00 # Максимальный коэффициент перед Closed (1.61)
-START_ODD = 1.60 # Минимальный коэффициент для подтверждения паттерна (1.80)
+THRESHOLD = 1.61 # Максимальный коэффициент перед Closed (1.61)
+START_ODD = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
 
 DEBUGMODE = 0 # Запись истории анализа в data_closed_ov_ah.json и count.json: 0 — выключена, 1 — включена
 

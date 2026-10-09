@@ -45,7 +45,7 @@ def init_browser(p, max_navigation_retries=3):
     logger.info("Setup browser...")
     browser = p.chromium.launch(
         headless=BROWSER_HEADLESS,
-        # proxy={"server": "socks5://127.0.0.1:10808"},
+        proxy={"server": "socks5://127.0.0.1:10808"},
         args=[
             "--disable-gpu",
             "--disable-dev-shm-usage",
