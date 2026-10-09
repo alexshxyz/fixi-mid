@@ -85,7 +85,7 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
 
     return (
         f"<b>{league}</b>\n"
-        f"⚽️ {clean_match_time}’ {linkified_match_text}\n\n"
+        f"🔎 {clean_match_time}’ {linkified_match_text}\n\n"
         f"{prediction} · {odds_value}"
     )
 
