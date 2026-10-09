@@ -292,6 +292,22 @@ def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
     assert snapshot["1"]["initial"] == monitor.match_history["1"]["initial"]
 
 
+def test_run_analyzer_logs_debug_snapshot_write_error(
+    monkeypatch, monitor, tmp_path, caplog
+):
+    monkeypatch.setattr(tracker, "DEBUGMODE", 1)
+    monkeypatch.setattr(tracker, "__file__", str(tmp_path / "tracker.py"))
+    monkeypatch.setattr(tracker, "find_pattern_matches", lambda *args: None)
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+
+    monitor._run_analyzer()
+
+    assert "Failed to write analyzer input snapshot" in caplog.text
+
+
 def test_register_pending_notification_sets_deadline_and_keys_by_string_id(
     monkeypatch, monitor
 ):
@@ -452,6 +468,28 @@ def test_process_due_notifications_logs_mark_persistence_failure(
     assert "Failed to persist Telegram mark" in caplog.text
 
 
+def test_process_due_notifications_drops_last_data_after_final_edit(
+    monkeypatch, monitor
+):
+    monitor.last_data["1"] = market_data()
+    monitor.pending_notifications["10"] = {
+        "message_id": "10",
+        "match_id": "1",
+        "market": "ov",
+        "league": "listed",
+        "message": "🔎 Match",
+        "deadline": 1,
+    }
+    monkeypatch.setattr(tracker.time, "time", lambda: 2)
+    monkeypatch.setattr(tracker, "LEAGUES_LIST", ["listed"])
+    monkeypatch.setattr(tracker, "edit_telegram_notification", lambda *args: True)
+
+    monitor._process_due_notifications()
+
+    assert monitor.pending_notifications == {}
+    assert "1" not in monitor.last_data
+
+
 def test_next_notification_timeout_returns_none_or_time_until_earliest(
     monkeypatch, monitor
 ):
@@ -500,6 +538,190 @@ def test_trigger_scheduled_restart_saves_and_raises(monkeypatch, monitor):
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
 
 
+def test_trigger_scheduled_restart_continues_when_state_save_fails(
+    monkeypatch, monitor, caplog
+):
+    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+        monitor._trigger_scheduled_restart()
+
+    assert "proceeding with restart" in caplog.text
+
+
+def test_monitor_loop_runs_scheduled_page_refresh_and_heartbeat(
+    monkeypatch, monitor
+):
+    class StopLoop(Exception):
+        pass
+
+    monitor.page_refresh_callback = lambda page: None
+    monitor.next_page_refresh_at = 0
+    monitor.next_heartbeat_at = 0
+    monitor.next_reload_at = 1000
+    monitor.restart_deadline = 1000
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 0)
+    monkeypatch.setattr(monitor, "_do_scheduled_page_refresh", lambda: True)
+    monkeypatch.setattr(monitor, "_run_analyzer", lambda: None)
+    processed = []
+
+    def process_due():
+        processed.append(True)
+        if len(processed) == 3:
+            raise StopLoop
+
+    monkeypatch.setattr(monitor, "_process_due_notifications", process_due)
+
+    with pytest.raises(StopLoop):
+        monitor._monitor_loop()
+
+    assert len(processed) == 3
+    assert monitor.next_heartbeat_at == 110
+
+
+def test_monitor_loop_reschedules_failed_scheduled_page_refresh(
+    monkeypatch, monitor, caplog
+):
+    class StopLoop(Exception):
+        pass
+
+    monitor.page_refresh_callback = lambda page: None
+    monitor.next_page_refresh_at = 0
+    monitor.next_heartbeat_at = 1000
+    monitor.next_reload_at = 1000
+    monitor.restart_deadline = 1000
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 0)
+    monkeypatch.setattr(
+        monitor,
+        "_do_scheduled_page_refresh",
+        lambda: (_ for _ in ()).throw(RuntimeError("refresh failed")),
+    )
+    processed = []
+
+    def process_due():
+        processed.append(True)
+        if len(processed) == 3:
+            raise StopLoop
+
+    monkeypatch.setattr(monitor, "_process_due_notifications", process_due)
+
+    with pytest.raises(StopLoop):
+        monitor._monitor_loop()
+
+    assert monitor.next_page_refresh_at == 70
+    assert "Scheduled page refresh failed" in caplog.text
+
+
+def test_monitor_loop_propagates_restart_from_scheduled_page_refresh(
+    monkeypatch, monitor
+):
+    monitor.page_refresh_callback = lambda page: None
+    monitor.next_page_refresh_at = 0
+    monitor.next_reload_at = 1000
+    monitor.next_heartbeat_at = 1000
+    monitor.restart_deadline = 1000
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 0)
+    monkeypatch.setattr(monitor, "_process_due_notifications", lambda: None)
+    monkeypatch.setattr(
+        monitor,
+        "_do_scheduled_page_refresh",
+        lambda: (_ for _ in ()).throw(tracker.PageRestartRequired("restart")),
+    )
+
+    with pytest.raises(tracker.PageRestartRequired, match="restart"):
+        monitor._monitor_loop()
+
+
+def test_monitor_loop_periodic_reload_polls_active_matches_and_analyzes(
+    monkeypatch, monitor
+):
+    class StopLoop(Exception):
+        pass
+
+    monitor.next_reload_at = 0
+    monitor.next_heartbeat_at = 1000
+    monitor.restart_deadline = 1000
+    monitor.active_match_ids = ["1"]
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 0)
+    monkeypatch.setattr(monitor, "_do_periodic_reload", lambda: True)
+    polls = []
+    analyses = []
+    monkeypatch.setattr(
+        monitor, "_poll_and_update", lambda **kwargs: polls.append(kwargs) or (True, False)
+    )
+    monkeypatch.setattr(monitor, "_run_analyzer", lambda: analyses.append(True))
+    processed = []
+
+    def process_due():
+        processed.append(True)
+        if len(processed) == 3:
+            raise StopLoop
+
+    monkeypatch.setattr(monitor, "_process_due_notifications", process_due)
+
+    with pytest.raises(StopLoop):
+        monitor._monitor_loop()
+
+    assert polls == [{"log_data_loaded": True}]
+    assert analyses == [True]
+
+
+def test_monitor_loop_polls_after_live_change_and_processes_no_change(
+    monkeypatch, monitor
+):
+    class StopLoop(Exception):
+        pass
+
+    monitor.next_reload_at = 1000
+    monitor.next_heartbeat_at = 1000
+    monitor.restart_deadline = 1000
+    monitor.active_match_ids = ["1"]
+    monitor.pending_notifications = {"10": {"deadline": 5}}
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 0)
+    changes = iter([True, False])
+    monkeypatch.setattr(
+        tracker,
+        "_wait_for_live_change",
+        lambda *args, **kwargs: next(changes),
+    )
+    polls = []
+    analyses = []
+    monkeypatch.setattr(
+        monitor, "_poll_and_update", lambda: polls.append(True) or (True, False)
+    )
+    monkeypatch.setattr(monitor, "_run_analyzer", lambda: analyses.append(True))
+    processed = []
+
+    def process_due():
+        processed.append(True)
+        if len(processed) == 4:
+            raise StopLoop
+
+    monkeypatch.setattr(monitor, "_process_due_notifications", process_due)
+
+    with pytest.raises(StopLoop):
+        monitor._monitor_loop()
+
+    assert polls == [True]
+    assert analyses == [True]
+    assert len(processed) == 4
+
+
+def test_monitor_loop_triggers_scheduled_restart(monkeypatch, monitor):
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
+    monkeypatch.setattr(tracker.time, "time", lambda: 100)
+    monitor.restart_deadline = 100
+    monkeypatch.setattr(monitor, "_process_due_notifications", lambda: None)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+        monitor._monitor_loop()
+
+
 @pytest.mark.parametrize(
     ("reload_result", "expected_status_source"),
     [(True, "collect"), (False, "collect"), (None, "hard")],
@@ -529,6 +751,37 @@ def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
     assert expected_status_source in calls
     assert ["1"] in calls
     assert calls[-1] == "write"
+
+
+def test_do_periodic_reload_waits_for_matches_when_status_is_inactive(monkeypatch, monitor):
+    inactive = [{"match_id": None, "active": False}]
+    active = [{"match_id": "1", "active": True}]
+    calls = []
+    monkeypatch.setattr(tracker, "_reload_page_with_retries", lambda *args: False)
+    monkeypatch.setattr(
+        tracker, "_collect_match_status", lambda *args, **kwargs: inactive
+    )
+    monkeypatch.setattr(
+        monitor, "_wait_for_matches_with_hard_refresh", lambda status: calls.append(status) or active
+    )
+    monkeypatch.setattr(
+        monitor, "_synchronize_matches", lambda ids: calls.append(ids) or True
+    )
+    monkeypatch.setattr(tracker, "_write_match_count", lambda *args: None)
+
+    assert monitor._do_periodic_reload() is True
+    assert calls == [inactive, ["1"]]
+
+
+def test_wait_for_matches_collects_status_when_not_provided(monkeypatch, monitor):
+    status = [{"match_id": "1", "active": True}]
+    calls = []
+    monkeypatch.setattr(
+        tracker, "_collect_match_status", lambda *args, **kwargs: calls.append(kwargs) or status
+    )
+
+    assert monitor._wait_for_matches_with_hard_refresh() == status
+    assert calls == [{"require_crown": True}]
 
 
 def test_wait_for_matches_refreshes_until_active_match(monkeypatch, monitor):
@@ -601,6 +854,20 @@ def test_hard_page_refresh_missing_callback_saves_state_and_raises(
         monitor._do_hard_page_refresh_with_retries(max_retries=1)
 
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
+
+
+def test_hard_page_refresh_saves_failure_and_requests_restart_when_save_fails(
+    monkeypatch, monitor, caplog
+):
+    monitor.page_refresh_callback = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("site unavailable")
+    )
+    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
+
+    with pytest.raises(tracker.PageRestartRequired, match="failed after 1 attempts"):
+        monitor._do_hard_page_refresh_with_retries(max_retries=1)
+
+    assert "state save failed" in caplog.text
 
 
 def test_synchronize_matches_adds_deduplicated_new_ids_and_removes_old(

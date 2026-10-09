@@ -62,7 +62,8 @@ def _collect_match_entries(data):
 # Находит последнюю запись до состояния Closed по конкретному полю: ov или ah.
 def _get_last_entry_before_closed(entries, field_name):
     for idx in range(len(entries) - 2, -1, -1):
-        if entries[idx].get(field_name, {}).get(field_name) != "Closed":
+        line_field = "over" if field_name == "ov" else field_name
+        if entries[idx].get(field_name, {}).get(line_field) != "Closed":
             return entries[idx], idx
     return None, -1
 

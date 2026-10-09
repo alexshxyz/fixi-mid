@@ -125,6 +125,19 @@ def test_get_last_entry_before_closed_returns_latest_open_entry_and_index():
     assert index == 2
 
 
+def test_get_last_entry_before_closed_skips_closed_over_entries():
+    entries = [
+        entry(over="2.5", over_odds=1.9),
+        entry(over="Closed"),
+        entry(over="Closed"),
+    ]
+
+    selected, index = closed_ov_ah._get_last_entry_before_closed(entries, "ov")
+
+    assert selected is entries[0]
+    assert index == 0
+
+
 def test_get_last_entry_before_closed_returns_none_when_history_has_no_open_entry():
     selected, index = closed_ov_ah._get_last_entry_before_closed(
         [entry(handicap="Closed"), entry(handicap="Closed")],
@@ -232,6 +245,31 @@ def test_find_over_pattern_sends_at_inclusive_odds_boundaries(monkeypatch):
     assert matched
     assert len(notifications) == 1
     assert notifications[0][2:5] == ("2.5", THRESHOLD, f"ODDS {START_ODD:.2f} -> {THRESHOLD:.2f}")
+
+
+def test_find_over_pattern_returns_false_when_every_preceding_entry_is_closed():
+    assert not closed_ov_ah._find_over_pattern(
+        [closed_entry("ov"), closed_entry("ov")],
+        "match-1",
+    )
+
+
+def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
+    notifications = []
+    monkeypatch.setattr(
+        closed_ov_ah,
+        "_send_over_notification",
+        lambda *args: notifications.append(args),
+    )
+    history = [
+        entry(over="2.5", over_odds=START_ODD),
+        entry(over="2.5", over_odds=THRESHOLD),
+        closed_entry("ov"),
+        closed_entry("ov"),
+    ]
+
+    assert closed_ov_ah._find_over_pattern(history, "match-1")
+    assert len(notifications) == 1
 
 
 @pytest.mark.parametrize(
@@ -400,6 +438,22 @@ def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):
     )
 
     assert "Failed to send notification" in caplog.text
+
+
+def test_find_ah_pattern_skips_closed_entries_while_searching(monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        closed_ov_ah, "_send_ah_notification", lambda *args: sent.append(args)
+    )
+    history = [
+        entry(handicap="-0.5", away_odds=START_ODD),
+        closed_entry("ah"),
+        entry(handicap="-0.5", away_odds=THRESHOLD),
+        closed_entry("ah"),
+    ]
+
+    assert closed_ov_ah._find_ah_pattern(history, "match-1")
+    assert len(sent) == 1
 
 
 def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
