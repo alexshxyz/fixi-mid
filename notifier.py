@@ -224,11 +224,6 @@ def send_telegram_notification(
     }
 
     if check_duplicate_market(match_id, market):
-        logger.info(
-            "Duplicate %s notification blocked for match %s",
-            market,
-            match_id,
-        )
         return False
 
     if _is_duplicate_notification(match_url, prediction, target_channel_id):

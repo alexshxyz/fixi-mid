@@ -42,10 +42,10 @@ tools/stats_manual.py
 Связь с логикой паттернов строится косвенно:
 
 ```text
-tracker.py -> closed_ov_ah.py -> drop_ov_ah.py / notifier.py -> storage.py
+tracker.py -> closed_ov_ah.py -> notifier.py -> storage.py
 ```
 
-То есть `closed_ov_ah.py` и `drop_ov_ah.py` находят подходящие паттерны и вызывают уведомитель, а `notifier.py` перед отправкой сообщения проверяет дубликат и сохраняет матч через `storage.py`.
+То есть `closed_ov_ah.py` находит подходящие паттерны и вызывает уведомитель, а `notifier.py` перед отправкой сообщения проверяет дубликат и сохраняет матч через `storage.py`.
 
 ---
 

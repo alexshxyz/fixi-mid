@@ -21,7 +21,6 @@ STATE_SAVE_FILE = str(APP_DIR / 'match_state.json')
 # Настройки Telegram-бота
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHANNEL_ID = os.environ.get('CHANNEL_ID')
-NEW_STRATEGY_CHANNEL_ID = os.environ.get('NEW_STRATEGY_CHANNEL_ID')
 
 # Настройки прокси
 TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
@@ -32,12 +31,7 @@ TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 THRESHOLD = 1.61 # Максимальный коэффициент перед Closed (1.61)
 START_ODD = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
 
-MIN_DROP_THRESHOLD = 0.50 # Минимальное снижение тотала для новых стратегий (0.50)
-MAX_DROP_THRESHOLD = 0.75 # Максимальное снижение тотала (не включая границу) (0.75)
-DROP_WINDOW_MINUTES = 5 # Окно сравнения записей для новых стратегий (в минутах)
-SKIPMATCH = ["FT", "ET", "90"] # Время матча, при котором новая Over-стратегия не анализирует пару записей
-
-DEBUGMODE = 0 # Запись историй анализа в data_closed_ov_ah.json, data_drop_ov_ah.json и count.json: 0 — выключена, 1 — включена
+DEBUGMODE = 0 # Запись истории анализа в data_closed_ov_ah.json и count.json: 0 — выключена, 1 — включена
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
 PAGE_LIVE_RELOAD = 1800 # Полная перезагрузка страницы

@@ -295,19 +295,6 @@ def _extract_all_match_data(page, match_ids):
                     }
                 }
 
-                const countRedCards = (side) => {
-                    const cell = row.querySelector('td[id="' + side + '_' + match_id + '"]');
-                    if (!cell) return 0;
-
-                    return Array.from(cell.querySelectorAll('.redcard')).reduce(
-                        (total, card) => {
-                            const count = Number.parseInt(card.textContent.trim(), 10);
-                            return Number.isFinite(count) ? total + count : total;
-                        },
-                        0
-                    );
-                };
-                
                 result[match_id] = {
                     time: timeElem?.textContent.trim() || 'Unknown',
                     match_time: match_time,
@@ -324,8 +311,7 @@ def _extract_all_match_data(page, match_ids):
                     team1: team1,
                     team2: team2,
                     score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || 'Unknown',
-                    league: league,
-                    redcard: countRedCards('ht') + countRedCards('gt')
+                    league: league
                 };
             }
             

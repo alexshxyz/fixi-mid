@@ -4,12 +4,6 @@ import re
 from config import START_ODD, THRESHOLD
 from notifier import send_telegram_notification
 from logger import setup_logger
-from storage import get_match_notification_states
-from drop_ov_ah import (
-    _find_ah_line_drop_pattern,
-    _find_over_total_drop_pattern,
-    _prepare_over_total_drop_history,
-)
 
 logger = setup_logger(__name__)
 
@@ -273,59 +267,11 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
 def find_pattern_matches(
     match_history,
     on_notification_sent=None,
-    *,
-    new_strategy_match_history=None,
 ):
     sent_matches = []
-    strategy_match_history = (
-        match_history
-        if new_strategy_match_history is None
-        else new_strategy_match_history
-    )
-    over_total_drop_history = _prepare_over_total_drop_history(
-        strategy_match_history
-    )
-    notification_states = get_match_notification_states()
 
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
-        strategy_match_data = over_total_drop_history.get(match_id)
-        over_total_drop_entries = _collect_match_entries(
-            strategy_match_data if strategy_match_data is not None else data
-        )
-
-        notification_state = notification_states.get(
-            str(match_id),
-            {"sent_markets": set(), "strategies": set()},
-        )
-        sent_markets = notification_state["sent_markets"]
-        strategies = notification_state["strategies"]
-
-        if len(strategies) > 1:
-            logger.error(
-                "Match %s has notifications from both strategy families; "
-                "skipping further signal analysis",
-                match_id,
-            )
-            continue
-
-        if strategies == {"new"}:
-            if "ah" not in sent_markets and _find_ah_line_drop_pattern(
-                over_total_drop_entries,
-                match_id,
-                on_notification_sent,
-                scores_relabelled=True,
-            ):
-                sent_matches.append(match_id)
-
-            if "ov" not in sent_markets and _find_over_total_drop_pattern(
-                over_total_drop_entries,
-                match_id,
-                on_notification_sent,
-                scores_relabelled=True,
-            ):
-                sent_matches.append(match_id)
-            continue
 
         old_over_matched = _find_over_pattern(
             entries, match_id, on_notification_sent
@@ -337,28 +283,6 @@ def find_pattern_matches(
             entries, match_id, on_notification_sent
         )
         if old_ah_matched:
-            sent_matches.append(match_id)
-
-        if old_over_matched or old_ah_matched:
-            continue
-
-        if strategies == {"old"}:
-            continue
-
-        if "ah" not in sent_markets and _find_ah_line_drop_pattern(
-            over_total_drop_entries,
-            match_id,
-            on_notification_sent,
-            scores_relabelled=True,
-        ):
-            sent_matches.append(match_id)
-
-        if "ov" not in sent_markets and _find_over_total_drop_pattern(
-            over_total_drop_entries,
-            match_id,
-            on_notification_sent,
-            scores_relabelled=True,
-        ):
             sent_matches.append(match_id)
 
     return sent_matches

@@ -182,7 +182,6 @@ class MatchMonitor:
         find_pattern_matches(
             analysis_history,
             self._register_pending_notification,
-            new_strategy_match_history=self.match_history,
         )
 
     # Регистрирует отдельный таймер для отправленного сообщения.
@@ -289,7 +288,6 @@ class MatchMonitor:
                     'ov': initial_data['ov'],
                     'match_time': initial_data.get('match_time', 'Unknown'),
                     'score': initial_data.get('score', 'Unknown'),
-                    'redcard': initial_data['redcard'],
                 }
             else:
                 logger.info(f"No initial data for match {match_id}")
@@ -486,7 +484,6 @@ class MatchMonitor:
                         'ov': initial_data['ov'],
                         'match_time': initial_data.get('match_time', 'Unknown'),
                         'score': initial_data.get('score', 'Unknown'),
-                        'redcard': initial_data['redcard'],
                     }
                     initialized_match_ids.append(new_id)
 
@@ -527,18 +524,13 @@ class MatchMonitor:
                 current_data.get('score', 'Unknown') !=
                 last_match_data.get('score', 'Unknown')
             )
-            redcard_changed = current_data['redcard'] != last_match_data.get(
-                'redcard', current_data['redcard']
-            )
-
-            if existing_data_changed or redcard_changed:
+            if existing_data_changed:
                 self.match_history[match_id]['changes'].append(current_data)
                 self.last_data[match_id] = {
                     'ah': current_data['ah'],
                     'ov': current_data['ov'],
                     'match_time': current_data.get('match_time', 'Unknown'),
                     'score': current_data.get('score', 'Unknown'),
-                    'redcard': current_data['redcard'],
                 }
                 updated_match_ids.append(match_id)
                 analysis_data_changed = (
