@@ -1,6 +1,7 @@
 import requests
 import os
 import json
+import time
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -98,27 +99,69 @@ def _is_duplicate_notification(match_url, prediction, channel_id):
 
 
 # Отправляет запрос в Telegram API и возвращает разобранный ответ.
-def _send_message(payload, match_id=None, success_message=None, api_url=TELEGRAM_API_URL):
-    try:
-        response = requests.post(
-            api_url,
-            json=payload,
-            proxies=TELEGRAM_PROXIES,
-            timeout=10,
-        )
-        if response.status_code == 200:
-            if success_message:
-                logger.info(success_message)
-            else:
-                logger.info(f"Telegram notification sent for match {match_id}")
-            try:
-                return response.json()
-            except ValueError:
-                return {}
+def _send_message(
+    payload,
+    match_id=None,
+    success_message=None,
+    api_url=TELEGRAM_API_URL,
+    max_attempts=1,
+    retry_delay=5,
+):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                api_url,
+                json=payload,
+                proxies=TELEGRAM_PROXIES,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                try:
+                    telegram_response = response.json()
+                except ValueError as e:
+                    logger.error(
+                        "Invalid Telegram API response on attempt %s/%s: %s",
+                        attempt,
+                        max_attempts,
+                        e,
+                    )
+                else:
+                    if not (
+                        isinstance(telegram_response, dict)
+                        and telegram_response.get("ok") is False
+                    ):
+                        if success_message:
+                            logger.info(success_message)
+                        else:
+                            logger.info(
+                                "Telegram notification sent for match %s",
+                                match_id,
+                            )
+                        return telegram_response
 
-        logger.error(f"Failed to send Telegram notification: {response.text}")
-    except Exception as e:
-        logger.error(f"Error sending Telegram notification: {e}")
+                    logger.error(
+                        "Telegram API rejected request on attempt %s/%s: %s",
+                        attempt,
+                        max_attempts,
+                        telegram_response.get("description", telegram_response),
+                    )
+            else:
+                logger.error(
+                    "Failed to send Telegram notification on attempt %s/%s: %s",
+                    attempt,
+                    max_attempts,
+                    response.text,
+                )
+        except Exception as e:
+            logger.error(
+                "Error sending Telegram notification on attempt %s/%s: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+
+        if attempt < max_attempts:
+            time.sleep(retry_delay)
     return None
 
 
@@ -229,7 +272,12 @@ def send_telegram_notification(
     if _is_duplicate_notification(match_url, prediction, target_channel_id):
         return False
 
-    telegram_response = _send_message(payload, match_id)
+    telegram_response = _send_message(
+        payload,
+        match_id,
+        max_attempts=3,
+        retry_delay=5,
+    )
     if not telegram_response:
         return False
 
