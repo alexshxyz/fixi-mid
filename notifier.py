@@ -2,6 +2,7 @@ import requests
 import os
 import json
 import time
+from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -68,11 +69,38 @@ def _normalize_match_time_for_message(raw_time):
     return value
 
 
+# Усредняет линию вида 0.5/1, сохраняя знак исходного значения.
+def _normalize_split_value(value):
+    if value is None:
+        return value
+
+    text = str(value)
+    parts = text.split("/")
+    if len(parts) != 2:
+        return value
+
+    try:
+        first, second = (Decimal(part.strip()) for part in parts)
+    except InvalidOperation:
+        return value
+
+    average = (abs(first) + abs(second)) / 2
+    normalized = format(average.normalize(), "f")
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+
+    sign = "-" if first.is_signed() or second.is_signed() else ""
+    return f"{sign}{normalized}"
+
+
 # Собирает текст прогноза для тотала или форы.
 def _build_prediction(over, handicap_text, handicap_team_order):
     if handicap_text is None:
-        return f"Over {over}"
-    return f"Handicap {handicap_text} {handicap_team_order}"
+        return f"Over {_normalize_split_value(over)}"
+    return (
+        f"Handicap {_normalize_split_value(handicap_text)} "
+        f"{handicap_team_order}"
+    )
 
 
 # Формирует HTML-текст уведомления о матче.
