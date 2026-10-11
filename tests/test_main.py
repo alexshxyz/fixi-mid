@@ -271,7 +271,7 @@ def test_refresh_page_waits_until_data_is_valid(monkeypatch):
     monkeypatch.setattr(main, "has_valid_match_data", lambda current: next(outcomes))
 
     assert main.refresh_page(page) is None
-    assert page.wait_timeout_calls == [1000]
+    assert page.wait_timeout_calls == [1000, 1000]
 
 
 def test_refresh_page_raises_timeout_when_data_never_becomes_ready(monkeypatch):
