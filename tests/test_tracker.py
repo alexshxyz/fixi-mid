@@ -233,6 +233,45 @@ def test_init_or_restore_state_backfills_score_from_latest_change(monitor):
     assert monitor.last_data["1"]["score"] == "2-1"
 
 
+def test_init_or_restore_state_syncs_saved_history_with_current_matches(
+    monkeypatch, monitor
+):
+    existing_initial = market_data(score="0-0")
+    new_initial = market_data(score="1-0")
+    monitor.match_ids = ["stay", "new"]
+    monitor.saved_state = {
+        "active_match_ids": [],
+        "match_history": {
+            "stay": {"initial": existing_initial, "changes": []},
+            "stale": {"initial": market_data(), "changes": []},
+        },
+        "last_data": {
+            "stay": market_data(score="0-0"),
+            "stale": market_data(),
+        },
+    }
+    extracted = []
+    monkeypatch.setattr(
+        tracker,
+        "_extract_all_match_data",
+        lambda page, ids: (
+            extracted.append((page, ids)) or {"new": new_initial}
+        ),
+    )
+
+    monitor._init_or_restore_state()
+
+    assert extracted == [(monitor.page, ["new"])]
+    assert monitor.active_match_ids == ["stay", "new"]
+    assert set(monitor.match_history) == {"stay", "new"}
+    assert monitor.match_history["stay"]["initial"] is existing_initial
+    assert monitor.match_history["new"] == {
+        "initial": new_initial,
+        "changes": [],
+    }
+    assert "stale" not in monitor.last_data
+
+
 def test_init_or_restore_state_initializes_matches_and_runs_analyzer(
     monkeypatch, monitor
 ):

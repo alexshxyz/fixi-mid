@@ -375,13 +375,11 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
     page, browser = configure_main(monkeypatch, saved_state=saved_state)
     calls = []
     monkeypatch.setattr(
-        main,
-        "_collect_match_status",
-        lambda *args, **kwargs: [{"active": True}],
+        main, "collect_matches", lambda current_page: ["2"]
     )
 
-    def stop_after_monitor(page, **kwargs):
-        calls.append((page, kwargs))
+    def stop_after_monitor(page, matches, **kwargs):
+        calls.append((page, matches, kwargs))
         raise StopMain
 
     monkeypatch.setattr(main, "parse_and_monitor_match", stop_after_monitor)
@@ -392,6 +390,7 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
     assert calls == [
         (
             page,
+            ["2"],
             {
                 "saved_state": saved_state,
                 "live_refresh_callback": main.refresh_live_table,
@@ -405,13 +404,11 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
 def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
     saved_state = {"active_match_ids": ["1"]}
     page, _ = configure_main(monkeypatch, saved_state=saved_state)
-    statuses = iter([[{"active": False}], [{"active": True}]])
+    matches = iter([[], ["2"]])
     sleeps = []
     refreshes = []
     calls = []
-    monkeypatch.setattr(
-        main, "_collect_match_status", lambda *args, **kwargs: next(statuses)
-    )
+    monkeypatch.setattr(main, "collect_matches", lambda current: next(matches))
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
     monkeypatch.setattr(
         main, "refresh_page", lambda *args, **kwargs: refreshes.append((args, kwargs))
@@ -427,7 +424,16 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
 
     assert sleeps == [60]
     assert refreshes == [((page,), {"wait_for_data": False})]
-    assert len(calls) == 1
+    assert calls == [
+        (
+            (page, ["2"]),
+            {
+                "saved_state": saved_state,
+                "live_refresh_callback": main.refresh_live_table,
+                "page_refresh_callback": main.refresh_page,
+            },
+        )
+    ]
 
 
 def test_main_starts_monitor_with_collected_matches(monkeypatch):
@@ -447,6 +453,7 @@ def test_main_starts_monitor_with_collected_matches(monkeypatch):
         (
             (page, ["1", "2"]),
             {
+                "saved_state": None,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
             },
@@ -495,7 +502,8 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "_collect_match_status", lambda *args, **kwargs: [{"active": True}]
+        main, "_collect_match_status",
+        lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(main.os, "execv", restart)
     monkeypatch.setattr(main.sys, "executable", "python.exe")
@@ -513,7 +521,8 @@ def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):
         monkeypatch, saved_state={"active_match_ids": ["1"]}
     )
     monkeypatch.setattr(
-        main, "_collect_match_status", lambda *args, **kwargs: [{"active": True}]
+        main, "_collect_match_status",
+        lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(
         main,
@@ -545,7 +554,8 @@ def test_main_ignores_browser_close_error_during_restart(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "_collect_match_status", lambda *args, **kwargs: [{"active": True}]
+        main, "_collect_match_status",
+        lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(
         main.os, "execv", lambda *args: (_ for _ in ()).throw(RuntimeError("exec"))

@@ -219,38 +219,21 @@ def main():
                 )
                 saved_state = load_state_from_json()
 
-                # Если есть сохранённое состояние, ждём появления строк матчей.
-                if saved_state:
-                    while not any(
-                        item['active']
-                        for item in _collect_match_status(page, require_crown=True)
-                    ):
-                        logger.info(
-                            "No matches found. Retrying in 60 seconds..."
-                        )
-                        time.sleep(60)
-                        refresh_page(page, wait_for_data=False)
-                    parse_and_monitor_match(
-                        page,
-                        saved_state=saved_state,
-                        live_refresh_callback=refresh_live_table,
-                        page_refresh_callback=refresh_page,
-                    )
-                else:
-                    # Собираем матчи и ждём, пока они появятся.
+                # Всегда получаем актуальные матчи; сохранённое состояние нужно только для истории.
+                matches = collect_matches(page)
+                while not matches:
+                    logger.info("No matches found. Retrying in 60 seconds...")
+                    time.sleep(60)
+                    refresh_page(page, wait_for_data=False)
                     matches = collect_matches(page)
-                    while not matches:
-                        logger.info("No matches found. Retrying in 60 seconds...")
-                        time.sleep(60)
-                        refresh_page(page, wait_for_data=False)
-                        matches = collect_matches(page)
 
-                    parse_and_monitor_match(
-                        page,
-                        matches,
-                        live_refresh_callback=refresh_live_table,
-                        page_refresh_callback=refresh_page,
-                    )
+                parse_and_monitor_match(
+                    page,
+                    matches,
+                    saved_state=saved_state,
+                    live_refresh_callback=refresh_live_table,
+                    page_refresh_callback=refresh_page,
+                )
             except PageRestartRequired as e:
                 logger.warning(f"{e}. Restarting script after saving state...")
                 try:
