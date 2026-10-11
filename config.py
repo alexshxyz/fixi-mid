@@ -34,7 +34,7 @@ START_ODD = 1.80 # Минимальный коэффициент для подт
 DEBUGMODE = 0 # Запись истории анализа в data_closed_ov_ah.json и count.json: 0 — выключена, 1 — включена
 
 TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
-PAGE_LIVE_RELOAD = 1800 # Полная перезагрузка страницы
+PAGE_LIVE_RELOAD = 3600 # Полная перезагрузка страницы
 
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта
 NOTIFICATION_CHECK_DELAY_SECONDS = 180 # Задержка проверки статуса Telegram-сигнала
