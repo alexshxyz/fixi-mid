@@ -147,6 +147,7 @@ def refresh_page(page, wait_for_data=True):
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if has_valid_match_data(page):
+                page.wait_for_timeout(1000)
                 logger.info("Page refreshed")
                 return
             page.wait_for_timeout(1000)
@@ -210,59 +211,29 @@ def main():
             browser, page = init_browser(p)
 
             try:
-                preparation_steps = [
-                    ("switch_to_live", lambda: switch_to_live(page)),
-                ]
-                preparation_step = 0
-
                 # Подготавливаем страницу перед запуском мониторинга.
-                def prepare_page():
-                    nonlocal preparation_step
-
-                    while preparation_step < len(preparation_steps):
-                        step_name, step_action = preparation_steps[preparation_step]
-                        try:
-                            step_action()
-                        except Exception as e:
-                            logger.error(f"Failed preparation step {step_name}: {e}")
-                            raise
-                        preparation_step += 1
-
-                _retry_page_action(page, prepare_page, "prepare page")
+                _retry_page_action(
+                    page,
+                    lambda: switch_to_live(page),
+                    "prepare page",
+                )
                 saved_state = load_state_from_json()
 
-                # Если есть сохранённое состояние, ждём появления строк матчей.
-                if saved_state:
-                    while not any(
-                        item['active']
-                        for item in _collect_match_status(page, require_crown=True)
-                    ):
-                        logger.info(
-                            "No matches found. Retrying in 60 seconds..."
-                        )
-                        time.sleep(60)
-                        refresh_page(page, wait_for_data=False)
-                    parse_and_monitor_match(
-                        page,
-                        saved_state=saved_state,
-                        live_refresh_callback=refresh_live_table,
-                        page_refresh_callback=refresh_page,
-                    )
-                else:
-                    # Собираем матчи и ждём, пока они появятся.
+                # Всегда получаем актуальные матчи; сохранённое состояние нужно только для истории.
+                matches = collect_matches(page)
+                while not matches:
+                    logger.info("No matches found. Retrying in 60 seconds...")
+                    time.sleep(60)
+                    refresh_page(page, wait_for_data=False)
                     matches = collect_matches(page)
-                    while not matches:
-                        logger.info("No matches found. Retrying in 60 seconds...")
-                        time.sleep(60)
-                        refresh_page(page, wait_for_data=False)
-                        matches = collect_matches(page)
 
-                    parse_and_monitor_match(
-                        page,
-                        matches,
-                        live_refresh_callback=refresh_live_table,
-                        page_refresh_callback=refresh_page,
-                    )
+                parse_and_monitor_match(
+                    page,
+                    matches,
+                    saved_state=saved_state,
+                    live_refresh_callback=refresh_live_table,
+                    page_refresh_callback=refresh_page,
+                )
             except PageRestartRequired as e:
                 logger.warning(f"{e}. Restarting script after saving state...")
                 try:

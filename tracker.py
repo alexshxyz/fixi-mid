@@ -133,7 +133,6 @@ class MatchMonitor:
     # Восстанавливает состояние из файла или инициализирует его заново.
     def _init_or_restore_state(self):
         if self.saved_state:
-            self.active_match_ids = self.saved_state.get("active_match_ids", [])
             restored_history = self.saved_state.get("match_history", {})
             self.match_history.update(restored_history)
             for match_data in self.match_history.values():
@@ -151,7 +150,20 @@ class MatchMonitor:
                 if 'score' in latest_entry:
                     last_data['score'] = latest_entry['score']
             self.pending_notifications = self.saved_state.get("pending_notifications", {})
-            logger.info(f"Restored state for {len(self.active_match_ids)} matches from {STATE_SAVE_FILE}")
+            restored_match_ids = list(dict.fromkeys(
+                [
+                    *self.saved_state.get("active_match_ids", []),
+                    *self.match_history.keys(),
+                ]
+            ))
+            self.active_match_ids = restored_match_ids
+            if self.match_ids is not None:
+                self._synchronize_matches(self.match_ids)
+            logger.info(
+                "Restored state and synchronized %d current matches from %s",
+                len(self.active_match_ids),
+                STATE_SAVE_FILE,
+            )
             return
 
         self.active_match_ids = list(self.match_ids or [])

@@ -162,7 +162,7 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
             )
             return True
 
-    logger.debug(f"Match {match_id}: No matching entry found above")
+    logger.info(f"Match {match_id}: No matching entry found above")
     return False
 
 
