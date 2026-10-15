@@ -55,6 +55,50 @@ def test_build_prediction(over, handicap, team_order, expected):
     assert notifier._build_prediction(over, handicap, team_order) == expected
 
 
+@pytest.mark.parametrize(
+    ("over", "handicap", "team_order", "score", "expected"),
+    [
+        ("3.25", None, None, "0-0", "Тотал больше 3.5"),
+        ("3.75", None, None, "0-0", "Тотал больше 4"),
+        ("2.5", None, None, "0-0", "Тотал больше 2.5"),
+        ("2.5/3", None, None, "0-0", "Тотал больше 3"),
+        (None, "-1.5", "Home", "0-1", "Победа 1"),
+        (None, "-2", "Home", "0-2", "Фора 1 0"),
+        (None, "-0.25", "Home", "1-2", "Фора 1 +1"),
+        (None, "-3.5", "Home", "1-0", "Фора 1 -4.5"),
+        (None, "-1.5", "Away", "1-0", "Победа 2"),
+        (None, "+0.5", "Home", "0-0", "1X"),
+        (None, "+0.25", "Home", "0-0", "1X"),
+        (None, "+0.5", "Away", "0-0", "X2"),
+        (None, "-0.25", "Away", "0-0", "Победа 2"),
+        (None, "-0.75", "Home", "0-0", "Фора 1 -1"),
+        (None, "-1.25", "Away", "0-0", "Фора 2 -1.5"),
+        (None, "+0.75", "Home", "0-0", "Фора 1 +1"),
+        (None, "0", "Home", "0-0", "Фора 1 0"),
+        (None, "1.5", "Away", "0-0", "Фора 2 +1.5"),
+        (None, "+1.25", "Home", "0-0", "Фора 1 +1.5"),
+    ],
+)
+def test_build_display_prediction(
+    over, handicap, team_order, score, expected
+):
+    assert notifier._build_display_prediction(
+        over, handicap, team_order, score
+    ) == expected
+
+
+def test_build_display_prediction_leaves_handicap_unadjusted_without_score(
+    caplog,
+):
+    assert notifier._build_display_prediction(
+        None, "-1.25", "Home", "Unknown"
+    ) == "Фора 1 -1.25"
+    assert notifier._build_display_prediction(
+        None, "-0.5", "Home", "Unknown"
+    ) == "Фора 1 -0.5"
+    assert "Could not recalculate handicap" in caplog.text
+
+
 def test_build_message_linkifies_match_and_normalizes_time():
     message = notifier._build_message(
         "League",
@@ -63,20 +107,19 @@ def test_build_message_linkifies_match_and_normalizes_time():
         "1-0",
         "https://example.test/match/1",
         "Over 2.5",
-        1.55,
         "HT",
     )
 
     assert message == (
         "<b>League</b>\n"
         "🔎 45’ <a href=\"https://example.test/match/1\">Home 1-0 Away</a>\n\n"
-        "Over 2.5 · 1.55"
+        "Over 2.5"
     )
 
 
 def test_build_message_without_match_url_leaves_match_text_unlinked():
     message = notifier._build_message(
-        "League", "Home", "Away", "0-0", "", "Over 2.5", None
+        "League", "Home", "Away", "0-0", "", "Over 2.5"
     )
 
     assert "Home 0-0 Away" in message
@@ -396,7 +439,7 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
         "🔎 45’ <a href=\""
         f"{SITE_URL}oddscomp/match-1"
         "\">Home 1-0 Away</a>\n\n"
-        "Over 2.5 · 1.55"
+        "Тотал больше 2.5"
     )
     match_url = f"{SITE_URL}oddscomp/match-1"
     assert result is True
@@ -443,6 +486,7 @@ def test_send_telegram_notification_builds_handicap_signal(notification_dependen
     calls = notification_dependencies
 
     assert send_over(
+        score="0-0",
         handicap_text="-0.5/ -1",
         handicap_team_order="Away",
         channel_id=None,
@@ -451,10 +495,34 @@ def test_send_telegram_notification_builds_handicap_signal(notification_dependen
 
     args = calls["sent"][0][0]
     assert args[0]["chat_id"] == CHANNEL_ID
-    assert "Handicap -0.75 Away · 1.55" in args[0]["text"]
+    assert "Фора 2 -1" in args[0]["text"]
+    assert " · " not in args[0]["text"]
     assert calls["market_duplicate"] == [("match-1", "ah")]
     assert calls["saved"][0][3] == "Handicap -0.75 Away"
     assert calls["saved"][0][9:] == ("ah", "old")
+
+
+def test_send_telegram_notification_converts_display_but_keeps_internal_prediction(
+    notification_dependencies,
+):
+    calls = notification_dependencies
+    details_callback = []
+
+    assert send_over(
+        score="0 - 1",
+        handicap_text="-1.5",
+        handicap_team_order="Home",
+        on_sent_details=lambda *args: details_callback.append(args),
+    )
+
+    match_url = f"{SITE_URL}oddscomp/match-1"
+    assert "Победа 1" in calls["sent"][0][0][0]["text"]
+    assert " · " not in calls["sent"][0][0][0]["text"]
+    assert calls["notification_duplicate"] == [
+        (match_url, "Handicap -1.5 Home", CHANNEL_ID)
+    ]
+    assert calls["saved"][0][3] == "Handicap -1.5 Home"
+    assert details_callback[0][3] == "Handicap -1.5 Home"
 
 
 def test_send_telegram_notification_without_match_id_has_no_match_link(

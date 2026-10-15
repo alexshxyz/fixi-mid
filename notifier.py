@@ -1,8 +1,8 @@
 import requests
 import os
-import json
+import re
 import time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -46,6 +46,12 @@ if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
 
 TELEGRAM_API_URL = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
 TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
+NORMALIZED_HANDICAP_OUTCOMES = {
+    ("Home", Decimal("-0.5")): "Победа 1",
+    ("Away", Decimal("-0.5")): "Победа 2",
+    ("Home", Decimal("0.5")): "1X",
+    ("Away", Decimal("0.5")): "X2",
+}
 
 
 # Нормализует отображение игрового времени в Telegram-сообщении.
@@ -103,8 +109,109 @@ def _build_prediction(over, handicap_text, handicap_team_order):
     )
 
 
+# Убирает лишние нули в десятичной линии.
+def _format_decimal(value):
+    if value == 0:
+        return "0"
+    formatted = format(value.normalize(), "f")
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    return formatted
+
+
+# Форматирует фору с явным плюсом для положительных значений.
+def _format_handicap(value):
+    formatted = _format_decimal(value)
+    return f"+{formatted}" if value > 0 else formatted
+
+
+# Округляет четвертной тотал вверх до целой или половинной линии.
+def _round_quarter_total(value):
+    fractional_part = abs(value) % 1
+    if fractional_part in (Decimal("0.25"), Decimal("0.75")):
+        return (value * 2).to_integral_value(rounding=ROUND_CEILING) / 2
+    return value
+
+
+# Округляет четвертную фору от нуля до целой или половинной линии.
+def _round_quarter_handicap(value):
+    fractional_part = abs(value) % 1
+    if fractional_part not in (Decimal("0.25"), Decimal("0.75")):
+        return value
+
+    rounded_magnitude = (
+        (abs(value) * 2).to_integral_value(rounding=ROUND_CEILING) / 2
+    )
+    return -rounded_magnitude if value.is_signed() else rounded_magnitude
+
+
+# Разбирает счёт матча в пару голов команд.
+def _parse_score(score):
+    if score is None:
+        return None
+
+    match = re.fullmatch(r"\s*(\d+)\s*[-:]\s*(\d+)\s*", str(score))
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+# Переводит прогноз в русскую линию только для отображения в Telegram.
+def _build_display_prediction(over, handicap_text, handicap_team_order, score):
+    if handicap_text is None:
+        total = _normalize_split_value(over)
+        try:
+            display_total = _format_decimal(
+                _round_quarter_total(Decimal(str(total)))
+            )
+        except (InvalidOperation, ValueError):
+            logger.warning("Could not format total line for Telegram: %s", total)
+            display_total = total
+        return f"Тотал больше {display_total}"
+
+    line = _normalize_split_value(handicap_text)
+    team_number = {"Home": "1", "Away": "2"}.get(handicap_team_order)
+    if team_number is None:
+        logger.warning(
+            "Could not map handicap team order for Telegram: %s",
+            handicap_team_order,
+        )
+        return f"Фора {line} {handicap_team_order}"
+
+    try:
+        handicap = Decimal(str(line))
+    except (InvalidOperation, ValueError):
+        logger.warning("Could not parse handicap line for Telegram: %s", line)
+        return f"Фора {team_number} {line}"
+
+    parsed_score = _parse_score(score)
+    if parsed_score is None:
+        logger.warning(
+            "Could not recalculate handicap for Telegram with unknown score: %s",
+            score,
+        )
+        return f"Фора {team_number} {_format_handicap(handicap)}"
+
+    home_score, away_score = parsed_score
+    score_difference = (
+        home_score - away_score
+        if handicap_team_order == "Home"
+        else away_score - home_score
+    )
+    display_handicap = handicap - score_difference
+    display_handicap = _round_quarter_handicap(display_handicap)
+
+    normalized_outcome = NORMALIZED_HANDICAP_OUTCOMES.get(
+        (handicap_team_order, display_handicap)
+    )
+    if normalized_outcome is not None:
+        return normalized_outcome
+
+    return f"Фора {team_number} {_format_handicap(display_handicap)}"
+
+
 # Формирует HTML-текст уведомления о матче.
-def _build_message(league, team1, team2, score, match_url, prediction, odds_value, match_time='Unknown'):
+def _build_message(league, team1, team2, score, match_url, prediction, match_time='Unknown'):
     clean_match_time = _normalize_match_time_for_message(match_time)
 
     # Make the team-name / score segment a hyperlink to the oddscomp detail page.
@@ -115,7 +222,7 @@ def _build_message(league, team1, team2, score, match_url, prediction, odds_valu
     return (
         f"<b>{league}</b>\n"
         f"🔎 {clean_match_time}’ {linkified_match_text}\n\n"
-        f"{prediction} · {odds_value}"
+        f"{prediction}"
     )
 
 
@@ -274,6 +381,12 @@ def send_telegram_notification(
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = over_odds
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
+    display_prediction = _build_display_prediction(
+        over,
+        handicap_text,
+        handicap_team_order,
+        score,
+    )
     market = "ah" if handicap_text is not None else "ov"
     strategy = strategy or "old"
     message = _build_message(
@@ -282,8 +395,7 @@ def send_telegram_notification(
         team2,
         score,
         match_url,
-        prediction,
-        odds_value,
+        display_prediction,
         match_time=match_time,
     )
 
