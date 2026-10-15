@@ -205,7 +205,7 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
         "match_id": "match-1",
         "match_time": "30",
         "on_sent_details": sent[0]["on_sent_details"],
-        "strategy": "old",
+        "strategy": "default",
     }
     assert registered[0]["market"] == "ov"
     assert registered[0]["match_id"] == "match-1"
@@ -397,7 +397,7 @@ def test_send_ah_notification_formats_payload_and_callback(monkeypatch):
 
     assert sent[0]["handicap_text"] == "-0.5"
     assert sent[0]["handicap_team_order"] == "Home"
-    assert sent[0]["strategy"] == "old"
+    assert sent[0]["strategy"] == "default"
     assert registered[0]["market"] == "ah"
 
 

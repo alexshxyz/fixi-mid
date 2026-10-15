@@ -108,7 +108,7 @@ def test_init_storage_creates_file_and_returns_true(matches_file):
     assert read_matches(matches_file) == []
 
 
-def test_check_duplicate_match_matches_link_prediction_and_channel(matches_file):
+def test_check_duplicate_match_matches_link_and_prediction_across_channels(matches_file):
     storage._save_matches(
         [sample_match(), sample_match(channel_id="channel-b")]
     )
@@ -119,7 +119,7 @@ def test_check_duplicate_match_matches_link_prediction_and_channel(matches_file)
     assert storage.check_duplicate_match(
         "https://example.test/match/123", "Over 2.5", "channel-b"
     )
-    assert not storage.check_duplicate_match(
+    assert storage.check_duplicate_match(
         "https://example.test/match/123", "Over 2.5", "channel-c"
     )
     assert not storage.check_duplicate_match(
@@ -139,13 +139,13 @@ def test_check_duplicate_match_rejects_empty_link_or_prediction(
     assert not storage.check_duplicate_match(link, prediction, "channel-a")
 
 
-def test_check_duplicate_match_uses_default_channel_for_legacy_records(matches_file):
+def test_check_duplicate_match_ignores_channel_for_legacy_records(matches_file):
     storage._save_matches(
         [{"link": "link", "prediction": "Over 2.5"}]
     )
 
     assert storage.check_duplicate_match("link", "Over 2.5", CHANNEL_ID)
-    assert not storage.check_duplicate_match("link", "Over 2.5", "other-channel")
+    assert storage.check_duplicate_match("link", "Over 2.5", "other-channel")
 
 
 @pytest.mark.parametrize(
@@ -184,10 +184,11 @@ def test_get_market(item, expected):
     [
         ({"strategy": "new", "drop_type": "ODDS x"}, "new"),
         ({"strategy": "old", "drop_type": "LINE x"}, "old"),
+        ({"strategy": "default", "drop_type": "LINE x"}, "default"),
         ({"strategy": "invalid", "drop_type": "LINE x"}, "new"),
         ({"drop_type": "LINE 1.9 -> 1.5"}, "new"),
-        ({"drop_type": "ODDS 1.9 -> 1.5"}, "old"),
-        ({}, "old"),
+        ({"drop_type": "ODDS 1.9 -> 1.5"}, "default"),
+        ({}, "default"),
     ],
 )
 def test_get_strategy(item, expected):
@@ -241,10 +242,15 @@ def test_get_match_notification_state_stringifies_id_and_returns_fresh_empty_sta
 
 
 def test_check_duplicate_market_uses_derived_notification_state(matches_file):
-    storage._save_matches([sample_match(match_id=123, market="ov")])
+    storage._save_matches(
+        [
+            sample_match(match_id=123, market="ov", channel_id="channel-a"),
+            sample_match(match_id=123, market="ah", channel_id="channel-b"),
+        ]
+    )
 
     assert storage.check_duplicate_market(123, "ov")
-    assert not storage.check_duplicate_market(123, "ah")
+    assert storage.check_duplicate_market(123, "ah")
 
 
 def test_update_match_mark_updates_matching_record_and_preserves_other_fields(
@@ -298,14 +304,14 @@ def test_update_match_mark_handles_save_failure(matches_file, monkeypatch, caplo
     assert "Failed to update notification mark" in caplog.text
 
 
-def test_update_match_mark_uses_default_channel_for_legacy_records(matches_file):
+def test_update_match_mark_ignores_channel_for_legacy_records(matches_file):
     storage._save_matches(
         [{"link": "link", "prediction": "Over 2.5", "mark": None}]
     )
 
     assert storage.update_match_mark("link", "Over 2.5", "✅", CHANNEL_ID)
     assert read_matches(matches_file)[0]["mark"] == "✅"
-    assert not storage.update_match_mark("link", "Over 2.5", "❌", "other-channel")
+    assert storage.update_match_mark("link", "Over 2.5", "❌", "other-channel")
 
 
 def test_save_match_persists_all_fields_and_returns_one_based_row_order(
@@ -327,7 +333,7 @@ def test_save_match_persists_all_fields_and_returns_one_based_row_order(
         drop_type="ODDS 1.9 -> 1.5",
         match_id=123,
         market="ov",
-        strategy="old",
+        strategy="default",
     ) == (1, 1)
     assert storage.save_match(
         "League", "Home 2", "Away 2", "Over 3.5", 2.0, "link-2"
@@ -347,13 +353,14 @@ def test_save_match_persists_all_fields_and_returns_one_based_row_order(
         "link": "link",
         "match_id": "123",
         "market": "ov",
-        "strategy": "old",
+        "strategy": "default",
         "date": "2026-10-09",
         "source": "Crown",
-        "channel_id": "default-channel",
     }
     assert second["match_id"] is None
     assert second["date"] == storage.date.today().isoformat()
+    assert second["strategy"] == "default"
+    assert "channel_id" not in second
 
 
 @pytest.mark.parametrize(
@@ -368,7 +375,7 @@ def test_save_match_normalizes_optional_or_invalid_odds(
     assert read_matches(matches_file)[0]["odds"] == expected
 
 
-def test_save_match_does_not_add_duplicate_in_same_channel(matches_file):
+def test_save_match_does_not_add_duplicate_across_channels(matches_file):
     arguments = ("League", "Home", "Away", "Over 2.5", 1.9, "link")
 
     assert storage.save_match(*arguments, channel_id="channel-a") == (1, 1)
@@ -376,12 +383,12 @@ def test_save_match_does_not_add_duplicate_in_same_channel(matches_file):
     assert len(read_matches(matches_file)) == 1
 
 
-def test_save_match_allows_same_prediction_in_another_channel(matches_file):
+def test_save_match_ignores_channel_when_deduplicating(matches_file):
     arguments = ("League", "Home", "Away", "Over 2.5", 1.9, "link")
 
     assert storage.save_match(*arguments, channel_id="channel-a") == (1, 1)
-    assert storage.save_match(*arguments, channel_id="channel-b") == (2, 2)
-    assert len(read_matches(matches_file)) == 2
+    assert storage.save_match(*arguments, channel_id="channel-b") == (None, None)
+    assert len(read_matches(matches_file)) == 1
 
 
 def test_get_all_matches_returns_persisted_rows(matches_file):

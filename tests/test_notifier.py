@@ -127,21 +127,6 @@ def test_build_message_without_match_url_leaves_match_text_unlinked():
     assert "🔎 Unknown’" in message
 
 
-@pytest.mark.parametrize(("duplicate", "expected"), [(True, True), (False, False)])
-def test_is_duplicate_notification_delegates_to_storage(
-    monkeypatch, duplicate, expected
-):
-    calls = []
-    monkeypatch.setattr(
-        notifier,
-        "check_duplicate_match",
-        lambda *args: calls.append(args) or duplicate,
-    )
-
-    assert notifier._is_duplicate_notification("url", "prediction", "channel") is expected
-    assert calls == [("url", "prediction", "channel")]
-
-
 class FakeResponse:
     def __init__(self, status_code=200, json_data=None, text="response error", json_error=None):
         self.status_code = status_code
@@ -381,16 +366,11 @@ def test_save_notification_logs_storage_failure(monkeypatch, caplog):
 
 @pytest.fixture
 def notification_dependencies(monkeypatch):
-    calls = {"sent": [], "saved": [], "market_duplicate": [], "notification_duplicate": []}
+    calls = {"sent": [], "saved": [], "market_duplicate": []}
     monkeypatch.setattr(
         notifier,
         "check_duplicate_market",
         lambda *args: calls["market_duplicate"].append(args) or False,
-    )
-    monkeypatch.setattr(
-        notifier,
-        "_is_duplicate_notification",
-        lambda *args: calls["notification_duplicate"].append(args) or False,
     )
     monkeypatch.setattr(
         notifier,
@@ -444,9 +424,6 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
     match_url = f"{SITE_URL}oddscomp/match-1"
     assert result is True
     assert calls["market_duplicate"] == [("match-1", "ov")]
-    assert calls["notification_duplicate"] == [
-        (match_url, "Over 2.5", "custom-channel")
-    ]
     assert calls["sent"] == [
         (
             (
@@ -499,7 +476,7 @@ def test_send_telegram_notification_builds_handicap_signal(notification_dependen
     assert " · " not in args[0]["text"]
     assert calls["market_duplicate"] == [("match-1", "ah")]
     assert calls["saved"][0][3] == "Handicap -0.75 Away"
-    assert calls["saved"][0][9:] == ("ah", "old")
+    assert calls["saved"][0][9:] == ("ah", "default")
 
 
 def test_send_telegram_notification_converts_display_but_keeps_internal_prediction(
@@ -515,12 +492,8 @@ def test_send_telegram_notification_converts_display_but_keeps_internal_predicti
         on_sent_details=lambda *args: details_callback.append(args),
     )
 
-    match_url = f"{SITE_URL}oddscomp/match-1"
     assert "Победа 1" in calls["sent"][0][0][0]["text"]
     assert " · " not in calls["sent"][0][0][0]["text"]
-    assert calls["notification_duplicate"] == [
-        (match_url, "Handicap -1.5 Home", CHANNEL_ID)
-    ]
     assert calls["saved"][0][3] == "Handicap -1.5 Home"
     assert details_callback[0][3] == "Handicap -1.5 Home"
 
@@ -537,20 +510,14 @@ def test_send_telegram_notification_without_match_id_has_no_match_link(
     assert calls["market_duplicate"] == [(None, "ov")]
 
 
-@pytest.mark.parametrize("duplicate_kind", ["market", "notification"])
-def test_send_telegram_notification_returns_false_when_duplicate(
-    monkeypatch, duplicate_kind
+def test_send_telegram_notification_returns_false_when_market_is_duplicate(
+    monkeypatch,
 ):
     calls = {"sent": [], "saved": []}
     monkeypatch.setattr(
         notifier,
         "check_duplicate_market",
-        lambda *args: duplicate_kind == "market",
-    )
-    monkeypatch.setattr(
-        notifier,
-        "_is_duplicate_notification",
-        lambda *args: duplicate_kind == "notification",
+        lambda *args: True,
     )
     monkeypatch.setattr(
         notifier, "_send_message", lambda *args, **kwargs: calls["sent"].append(args)

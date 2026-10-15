@@ -73,14 +73,8 @@ def check_duplicate_match(link, prediction, channel_id=CHANNEL_ID):
     if not link or not prediction:
         return False
 
-    target_channel_id = channel_id or CHANNEL_ID
     for item in _load_matches():
-        item_channel_id = item.get('channel_id', CHANNEL_ID)
-        if (
-            item.get('link') == link
-            and item.get('prediction') == prediction
-            and item_channel_id == target_channel_id
-        ):
+        if item.get('link') == link and item.get('prediction') == prediction:
             return True
     return False
 
@@ -115,13 +109,13 @@ def _get_market(item):
 # Определяет семейство стратегии, включая записи, созданные до поля strategy.
 def _get_strategy(item):
     strategy = item.get('strategy')
-    if strategy in {'old', 'new'}:
+    if strategy in {'default', 'old', 'new'}:
         return strategy
 
     drop_type = str(item.get('drop_type') or '')
     if drop_type.startswith('LINE '):
         return 'new'
-    return 'old'
+    return 'default'
 
 
 # Возвращает отправленные рынки и семейства стратегий для всех матчей.
@@ -166,16 +160,13 @@ def update_match_mark(link, prediction, mark, channel_id=CHANNEL_ID):
     if not link or not prediction:
         return False
 
-    target_channel_id = channel_id or CHANNEL_ID
     matches = _load_matches()
     for index, match in enumerate(matches):
         if not isinstance(match, dict):
             continue
-        match_channel_id = match.get('channel_id', CHANNEL_ID)
         if (
             match.get('link') == link
             and match.get('prediction') == prediction
-            and match_channel_id == target_channel_id
         ):
             matches[index] = {
                 'mark': mark,
@@ -206,9 +197,8 @@ def save_match(
     drop_type=None,
     match_id=None,
     market=None,
-    strategy=None,
+    strategy='default',
 ):
-    target_channel_id = channel_id or CHANNEL_ID
     if odds is not None:
         try:
             odds = float(odds)
@@ -231,14 +221,13 @@ def save_match(
         'link': link,
         'match_id': str(match_id) if match_id is not None else None,
         'market': market,
-        'strategy': strategy,
+        'strategy': strategy or 'default',
         'date': date_value,
         'source': 'Crown',
-        'channel_id': target_channel_id,
     }
 
     matches = _load_matches()
-    if check_duplicate_match(link, prediction, target_channel_id):
+    if check_duplicate_match(link, prediction):
         logger.info(f"Duplicate match found in matches.json: {link} | {prediction}")
         return None, None
 

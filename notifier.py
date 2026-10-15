@@ -18,7 +18,6 @@ from config import (
 )
 from storage import (
     save_match,
-    check_duplicate_match,
     check_duplicate_market,
 )
 from logger import setup_logger
@@ -226,13 +225,6 @@ def _build_message(league, team1, team2, score, match_url, prediction, match_tim
     )
 
 
-# Проверяет, отправлялся ли уже такой прогноз для матча.
-def _is_duplicate_notification(match_url, prediction, channel_id):
-    if check_duplicate_match(match_url, prediction, channel_id):
-        return True
-    return False
-
-
 # Отправляет запрос в Telegram API и возвращает разобранный ответ.
 def _send_message(
     payload,
@@ -388,7 +380,7 @@ def send_telegram_notification(
         score,
     )
     market = "ah" if handicap_text is not None else "ov"
-    strategy = strategy or "old"
+    strategy = strategy or "default"
     message = _build_message(
         league,
         team1,
@@ -407,9 +399,6 @@ def send_telegram_notification(
     }
 
     if check_duplicate_market(match_id, market):
-        return False
-
-    if _is_duplicate_notification(match_url, prediction, target_channel_id):
         return False
 
     telegram_response = _send_message(

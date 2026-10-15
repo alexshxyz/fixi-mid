@@ -117,7 +117,7 @@ def _send_over_notification(
             on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, 'ov', league
             ),
-            strategy="old",
+            strategy="default",
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
@@ -202,7 +202,7 @@ def _send_ah_notification(
             on_sent_details=_notification_sent_callback(
                 on_notification_sent, match_id, 'ah', league
             ),
-            strategy="old",
+            strategy="default",
         )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
