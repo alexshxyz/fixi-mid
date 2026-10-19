@@ -7,6 +7,10 @@ from logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Маркеры времени, при которых матч считается завершенным и сигнал не отправляется.
+FINISHED_TIME_MARKERS = ["90", "90+", "FT", "ET"]
+
+
 # Преобразует значение в число с плавающей точкой или возвращает None.
 def _to_float(value):
     try:
@@ -68,6 +72,35 @@ def _get_last_entry_before_closed(entries, field_name):
     return None, -1
 
 
+# Сравнивает счета; неизвестный счет не блокирует отправку сигнала.
+def _scores_match(closed_entry, confirming_entry):
+    def known_score(entry):
+        score = entry.get("score")
+        if score is None:
+            return None
+        score = str(score).strip()
+        return None if not score or score.casefold() == "unknown" else score
+
+    closed_score = known_score(closed_entry)
+    confirming_score = known_score(confirming_entry)
+    return (
+        closed_score is None
+        or confirming_score is None
+        or closed_score == confirming_score
+    )
+
+
+def _is_finished_match(entry):
+    for field in ("time", "match_time"):
+        value = entry.get(field)
+        if value is None:
+            continue
+        time_text = str(value).casefold()
+        if any(marker.casefold() in time_text for marker in FINISHED_TIME_MARKERS):
+            return True
+    return False
+
+
 # Подготавливает callback с данными успешно отправленного сигнала.
 def _notification_sent_callback(on_notification_sent, match_id, market, league):
     if not on_notification_sent:
@@ -125,7 +158,11 @@ def _send_over_notification(
 
 # Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
 def _find_over_pattern(entries, match_id, on_notification_sent=None):
-    if len(entries) < 2 or entries[-1].get("ov", {}).get("over") != "Closed":
+    if (
+        len(entries) < 2
+        or entries[-1].get("ov", {}).get("over") != "Closed"
+        or _is_finished_match(entries[-1])
+    ):
         return False
 
     last_entry, last_idx = _get_last_entry_before_closed(entries, "ov")
@@ -152,6 +189,8 @@ def _find_over_pattern(entries, match_id, on_notification_sent=None):
             break
 
         if current_over_odds is not None and current_over_odds >= START_ODD:
+            if not _scores_match(entries[-1], current_entry):
+                return False
             _send_over_notification(
                 match_id,
                 last_entry,
@@ -209,7 +248,11 @@ def _send_ah_notification(
 
 # Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
 def _find_ah_pattern(entries, match_id, on_notification_sent=None):
-    if len(entries) < 2 or entries[-1].get("ah", {}).get("ah") != "Closed":
+    if (
+        len(entries) < 2
+        or entries[-1].get("ah", {}).get("ah") != "Closed"
+        or _is_finished_match(entries[-1])
+    ):
         return False
 
     last_entry, last_idx = _get_last_entry_before_closed(entries, "ah")
@@ -249,6 +292,8 @@ def _find_ah_pattern(entries, match_id, on_notification_sent=None):
             current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
 
         if current_ah_odds is not None and current_ah_odds >= START_ODD:
+            if not _scores_match(entries[-1], current_entry):
+                return False
             _send_ah_notification(
                 match_id,
                 last_entry,
