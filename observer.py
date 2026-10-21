@@ -137,7 +137,7 @@ def _reload_page_with_retries(
             )
 
             if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOdds"]:
-                raise RuntimeError("Live table data is not ready after live refresh")
+                return False
 
             return True
         except Exception as e:

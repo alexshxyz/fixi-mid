@@ -109,6 +109,8 @@ def test_retry_page_action_returns_result_after_retries(
     monkeypatch.setattr(
         main, "refresh_live_table", lambda page: refreshes.append(page)
     )
+    sleeps = []
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
     assert main._retry_page_action(
         "page",
@@ -119,11 +121,14 @@ def test_retry_page_action_returns_result_after_retries(
     ) == "done"
     assert len(attempts) == expected_calls
     assert refreshes == ["page"] * failures
+    assert sleeps == [10] * failures
 
 
 def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
     attempts = []
     monkeypatch.setattr(main, "refresh_live_table", lambda page: None)
+    sleeps = []
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
     def action():
         attempts.append(True)
@@ -135,6 +140,7 @@ def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
         )
 
     assert len(attempts) == 2
+    assert sleeps == [10]
     assert "Failed to load page after 2 attempts" in caplog.text
 
 
@@ -153,11 +159,14 @@ def test_retry_page_action_logs_refresh_failure_and_retries(
         return "ok"
 
     monkeypatch.setattr(main, "refresh_live_table", refresh)
+    sleeps = []
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
     assert main._retry_page_action(
         "page", action, "action", max_retries=2, reload_before_retry=True
     ) == "ok"
     assert len(attempts) == 2
+    assert sleeps == [10]
     assert "Failed to refresh Live table before retry" in caplog.text
 
 

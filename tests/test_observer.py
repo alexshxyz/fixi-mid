@@ -111,8 +111,8 @@ def test_wait_for_live_change_propagates_non_timeout_errors():
     [
         ([{"active": True}], {"hasCrownOdds": True, "hasVisibleOdds": True}, True),
         ([{"active": False}], {"hasCrownOdds": True, "hasVisibleOdds": True}, False),
-        ([{"active": True}], {"hasCrownOdds": False, "hasVisibleOdds": True}, None),
-        ([{"active": True}], {"hasCrownOdds": True, "hasVisibleOdds": False}, None),
+        ([{"active": True}], {"hasCrownOdds": False, "hasVisibleOdds": True}, False),
+        ([{"active": True}], {"hasCrownOdds": True, "hasVisibleOdds": False}, False),
     ],
 )
 def test_reload_page_with_retries_handles_active_and_readiness_states(
@@ -134,8 +134,36 @@ def test_reload_page_with_retries_handles_active_and_readiness_states(
     if active and active[0]["active"]:
         assert len(page.evaluate_calls) == 1
         assert "hasCrownOdds" in page.evaluate_calls[0][0]
+        assert result is expected
     else:
         assert page.evaluate_calls == []
+
+
+@pytest.mark.parametrize(
+    ("active", "ready"),
+    [
+        ([{"active": False}], None),
+        ([{"active": True}], {"hasCrownOdds": False, "hasVisibleOdds": True}),
+    ],
+)
+def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missing(
+    monkeypatch, active, ready
+):
+    page = FakePage(evaluate_result=ready)
+    refreshes = []
+    sleeps = []
+    monkeypatch.setattr(observer, "_collect_match_status", lambda *args, **kwargs: active)
+    monkeypatch.setattr(observer.time, "sleep", sleeps.append)
+
+    result = observer._reload_page_with_retries(
+        page,
+        lambda current_page: refreshes.append(current_page),
+        max_retries=3,
+    )
+
+    assert result is False
+    assert refreshes == [page]
+    assert sleeps == []
 
 
 @pytest.mark.parametrize(

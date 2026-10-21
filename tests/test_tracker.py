@@ -856,7 +856,7 @@ def test_do_scheduled_page_refresh_syncs_and_polls(monkeypatch, monitor):
     assert calls == [["1"], "write", {"log_data_loaded": True}]
 
 
-def test_hard_page_refresh_retries_then_returns_status(monkeypatch, monitor):
+def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     attempts = []
     sleeps = []
     status = [{"match_id": "1", "active": True}]
@@ -874,10 +874,12 @@ def test_hard_page_refresh_retries_then_returns_status(monkeypatch, monitor):
     monkeypatch.setattr(tracker.time, "sleep", sleeps.append)
 
     assert monitor._do_hard_page_refresh_with_retries(
-        max_retries=2, retry_delay=3
+        max_retries=2
     ) == status
     assert attempts == [False, False]
-    assert sleeps == [3]
+    assert sleeps == [10]
+    assert "Page refresh attempt 1/2 failed" in caplog.text
+    assert "Full page refresh" not in caplog.text
 
 
 def test_hard_page_refresh_missing_callback_saves_state_and_raises(
@@ -907,6 +909,8 @@ def test_hard_page_refresh_saves_failure_and_requests_restart_when_save_fails(
         monitor._do_hard_page_refresh_with_retries(max_retries=1)
 
     assert "state save failed" in caplog.text
+    assert "Page refresh failed after 1 attempts" in caplog.text
+    assert "Full page refresh" not in caplog.text
 
 
 def test_synchronize_matches_adds_deduplicated_new_ids_and_removes_old(

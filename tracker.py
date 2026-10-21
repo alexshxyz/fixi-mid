@@ -392,7 +392,7 @@ class MatchMonitor:
         if live_refresh_succeeded is False:
             match_status = _collect_match_status(self.page, require_crown=True)
         elif live_refresh_succeeded is None:
-            logger.warning("Live refresh failed. Escalating to a full page refresh.")
+            logger.warning("Live refresh failed. Escalating to a Page refresh.")
             match_status = self._do_hard_page_refresh_with_retries()
         else:
             match_status = _collect_match_status(self.page, require_crown=True)
@@ -433,19 +433,19 @@ class MatchMonitor:
             data_changed = data_changed or changed
         return data_changed
 
-    # Повторяет полную перезагрузку страницы и сохраняет состояние при отказе.
-    def _do_hard_page_refresh_with_retries(self, max_retries=3, retry_delay=60):
+    # Повторяет перезагрузку страницы и сохраняет состояние при отказе.
+    def _do_hard_page_refresh_with_retries(self, max_retries=3, retry_delay=10):
         for attempt in range(1, max_retries + 1):
             try:
                 if self.page_refresh_callback is None:
-                    raise RuntimeError("Full page refresh callback is not configured")
+                    raise RuntimeError("Page refresh callback is not configured")
                 self.page_refresh_callback(self.page, wait_for_data=False)
                 _install_live_change_observer(self.page)
                 return _collect_match_status(self.page, require_crown=True)
             except Exception as e:
                 if attempt < max_retries:
                     logger.warning(
-                        "Full page refresh attempt %s/%s failed: %s. "
+                        "Page refresh attempt %s/%s failed: %s. "
                         "Retrying in %s seconds...",
                         attempt,
                         max_retries,
@@ -457,19 +457,19 @@ class MatchMonitor:
 
                 if self._save_state_to_json(self.active_match_ids, self.last_data):
                     logger.error(
-                        "Full page refresh failed after %s attempts. "
+                        "Page refresh failed after %s attempts. "
                         "Saved state to %s and requesting restart.",
                         max_retries,
                         STATE_SAVE_FILE,
                     )
                 else:
                     logger.error(
-                        "Full page refresh failed after %s attempts and state save "
+                        "Page refresh failed after %s attempts and state save "
                         "failed. Requesting restart anyway.",
                         max_retries,
                     )
                 raise PageRestartRequired(
-                    f"Full page refresh failed after {max_retries} attempts: {e}"
+                    f"Page refresh failed after {max_retries} attempts: {e}"
                 ) from e
 
     # Синхронизирует набор активных матчей после обновления таблицы.

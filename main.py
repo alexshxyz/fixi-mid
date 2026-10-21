@@ -19,7 +19,14 @@ logger = setup_logger(__name__)
 
 
 # Повторяет действие со страницей после ошибки.
-def _retry_page_action(page, action, action_name, max_retries=3, reload_before_retry=False):
+def _retry_page_action(
+    page,
+    action,
+    action_name,
+    max_retries=3,
+    retry_delay=10,
+    reload_before_retry=False,
+):
     for attempt in range(1, max_retries + 1):
         try:
             return action()
@@ -33,6 +40,7 @@ def _retry_page_action(page, action, action_name, max_retries=3, reload_before_r
             logger.warning(
                 f"Attempt {attempt} to {action_name} failed: {e}. Retrying..."
             )
+            time.sleep(retry_delay)
             if reload_before_retry:
                 try:
                     refresh_live_table(page)
