@@ -5,8 +5,24 @@ from datetime import datetime
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from config import DEBUGMODE
+from config import (
+    DEBUGMODE,
+    HARD_PAGE_REFRESH_MAX_RETRIES,
+    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    LIVE_CHANGE_POLL_INTERVAL_MS,
+    LIVE_REFRESH_MAX_RETRIES,
+    LIVE_REFRESH_RETRY_DELAY_SECONDS,
+)
 from logger import setup_logger
+from scripts import (
+    COLLECT_MATCH_STATUS,
+    EXTRACT_ALL_MATCH_DATA,
+    INSTALL_LIVE_CHANGE_OBSERVER,
+    LIVE_CHANGE_PREDICATE,
+    LIVE_ODDS_READINESS,
+    REMOVE_LIVE_CHANGE_OBSERVER,
+    RESET_LIVE_CHANGE_FLAG,
+)
 
 logger = setup_logger('tracker')
 
@@ -17,68 +33,13 @@ class PageRestartRequired(Exception):
 
 # Устанавливает наблюдатель за изменениями Live-таблицы в DOM.
 def _install_live_change_observer(page):
-    page.evaluate("""
-        () => {
-            const observerKey = "__fixi_live_table_observer";
-            const changeFlag = "__fixi_live_table_changed";
-            const table = document.querySelector('table#table_live');
-            if (!table) {
-                throw new Error('Live table not found.');
-            }
-            const observationRoot = document.documentElement;
-
-            const belongsToLiveTable = (node) => {
-                const element = node.nodeType === Node.ELEMENT_NODE
-                    ? node
-                    : node.parentElement;
-                return Boolean(element && element.closest('table#table_live'));
-            };
-            const containsLiveTable = (node) => {
-                const element = node.nodeType === Node.ELEMENT_NODE
-                    ? node
-                    : node.parentElement;
-                return Boolean(
-                    element && (
-                        element.matches('table#table_live') ||
-                        element.querySelector('table#table_live')
-                    )
-                );
-            };
-
-            window[changeFlag] = false;
-            const observer = new MutationObserver((records) => {
-                const liveTableChanged = records.some((record) => {
-                    if (belongsToLiveTable(record.target)) return true;
-                    return [...record.addedNodes, ...record.removedNodes].some(
-                        (node) => belongsToLiveTable(node) || containsLiveTable(node)
-                    );
-                });
-                if (liveTableChanged) window[changeFlag] = true;
-            });
-            observer.observe(observationRoot, {
-                childList: true,
-                subtree: true,
-                characterData: true,
-                attributes: true,
-                attributeFilter: ['class', 'style'],
-            });
-            window[observerKey] = observer;
-        }
-    """)
+    page.evaluate(INSTALL_LIVE_CHANGE_OBSERVER)
 
 
 # Отключает наблюдатель за Live-таблицей и удаляет его флаги из страницы.
 def _remove_live_change_observer(page):
     try:
-        page.evaluate("""
-            () => {
-                const observerKey = "__fixi_live_table_observer";
-                const changeFlag = "__fixi_live_table_changed";
-                window[observerKey]?.disconnect();
-                delete window[observerKey];
-                delete window[changeFlag];
-            }
-        """)
+        page.evaluate(REMOVE_LIVE_CHANGE_OBSERVER)
     except Exception:
         logger.warning("Could not stop live table observer.", exc_info=True)
 
@@ -87,14 +48,14 @@ def _remove_live_change_observer(page):
 def _wait_for_live_change(page, timeout_ms):
     try:
         page.wait_for_function(
-            "() => window.__fixi_live_table_changed === true",
+            LIVE_CHANGE_PREDICATE,
             timeout=timeout_ms,
-            polling=100,
+            polling=LIVE_CHANGE_POLL_INTERVAL_MS,
         )
     except PlaywrightTimeoutError:
         return False
 
-    page.evaluate("window.__fixi_live_table_changed = false")
+    page.evaluate(RESET_LIVE_CHANGE_FLAG)
     return True
 
 
@@ -102,8 +63,8 @@ def _wait_for_live_change(page, timeout_ms):
 def _reload_page_with_retries(
     page,
     live_refresh_callback,
-    max_retries=3,
-    retry_delay=5,
+    max_retries=LIVE_REFRESH_MAX_RETRIES,
+    retry_delay=LIVE_REFRESH_RETRY_DELAY_SECONDS,
 ):
     for attempt in range(1, max_retries + 1):
         try:
@@ -112,29 +73,7 @@ def _reload_page_with_retries(
             if not any(item['active'] for item in match_status):
                 return False
 
-            data_ready = page.evaluate(
-                """
-                () => {
-                    const hasCrownOdds = Array.from(
-                        document.querySelectorAll('td.oddstd[onclick]')
-                    ).some(cell => /,\\s*["']3["']\\s*,/.test(
-                        cell.getAttribute('onclick') || ''
-                    ));
-
-                    const hasVisibleOdds = Array.from(
-                        document.querySelectorAll('td.oddstd')
-                    ).some(cell => {
-                        if (cell.offsetParent === null) return false;
-                        const odds1 = cell.querySelector('p.odds1');
-                        const odds3 = cell.querySelector('p.odds3');
-                        return (odds1 && odds1.offsetParent !== null) ||
-                            (odds3 && odds3.offsetParent !== null);
-                    });
-
-                    return {hasCrownOdds, hasVisibleOdds};
-                }
-                """
-            )
+            data_ready = page.evaluate(LIVE_ODDS_READINESS)
 
             if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOdds"]:
                 return False
@@ -162,47 +101,7 @@ def _reload_page_with_retries(
 
 # Собирает видимые строки Live и отмечает, проходят ли они критерии наблюдения.
 def _collect_match_status(page, require_crown=False):
-    return page.evaluate("""
-        (requireCrown) => {
-            const hasCrownOdds = Array.from(
-                document.querySelectorAll('td.oddstd[onclick]')
-            ).some(cell => /,\\s*["']3["']\\s*,/.test(
-                cell.getAttribute('onclick') || ''
-            ));
-            const hasVisibleOdds = Array.from(
-                document.querySelectorAll('td.oddstd')
-            ).some(cell => {
-                if (cell.offsetParent === null) return false;
-                const odds1 = cell.querySelector('p.odds1');
-                const odds3 = cell.querySelector('p.odds3');
-                return (odds1 && odds1.offsetParent !== null) ||
-                    (odds3 && odds3.offsetParent !== null);
-            });
-            const globalReady = !requireCrown ||
-                (hasCrownOdds && hasVisibleOdds);
-            const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
-            const result = [];
-
-            for (const row of rows) {
-                if (row.offsetParent === null) continue;
-                const match = row.id.match(/^tr1_(.+)$/);
-                const matchId = match ? match[1] : null;
-
-                const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
-                    .some(odds => odds.offsetParent !== null);
-                const team1 = row.querySelector('a[id^="team1_"]')?.textContent.trim() || 'Unknown';
-                const team2 = row.querySelector('a[id^="team2_"]')?.textContent.trim() || 'Unknown';
-
-                result.push({
-                    match_id: matchId,
-                    label: `${team1} - ${team2}`,
-                    active: Boolean(matchId && hasOdds && globalReady)
-                });
-            }
-
-            return result;
-        }
-    """, require_crown)
+    return page.evaluate(COLLECT_MATCH_STATUS, require_crown)
 
 
 # Возвращает ID матчей, которые сейчас видны и проходят критерии наблюдения.
@@ -236,91 +135,8 @@ def _write_match_count(match_status, active_match_ids):
 
 # Извлекает данные ВСЕ матчей за один evaluate() вызов.
 def _extract_all_match_data(page, match_ids):
-    js = """
-        (matchIds) => {
-            const result = {};
-            
-            for (const match_id of matchIds) {
-                const row = document.getElementById('tr1_' + match_id);
-                if (!row) {
-                    result[match_id] = null;
-                    continue;
-                }
-
-                const timeElem = document.querySelector('td#time_' + match_id);
-                
-                const tds = Array.from(row.querySelectorAll('td.oddstd'));
-                if (tds.length < 3) {
-                    result[match_id] = null;
-                    continue;
-                }
-                
-                const normalize = (el) => {
-                    if (!el) return '-';
-                    const value = el.textContent.trim();
-                    return value === '' ? '-' : value;
-                };
-                
-                const odds1 = [];
-                const odds3 = [];
-                
-                tds.slice(0, 3).forEach(td => {
-                    odds1.push(normalize(td.querySelector('p.odds1')));
-                    odds3.push(normalize(td.querySelector('p.odds3')));
-                });
-                
-                const timeTd = row.querySelector('td#time_' + match_id);
-                const onclick = timeTd?.getAttribute('onclick') ||
-                    row.querySelector('[onclick*="soccerInPage.detail"]')?.getAttribute('onclick');
-                let league = 'Unknown';
-                let team1 = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
-                let team2 = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
-                const gotSpan = row.querySelector('span[id="got_' + match_id + '"]');
-                let match_time = gotSpan?.textContent.trim() || 'Unknown';
-
-                if (!gotSpan || !gotSpan.textContent.trim()) {
-                    const statusCell = timeTd;
-                    const statusText = statusCell?.textContent.trim();
-                    if (statusText && statusText !== 'Unknown') {
-                        match_time = statusText;
-                    }
-                }
-                
-                if (onclick) {
-                    const match = onclick.match(/soccerInPage\\.detail\\([^,]+,"([^"]*)","([^"]*)","([^"]*)"\\)/);
-                    if (match) {
-                        team1 = match[1] || team1;
-                        team2 = match[2] || team2;
-                        league = match[3] || league;
-                    }
-                }
-
-                result[match_id] = {
-                    time: timeElem?.textContent.trim() || 'Unknown',
-                    match_time: match_time,
-                    ah: {
-                        home_ah_odds: odds1[0],
-                        ah: odds1[1],
-                        away_ah_odds: odds1[2]
-                    },
-                    ov: {
-                        over_odds: odds3[0],
-                        over: odds3[1],
-                        under_odds: odds3[2]
-                    },
-                    team1: team1,
-                    team2: team2,
-                    score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || 'Unknown',
-                    league: league
-                };
-            }
-            
-            return result;
-        }
-    """
-    
     try:
-        match_data = page.evaluate(js, match_ids)
+        match_data = page.evaluate(EXTRACT_ALL_MATCH_DATA, match_ids)
     except Exception as e:
         logger.error(f"Error in _extract_all_match_data: {e}")
         raise

@@ -79,17 +79,19 @@ def get_last_line():
 
 
 def parse_time(line):
-    # Ожидаемый формат лога:
-    # 2026-04-16 18:30:10,123 - INFO - Match 123 updated
     try:
         if not line:
             return None
 
         ts = line.split(" - ")[0].strip()
-        return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S,%f")
-
-    except Exception:
+        for timestamp_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S,%f"):
+            try:
+                return datetime.strptime(ts, timestamp_format)
+            except ValueError:
+                continue
+    except (AttributeError, IndexError):
         return None
+    return None
 
 
 def main():

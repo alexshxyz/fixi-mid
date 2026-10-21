@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 from config import (
     BOT_TOKEN,
     CHANNEL_ID,
+    TELEGRAM_REQUEST_TIMEOUT_SECONDS,
+    TELEGRAM_RETRY_DELAY_SECONDS,
+    TELEGRAM_SEND_MAX_ATTEMPTS,
     SITE_URL,
     TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
     TELEGRAM_PROXY_HOST,
@@ -232,7 +235,7 @@ def _send_message(
     success_message=None,
     api_url=TELEGRAM_API_URL,
     max_attempts=1,
-    retry_delay=5,
+    retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
 ):
     for attempt in range(1, max_attempts + 1):
         try:
@@ -240,7 +243,7 @@ def _send_message(
                 api_url,
                 json=payload,
                 proxies=TELEGRAM_PROXIES,
-                timeout=10,
+                timeout=TELEGRAM_REQUEST_TIMEOUT_SECONDS,
             )
             if response.status_code == 200:
                 try:
@@ -404,8 +407,8 @@ def send_telegram_notification(
     telegram_response = _send_message(
         payload,
         match_id,
-        max_attempts=3,
-        retry_delay=5,
+        max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
+        retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
     )
     if not telegram_response:
         return False

@@ -9,9 +9,23 @@ from tracker import (
     PageRestartRequired,
 )
 from storage import init_storage
-from config import BROWSER_HEADLESS, DEBUGMODE, SITE_COOKIES, SITE_URL
+from config import (
+    BROWSER_HEADLESS,
+    DEBUGMODE,
+    NO_MATCH_RETRY_DELAY_SECONDS,
+    PAGE_ACTION_MAX_RETRIES,
+    PAGE_ACTION_RETRY_DELAY_SECONDS,
+    PAGE_DATA_READY_TIMEOUT_SECONDS,
+    PAGE_ELEMENT_WAIT_TIMEOUT_MS,
+    PAGE_LOAD_TIMEOUT_MS,
+    PAGE_POLL_INTERVAL_MS,
+    PAGE_REFRESH_TABLE_TIMEOUT_MS,
+    SITE_COOKIES,
+    SITE_URL,
+)
 from logger import setup_logger
 from observer import _collect_match_status, _write_match_count
+from scripts import HAS_VALID_MATCH_DATA
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -23,8 +37,8 @@ def _retry_page_action(
     page,
     action,
     action_name,
-    max_retries=3,
-    retry_delay=10,
+    max_retries=PAGE_ACTION_MAX_RETRIES,
+    retry_delay=PAGE_ACTION_RETRY_DELAY_SECONDS,
     reload_before_retry=False,
 ):
     for attempt in range(1, max_retries + 1):
@@ -49,7 +63,7 @@ def _retry_page_action(
 
 
 # Инициализация браузера и страницы.
-def init_browser(p, max_navigation_retries=3):
+def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     logger.info("Setup browser...")
     browser = p.chromium.launch(
         headless=BROWSER_HEADLESS,
@@ -84,7 +98,7 @@ def init_browser(p, max_navigation_retries=3):
         page.goto(
             SITE_URL,
             wait_until="domcontentloaded",
-            timeout=30000,
+            timeout=PAGE_LOAD_TIMEOUT_MS,
         )
 
     try:
@@ -107,7 +121,7 @@ def init_browser(p, max_navigation_retries=3):
 def close_popup(page):
     try:
         logger.info("Waiting for popup close button...")
-        page.locator("i.closebtn").wait_for(timeout=10000)
+        page.locator("i.closebtn").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
         page.locator("i.closebtn").click()
         logger.info("Popup closed")
     except Exception as e:
@@ -117,9 +131,9 @@ def close_popup(page):
 # Переключение на фильтр Live.
 def switch_to_live(page):
     try:
-        page.locator("li#li_FilterLive").wait_for(timeout=10000)
+        page.locator("li#li_FilterLive").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
         page.locator("li#li_FilterLive").click()
-        page.locator("table#table_live").wait_for(timeout=10000)
+        page.locator("table#table_live").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
         logger.info("Switched to Live")
     except Exception as e:
         logger.error(f"Failed to switch to Live: {e}")
@@ -131,10 +145,10 @@ def refresh_live_table(page):
     logger.info("Refreshing...")
     try:
         live_filter = page.locator("li#li_FilterLive")
-        live_filter.wait_for(timeout=10000)
+        live_filter.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
         live_filter.click()
-        page.locator("table#table_live").wait_for(timeout=10000)
-        page.wait_for_timeout(1000)
+        page.locator("table#table_live").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+        page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
         logger.info("Live table refreshed")
     except Exception as e:
         logger.error("Failed to refresh Live table: %s", e)
@@ -145,20 +159,20 @@ def refresh_live_table(page):
 def refresh_page(page, wait_for_data=True):
     logger.info("Refreshing...")
     try:
-        page.reload(wait_until="domcontentloaded", timeout=30000)
-        page.locator("table#table_live").wait_for(timeout=20000)
+        page.reload(wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
+        page.locator("table#table_live").wait_for(timeout=PAGE_REFRESH_TABLE_TIMEOUT_MS)
 
         if not wait_for_data:
             logger.info("Page refreshed")
             return
 
-        deadline = time.monotonic() + 60
+        deadline = time.monotonic() + PAGE_DATA_READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if has_valid_match_data(page):
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
                 logger.info("Page refreshed")
                 return
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
 
         raise TimeoutError("Live table data did not become ready after page refresh")
     except Exception as e:
@@ -171,7 +185,7 @@ def collect_matches(page):
     matches = []
     match_status = None
     try:
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
         match_status = _collect_match_status(page, require_crown=True)
         matches = list(dict.fromkeys(
             item['match_id'] for item in match_status if item['active']
@@ -186,28 +200,8 @@ def collect_matches(page):
 
 # Проверяем, что после загрузки доступны Crown и видимые odds.
 def has_valid_match_data(page):
-    page.wait_for_timeout(1000)
-    return page.evaluate("""
-        () => {
-            const hasCrownOdds = Array.from(
-                document.querySelectorAll('td.oddstd[onclick]')
-            ).some(cell => /,\\s*["']3["']\\s*,/.test(
-                cell.getAttribute('onclick') || ''
-            ));
-
-            const hasVisibleOdds = Array.from(
-                document.querySelectorAll('td.oddstd')
-            ).some(cell => {
-                if (cell.offsetParent === null) return false;
-                const odds1 = cell.querySelector('p.odds1');
-                const odds3 = cell.querySelector('p.odds3');
-                return (odds1 && odds1.offsetParent !== null) ||
-                    (odds3 && odds3.offsetParent !== null);
-            });
-
-            return hasCrownOdds && hasVisibleOdds;
-        }
-    """)
+    page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
+    return page.evaluate(HAS_VALID_MATCH_DATA)
 
 
 # Главный цикл запуска бота.
@@ -230,8 +224,11 @@ def main():
                 # Всегда получаем актуальные матчи; сохранённое состояние нужно только для истории.
                 matches = collect_matches(page)
                 while not matches:
-                    logger.info("No matches found. Retrying in 60 seconds...")
-                    time.sleep(60)
+                    logger.info(
+                        "No matches found. Retrying in %s seconds...",
+                        NO_MATCH_RETRY_DELAY_SECONDS,
+                    )
+                    time.sleep(NO_MATCH_RETRY_DELAY_SECONDS)
                     refresh_page(page, wait_for_data=False)
                     matches = collect_matches(page)
 

@@ -25,7 +25,10 @@ def setup_logger(name, log_filename='bot.log'):
     log_file = os.path.join(os.path.dirname(__file__), log_filename)
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
     file_handler.setFormatter(formatter)
 
     console_handler = _ConsoleLogHandler()

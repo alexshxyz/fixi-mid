@@ -3,12 +3,19 @@ import os
 import time
 from config import (
     DEBUGMODE,
+    HARD_PAGE_REFRESH_MAX_RETRIES,
+    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    HEARTBEAT_INTERVAL_SECONDS,
     LEAGUES_LIST,
     NOTIFICATION_CHECK_DELAY_SECONDS,
+    NO_MATCH_RETRY_DELAY_SECONDS,
     PAGE_LIVE_RELOAD,
+    PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS,
     RESTART_HOURS,
     STATE_SAVE_FILE,
     TABLE_LIVE_RELOAD,
+    TELEGRAM_EDIT_MAX_ATTEMPTS,
+    TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
 )
 from logger import setup_logger
 from closed_ov_ah import find_pattern_matches
@@ -90,7 +97,7 @@ class MatchMonitor:
         self.consecutive_table_errors = 0
         self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
         self.next_page_refresh_at = time.monotonic() + PAGE_LIVE_RELOAD
-        self.next_heartbeat_at = time.monotonic() + 100
+        self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
         self.restart_deadline = time.time() + RESTART_HOURS * 3600
 
     # Запускает цикл мониторинга для текущего списка матчей.
@@ -264,7 +271,7 @@ class MatchMonitor:
                     self.last_data.pop(match_id, None)
             else:
                 notification['edit_attempts'] = notification.get('edit_attempts', 0) + 1
-                if notification['edit_attempts'] >= 3:
+                if notification['edit_attempts'] >= TELEGRAM_EDIT_MAX_ATTEMPTS:
                     del self.pending_notifications[message_id]
                     match_id = str(notification['match_id'])
                     if (match_id not in self.active_match_ids and not any(
@@ -273,14 +280,16 @@ class MatchMonitor:
                     )):
                         self.last_data.pop(match_id, None)
                     logger.error(
-                        "Giving up Telegram status edit for message %s after 3 attempts",
+                        "Giving up Telegram status edit for message %s after %s attempts",
                         message_id,
+                        TELEGRAM_EDIT_MAX_ATTEMPTS,
                     )
                 else:
-                    notification['deadline'] = now + 30
+                    notification['deadline'] = now + TELEGRAM_EDIT_RETRY_DELAY_SECONDS
                     logger.warning(
-                        "Retrying Telegram status edit for message %s in 30 seconds",
+                        "Retrying Telegram status edit for message %s in %s seconds",
                         message_id,
+                        TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
                     )
 
     # Возвращает время до ближайшей отложенной проверки.
@@ -319,7 +328,7 @@ class MatchMonitor:
 
             if now >= self.next_heartbeat_at:
                 logger.info("Heartbeat: OK")
-                self.next_heartbeat_at = now + 100
+                self.next_heartbeat_at = now + HEARTBEAT_INTERVAL_SECONDS
 
             if time.time() >= self.restart_deadline:
                 self._trigger_scheduled_restart()
@@ -335,7 +344,9 @@ class MatchMonitor:
                     raise
                 except Exception as e:
                     logger.error("Scheduled page refresh failed: %s", e)
-                    self.next_page_refresh_at = time.monotonic() + 60
+                    self.next_page_refresh_at = (
+                        time.monotonic() + PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS
+                    )
 
                 if data_changed:
                     self._run_analyzer()
@@ -414,8 +425,11 @@ class MatchMonitor:
             match_status = _collect_match_status(self.page, require_crown=True)
 
         while not any(item['active'] for item in match_status):
-            logger.info("No matches found. Retrying in 60 seconds...")
-            time.sleep(60)
+            logger.info(
+                "No matches found. Retrying in %s seconds...",
+                NO_MATCH_RETRY_DELAY_SECONDS,
+            )
+            time.sleep(NO_MATCH_RETRY_DELAY_SECONDS)
             match_status = self._do_hard_page_refresh_with_retries()
         return match_status
 
@@ -434,7 +448,11 @@ class MatchMonitor:
         return data_changed
 
     # Повторяет перезагрузку страницы и сохраняет состояние при отказе.
-    def _do_hard_page_refresh_with_retries(self, max_retries=3, retry_delay=10):
+    def _do_hard_page_refresh_with_retries(
+        self,
+        max_retries=HARD_PAGE_REFRESH_MAX_RETRIES,
+        retry_delay=HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    ):
         for attempt in range(1, max_retries + 1):
             try:
                 if self.page_refresh_callback is None:

@@ -1,6 +1,10 @@
 import logging
+import re
 
 import logger as logger_module
+
+
+TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - ")
 
 
 def test_setup_logger_writes_info_to_file_and_debug_to_console(tmp_path, capsys):
@@ -30,9 +34,20 @@ def test_setup_logger_writes_info_to_file_and_debug_to_console(tmp_path, capsys)
         logger.debug("debug message")
         logger.info("info message")
 
-        assert "DEBUG - debug message" in capsys.readouterr().err
+        console_output = capsys.readouterr().err
+        console_lines = console_output.splitlines()
+        assert any(
+            TIMESTAMP_PATTERN.match(line) and " - DEBUG - debug message" in line
+            for line in console_lines
+        )
+        assert all(TIMESTAMP_PATTERN.match(line) for line in console_lines)
         contents = log_file.read_text(encoding="utf-8")
-        assert "INFO - info message" in contents
+        file_lines = contents.splitlines()
+        assert any(
+            TIMESTAMP_PATTERN.match(line) and " - INFO - info message" in line
+            for line in file_lines
+        )
+        assert all(TIMESTAMP_PATTERN.match(line) for line in file_lines)
         assert "debug message" not in contents
     finally:
         for handler in logger.handlers[:]:
