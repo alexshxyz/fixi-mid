@@ -376,6 +376,7 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     monkeypatch.setattr(main, "init_browser", lambda p: (browser, page))
     monkeypatch.setattr(main, "load_state_from_json", lambda: saved_state)
     monkeypatch.setattr(main, "switch_to_live", lambda page: None)
+    monkeypatch.setattr(main.time, "monotonic", lambda: 100)
     return page, browser
 
 
@@ -402,6 +403,7 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
             ["2"],
             {
                 "saved_state": saved_state,
+                "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
             },
@@ -438,6 +440,7 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
             (page, ["2"]),
             {
                 "saved_state": saved_state,
+                "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
             },
@@ -463,6 +466,7 @@ def test_main_starts_monitor_with_collected_matches(monkeypatch):
             (page, ["1", "2"]),
             {
                 "saved_state": None,
+                "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
             },
@@ -495,7 +499,26 @@ def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
     assert calls == [(page, ["match-1"])]
 
 
-def test_main_restarts_process_on_page_restart_required(monkeypatch):
+def test_main_restarts_after_24_hours_even_without_matches(monkeypatch):
+    _, browser = configure_main(monkeypatch)
+    ticks = iter([0, 0, 0, 0, 24 * 60 * 60])
+    monkeypatch.setattr(main.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(main, "collect_matches", lambda page: [])
+    monkeypatch.setattr(main.sys, "executable", "python")
+    monkeypatch.setattr(main.sys, "argv", ["main.py"])
+    monkeypatch.setattr(
+        main.os,
+        "execv",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("exec called")),
+    )
+
+    with pytest.raises(RuntimeError, match="exec called"):
+        main.main()
+
+    assert browser.close_calls == 1
+
+
+def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
     page, browser = configure_main(
         monkeypatch, saved_state={"active_match_ids": ["1"]}
     )
@@ -523,6 +546,11 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch):
 
     assert browser.close_calls == 1
     assert exec_calls == [("python.exe", ["python.exe", "main.py", "--flag"])]
+    restart_log = next(
+        record for record in caplog.records
+        if record.message == "restart. Restarting script..."
+    )
+    assert restart_log.levelname == "INFO"
 
 
 def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):

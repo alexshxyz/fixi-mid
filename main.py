@@ -20,6 +20,7 @@ from config import (
     PAGE_LOAD_TIMEOUT_MS,
     PAGE_POLL_INTERVAL_MS,
     PAGE_REFRESH_TABLE_TIMEOUT_MS,
+    RESTART_HOURS,
     SITE_COOKIES,
     SITE_URL,
 )
@@ -204,48 +205,81 @@ def has_valid_match_data(page):
     return page.evaluate(HAS_VALID_MATCH_DATA)
 
 
+# Полностью перезапускает процесс скрипта.
+def _restart_script(browser=None):
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:
+            pass
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def _restart_if_due(restart_deadline, browser):
+    if time.monotonic() < restart_deadline:
+        return
+    logger.info(
+        "Restart interval reached (%s hours). Restarting script...",
+        RESTART_HOURS,
+    )
+    if browser is None:
+        _restart_script()
+    raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
+
+
 # Главный цикл запуска бота.
 def main():
+    restart_deadline = time.monotonic() + RESTART_HOURS * 3600
     init_storage()
+    _restart_if_due(restart_deadline, None)
 
     while True:
         with sync_playwright() as p:
             browser, page = init_browser(p)
 
             try:
+                _restart_if_due(restart_deadline, browser)
                 # Подготавливаем страницу перед запуском мониторинга.
                 _retry_page_action(
                     page,
                     lambda: switch_to_live(page),
                     "prepare page",
                 )
-                saved_state = load_state_from_json()
-
-                # Всегда получаем актуальные матчи; сохранённое состояние нужно только для истории.
+                _restart_if_due(restart_deadline, browser)
+                # Всегда получаем актуальные матчи; состояние загружается после ожидания,
+                # чтобы оно оставалось на диске, если перезапуск наступит без матчей.
                 matches = collect_matches(page)
                 while not matches:
+                    _restart_if_due(restart_deadline, browser)
+                    remaining_seconds = restart_deadline - time.monotonic()
                     logger.info(
                         "No matches found. Retrying in %s seconds...",
                         NO_MATCH_RETRY_DELAY_SECONDS,
                     )
-                    time.sleep(NO_MATCH_RETRY_DELAY_SECONDS)
+                    time.sleep(
+                        max(
+                            0,
+                            min(NO_MATCH_RETRY_DELAY_SECONDS, remaining_seconds),
+                        )
+                    )
+                    _restart_if_due(restart_deadline, browser)
                     refresh_page(page, wait_for_data=False)
                     matches = collect_matches(page)
 
+                _restart_if_due(restart_deadline, browser)
+                saved_state = load_state_from_json()
                 parse_and_monitor_match(
                     page,
                     matches,
                     saved_state=saved_state,
+                    restart_deadline=restart_deadline,
                     live_refresh_callback=refresh_live_table,
                     page_refresh_callback=refresh_page,
                 )
             except PageRestartRequired as e:
-                logger.warning(f"{e}. Restarting script after saving state...")
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+                if not str(e).startswith("Scheduled restart after "):
+                    logger.info(f"{e}. Restarting script...")
+                _restart_script(browser)
             except Exception as e:
                 logger.error(f"Unexpected error in main: {e}")
                 try:

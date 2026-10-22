@@ -9,7 +9,7 @@ class _ConsoleLogHandler(logging.StreamHandler):
         console_record = copy(record)
         console_record.msg = re.sub(
             r"((?:Active|New|Removed) \d+|Matches (?:updated|found): \d+)"
-            r"\s+\(\d+(?:,\s*\d+)*\)",
+            r"\s*\([^)]*\)",
             r"\1",
             console_record.getMessage(),
         )

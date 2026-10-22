@@ -76,7 +76,7 @@ def test_match_id_lists_are_hidden_only_in_console(tmp_path, capsys):
 
         console_output = capsys.readouterr().err
         assert (
-            "Matches synchronized: Active 2 New 0 (-) Removed 1"
+            "Matches synchronized: Active 2 New 0 Removed 1"
             in console_output
         )
         assert "Matches updated: 2" in console_output
@@ -84,12 +84,17 @@ def test_match_id_lists_are_hidden_only_in_console(tmp_path, capsys):
         assert "3003900" not in console_output
         assert "3003901" not in console_output
         assert "3087993" not in console_output
+        assert "(-)" not in console_output
+        assert "()" not in console_output
 
         file_output = log_file.read_text(encoding="utf-8")
         assert "Active 2 (3003900, 3003901)" in file_output
         assert "Removed 1 (3087993)" in file_output
         assert "Matches updated: 2 (3003900, 3003901)" in file_output
         assert "Matches found: 1 (3087993)" in file_output
+
+        logger.info("Matches found: %d (%s)", 0, "")
+        assert "Matches found: 0" in capsys.readouterr().err
     finally:
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)

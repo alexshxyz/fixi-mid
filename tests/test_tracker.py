@@ -754,11 +754,64 @@ def test_monitor_loop_polls_after_live_change_and_processes_no_change(
 def test_monitor_loop_triggers_scheduled_restart(monkeypatch, monitor):
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
     monkeypatch.setattr(tracker.time, "time", lambda: 100)
-    monitor.restart_deadline = 100
+    monitor.restart_deadline = 10
     monkeypatch.setattr(monitor, "_process_due_notifications", lambda: None)
 
     with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
         monitor._monitor_loop()
+
+
+@pytest.mark.parametrize("refresh_kind", ["page", "table"])
+def test_monitor_loop_restarts_after_refresh_crosses_deadline(
+    monkeypatch, monitor, refresh_kind
+):
+    clock = [0]
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: clock[0])
+    monitor.restart_deadline = 5
+    monitor.next_reload_at = 0 if refresh_kind == "table" else 100
+    monitor.next_page_refresh_at = 0 if refresh_kind == "page" else 100
+    monitor.page_refresh_callback = lambda page: None
+    monkeypatch.setattr(monitor, "_process_due_notifications", lambda: None)
+
+    def finish_refresh(*args, **kwargs):
+        clock[0] = 5
+        return False
+
+    refresh = (
+        "_do_scheduled_page_refresh"
+        if refresh_kind == "page"
+        else "_do_periodic_reload"
+    )
+    monkeypatch.setattr(monitor, refresh, finish_refresh)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+        monitor._monitor_loop()
+
+
+def test_wait_for_matches_restarts_at_deadline_before_another_refresh(
+    monkeypatch, monitor
+):
+    clock = [0]
+    sleeps = []
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: clock[0])
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(tracker.time, "sleep", sleep)
+    monkeypatch.setattr(
+        monitor,
+        "_do_hard_page_refresh_with_retries",
+        lambda: pytest.fail("must not refresh after restart deadline"),
+    )
+    monitor.restart_deadline = 5
+    inactive_status = [{"active": False, "match_id": "1"}]
+
+    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+        monitor._wait_for_matches_with_hard_refresh(inactive_status)
+
+    assert sleeps == [5]
 
 
 @pytest.mark.parametrize(
@@ -1041,6 +1094,7 @@ def test_parse_and_monitor_match_constructs_and_runs_monitor(monkeypatch):
         {"saved": True},
         live_refresh_callback=callback,
         page_refresh_callback=None,
+        restart_deadline=123,
     )
 
     assert instances == [
@@ -1051,6 +1105,7 @@ def test_parse_and_monitor_match_constructs_and_runs_monitor(monkeypatch):
                 "saved_state": {"saved": True},
                 "live_refresh_callback": callback,
                 "page_refresh_callback": None,
+                "restart_deadline": 123,
             },
         ),
         "run",
@@ -1064,7 +1119,7 @@ def test_monitor_loop_waits_once_then_propagates_wait_signal(monkeypatch, monito
     observed = []
     monitor.next_reload_at = tracker.time.monotonic() + 10
     monitor.next_heartbeat_at = tracker.time.monotonic() + 20
-    monitor.restart_deadline = tracker.time.time() + 30
+    monitor.restart_deadline = tracker.time.monotonic() + 30
     monkeypatch.setattr(monitor, "_process_due_notifications", lambda: observed.append("process"))
 
     def wait(page, timeout_ms):

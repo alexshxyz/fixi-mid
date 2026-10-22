@@ -84,6 +84,7 @@ class MatchMonitor:
         *,
         live_refresh_callback,
         page_refresh_callback=None,
+        restart_deadline=None,
     ):
         self.page = page
         self.match_ids = match_ids
@@ -98,7 +99,11 @@ class MatchMonitor:
         self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
         self.next_page_refresh_at = time.monotonic() + PAGE_LIVE_RELOAD
         self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
-        self.restart_deadline = time.time() + RESTART_HOURS * 3600
+        self.restart_deadline = (
+            restart_deadline
+            if restart_deadline is not None
+            else time.monotonic() + RESTART_HOURS * 3600
+        )
 
     # Запускает цикл мониторинга для текущего списка матчей.
     def run(self):
@@ -324,18 +329,18 @@ class MatchMonitor:
         while True:
             data_changed = False
             now = time.monotonic()
+            self._restart_if_due()
             self._process_due_notifications()
+            self._restart_if_due()
 
             if now >= self.next_heartbeat_at:
                 logger.info("Heartbeat: OK")
                 self.next_heartbeat_at = now + HEARTBEAT_INTERVAL_SECONDS
 
-            if time.time() >= self.restart_deadline:
-                self._trigger_scheduled_restart()
-
             if self.page_refresh_callback and now >= self.next_page_refresh_at:
                 try:
                     data_changed = self._do_scheduled_page_refresh()
+                    self._restart_if_due()
                     self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
                     self.next_page_refresh_at = (
                         time.monotonic() + PAGE_LIVE_RELOAD
@@ -355,12 +360,15 @@ class MatchMonitor:
 
             if now >= self.next_reload_at:
                 data_changed = self._do_periodic_reload()
+                self._restart_if_due()
                 if self.active_match_ids:
                     changed, _ = self._poll_and_update(log_data_loaded=True)
                     data_changed = data_changed or changed
+                    self._restart_if_due()
                 if data_changed:
                     self._run_analyzer()
                 self._process_due_notifications()
+                self._restart_if_due()
                 continue
 
             wait_seconds = min(
@@ -368,7 +376,7 @@ class MatchMonitor:
                 self.next_page_refresh_at - now
                 if self.page_refresh_callback
                 else float("inf"),
-                self.restart_deadline - time.time(),
+                self.restart_deadline - now,
                 self.next_heartbeat_at - now,
             )
             notification_timeout = self._next_notification_timeout()
@@ -378,16 +386,26 @@ class MatchMonitor:
                 self.page,
                 timeout_ms=max(1, int(wait_seconds * 1000)),
             )
+            self._restart_if_due()
             if changed and self.active_match_ids:
                 data_changed, _ = self._poll_and_update()
+                self._restart_if_due()
 
             if data_changed:
                 self._run_analyzer()
             self._process_due_notifications()
+            self._restart_if_due()
+
+    def _restart_if_due(self):
+        if time.monotonic() >= self.restart_deadline:
+            self._trigger_scheduled_restart()
 
     # Сохраняет состояние и запускает перезапуск по расписанию.
     def _trigger_scheduled_restart(self):
-        logger.info(f"Restart interval reached ({RESTART_HOURS} hours). Saving state and restarting browser...")
+        logger.info(
+            "Restart interval reached (%s hours). Restarting script...",
+            RESTART_HOURS,
+        )
         if self._save_state_to_json(self.active_match_ids, self.last_data):
             logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
         else:
@@ -425,12 +443,23 @@ class MatchMonitor:
             match_status = _collect_match_status(self.page, require_crown=True)
 
         while not any(item['active'] for item in match_status):
+            self._restart_if_due()
             logger.info(
                 "No matches found. Retrying in %s seconds...",
                 NO_MATCH_RETRY_DELAY_SECONDS,
             )
-            time.sleep(NO_MATCH_RETRY_DELAY_SECONDS)
+            time.sleep(
+                max(
+                    0,
+                    min(
+                        NO_MATCH_RETRY_DELAY_SECONDS,
+                        self.restart_deadline - time.monotonic(),
+                    ),
+                )
+            )
+            self._restart_if_due()
             match_status = self._do_hard_page_refresh_with_retries()
+            self._restart_if_due()
         return match_status
 
     # Перезагружает страницу, не пересоздавая состояние монитора.
@@ -454,12 +483,18 @@ class MatchMonitor:
         retry_delay=HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ):
         for attempt in range(1, max_retries + 1):
+            self._restart_if_due()
             try:
                 if self.page_refresh_callback is None:
                     raise RuntimeError("Page refresh callback is not configured")
                 self.page_refresh_callback(self.page, wait_for_data=False)
+                self._restart_if_due()
                 _install_live_change_observer(self.page)
-                return _collect_match_status(self.page, require_crown=True)
+                match_status = _collect_match_status(self.page, require_crown=True)
+                self._restart_if_due()
+                return match_status
+            except PageRestartRequired:
+                raise
             except Exception as e:
                 if attempt < max_retries:
                     logger.warning(
@@ -470,7 +505,16 @@ class MatchMonitor:
                         e,
                         retry_delay,
                     )
-                    time.sleep(retry_delay)
+                    time.sleep(
+                        max(
+                            0,
+                            min(
+                                retry_delay,
+                                self.restart_deadline - time.monotonic(),
+                            ),
+                        )
+                    )
+                    self._restart_if_due()
                     continue
 
                 if self._save_state_to_json(self.active_match_ids, self.last_data):
@@ -591,6 +635,7 @@ def parse_and_monitor_match(
     *,
     live_refresh_callback,
     page_refresh_callback=None,
+    restart_deadline=None,
 ):
     MatchMonitor(
         page,
@@ -598,6 +643,7 @@ def parse_and_monitor_match(
         saved_state=saved_state,
         live_refresh_callback=live_refresh_callback,
         page_refresh_callback=page_refresh_callback,
+        restart_deadline=restart_deadline,
     ).run()
 
 
