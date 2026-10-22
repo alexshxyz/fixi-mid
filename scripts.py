@@ -1,6 +1,6 @@
-# Проверяет наличие Crown и видимых коэффициентов.
-HAS_VALID_MATCH_DATA = """
-        () => {
+# Общий критерий готовности Live-коэффициентов для всех JS-проверок.
+_LIVE_ODDS_READINESS_HELPER = """
+        const getLiveOddsReadiness = () => {
             const hasCrownOdds = Array.from(
                 document.querySelectorAll('td.oddstd[onclick]')
             ).some(cell => /,\\s*["']3["']\\s*,/.test(
@@ -17,6 +17,15 @@ HAS_VALID_MATCH_DATA = """
                     (odds3 && odds3.offsetParent !== null);
             });
 
+            return {hasCrownOdds, hasVisibleOdds};
+        };
+    """
+
+# Проверяет наличие Crown и видимых коэффициентов.
+HAS_VALID_MATCH_DATA = """
+        () => {
+""" + _LIVE_ODDS_READINESS_HELPER + """
+            const {hasCrownOdds, hasVisibleOdds} = getLiveOddsReadiness();
             return hasCrownOdds && hasVisibleOdds;
         }
     """
@@ -91,45 +100,19 @@ RESET_LIVE_CHANGE_FLAG = "window.__fixi_live_table_changed = false"
 # Проверяет наличие Crown и видимых коэффициентов после обновления.
 LIVE_ODDS_READINESS = """
                 () => {
-                    const hasCrownOdds = Array.from(
-                        document.querySelectorAll('td.oddstd[onclick]')
-                    ).some(cell => /,\\s*["']3["']\\s*,/.test(
-                        cell.getAttribute('onclick') || ''
-                    ));
-
-                    const hasVisibleOdds = Array.from(
-                        document.querySelectorAll('td.oddstd')
-                    ).some(cell => {
-                        if (cell.offsetParent === null) return false;
-                        const odds1 = cell.querySelector('p.odds1');
-                        const odds3 = cell.querySelector('p.odds3');
-                        return (odds1 && odds1.offsetParent !== null) ||
-                            (odds3 && odds3.offsetParent !== null);
-                    });
-
-                    return {hasCrownOdds, hasVisibleOdds};
+""" + _LIVE_ODDS_READINESS_HELPER + """
+                    return getLiveOddsReadiness();
                 }
                 """
 
 # Собирает видимые матчи и отмечает их готовность к наблюдению.
 COLLECT_MATCH_STATUS = """
         (requireCrown) => {
-            const hasCrownOdds = Array.from(
-                document.querySelectorAll('td.oddstd[onclick]')
-            ).some(cell => /,\\s*["']3["']\\s*,/.test(
-                cell.getAttribute('onclick') || ''
-            ));
-            const hasVisibleOdds = Array.from(
-                document.querySelectorAll('td.oddstd')
-            ).some(cell => {
-                if (cell.offsetParent === null) return false;
-                const odds1 = cell.querySelector('p.odds1');
-                const odds3 = cell.querySelector('p.odds3');
-                return (odds1 && odds1.offsetParent !== null) ||
-                    (odds3 && odds3.offsetParent !== null);
-            });
-            const globalReady = !requireCrown ||
-                (hasCrownOdds && hasVisibleOdds);
+""" + _LIVE_ODDS_READINESS_HELPER + """
+            const oddsReadiness = getLiveOddsReadiness();
+            const globalReady = !requireCrown || (
+                oddsReadiness.hasCrownOdds && oddsReadiness.hasVisibleOdds
+            );
             const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
             const result = [];
 
