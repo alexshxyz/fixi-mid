@@ -197,7 +197,7 @@ def collect_matches(page):
         ))
         logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
     except Exception:
-        pass
+        logger.exception("Failed to collect matches")
     if DEBUGMODE == 1 and match_status is not None:
         _write_match_count(match_status, matches)
     return matches

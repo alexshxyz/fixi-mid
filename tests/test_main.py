@@ -336,8 +336,8 @@ def test_collect_matches_deduplicates_active_ids_and_writes_debug_snapshot(
     assert writes == [(status, ["1"])]
 
 
-def test_collect_matches_swallows_collection_error_and_skips_debug_write(
-    monkeypatch,
+def test_collect_matches_logs_collection_error_and_skips_debug_write(
+    monkeypatch, caplog
 ):
     page = FakePage()
     writes = []
@@ -351,6 +351,8 @@ def test_collect_matches_swallows_collection_error_and_skips_debug_write(
 
     assert main.collect_matches(page) == []
     assert writes == []
+    assert "Failed to collect matches" in caplog.text
+    assert "collection failed" in caplog.text
 
 
 def test_has_valid_match_data_waits_and_returns_page_evaluation():
