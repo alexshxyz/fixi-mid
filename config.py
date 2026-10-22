@@ -11,6 +11,7 @@ load_dotenv(dotenv_path=APP_DIR / '.env')
 # Настройки страницы
 SITE_URL = "https://www.goaloo.com/"
 BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+BROWSER_PROXY_SERVER = os.environ.get('BROWSER_PROXY_SERVER')
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 # Настройки файлов

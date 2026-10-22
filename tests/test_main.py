@@ -176,6 +176,7 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
     browser = FakeBrowser(context=context)
     playwright = FakePlaywright(browser)
     monkeypatch.setattr(main, "BROWSER_HEADLESS", True)
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
     monkeypatch.setattr(main, "SITE_COOKIES", [{"name": "cookie"}])
     monkeypatch.setattr(main, "SITE_URL", "https://example.test")
 
@@ -185,7 +186,7 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
     assert result_page is page
     assert playwright.launch_calls[0]["headless"] is True
     assert playwright.launch_calls[0]["proxy"] == {
-        "server": "socks5://127.0.0.1:10808"
+        "server": "socks5://proxy.test:1080"
     }
     assert context.cookie_calls == [[{"name": "cookie"}]]
     assert page.viewport_sizes == [{"width": 1280, "height": 720}]
@@ -195,6 +196,16 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
             {"wait_until": "domcontentloaded", "timeout": 30000},
         )
     ]
+
+
+def test_init_browser_requires_configured_proxy(monkeypatch):
+    playwright = FakePlaywright(FakeBrowser())
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", None)
+
+    with pytest.raises(RuntimeError, match="BROWSER_PROXY_SERVER is not configured"):
+        main.init_browser(playwright)
+
+    assert playwright.launch_calls == []
 
 
 def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):

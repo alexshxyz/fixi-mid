@@ -11,6 +11,7 @@ from tracker import (
 from storage import init_storage
 from config import (
     BROWSER_HEADLESS,
+    BROWSER_PROXY_SERVER,
     DEBUGMODE,
     NO_MATCH_RETRY_DELAY_SECONDS,
     PAGE_ACTION_MAX_RETRIES,
@@ -66,9 +67,12 @@ def _retry_page_action(
 # Инициализация браузера и страницы.
 def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     logger.info("Setup browser...")
+    if not BROWSER_PROXY_SERVER:
+        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
+
     browser = p.chromium.launch(
         headless=BROWSER_HEADLESS,
-        proxy={"server": "socks5://127.0.0.1:10808"},
+        proxy={"server": BROWSER_PROXY_SERVER},
         args=[
             "--disable-gpu",
             "--disable-dev-shm-usage",
