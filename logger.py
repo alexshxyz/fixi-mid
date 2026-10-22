@@ -4,15 +4,20 @@ import re
 from copy import copy
 
 
+_MATCH_IDS_PATTERN = re.compile(
+    r"((?:Active|New|Removed) \d+|Matches (?:updated|found): \d+)"
+    r"\s*\([^)]*\)"
+)
+
+
+def format_console_log_message(message):
+    return _MATCH_IDS_PATTERN.sub(r"\1", message)
+
+
 class _ConsoleLogHandler(logging.StreamHandler):
     def emit(self, record):
         console_record = copy(record)
-        console_record.msg = re.sub(
-            r"((?:Active|New|Removed) \d+|Matches (?:updated|found): \d+)"
-            r"\s*\([^)]*\)",
-            r"\1",
-            console_record.getMessage(),
-        )
+        console_record.msg = format_console_log_message(record.getMessage())
         console_record.args = ()
         super().emit(console_record)
 

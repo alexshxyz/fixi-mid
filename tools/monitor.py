@@ -19,7 +19,7 @@ from config import (
     TELEGRAM_PROXY_PORT,
     TELEGRAM_PROXY_USERNAME,
 )
-from logger import setup_logger
+from logger import format_console_log_message, setup_logger
 
 load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
 
@@ -48,8 +48,10 @@ logger = setup_logger(__name__, 'monitor.log')
 
 CHECK_INTERVAL = 1800  # 30 минут
 STALE_LIMIT = 120      # 2 минуты без логов = проблема
+LOG_READ_CHUNK_SIZE = 4096  # Размер блока при поиске последней строки лога
 
 
+# Отправляет статус мониторинга в Telegram.
 def send(msg):
     url = TELEGRAM_API_URL_TEMPLATE.format(token=TELEGRAM_TOKEN)
     try:
@@ -68,16 +70,38 @@ def send(msg):
         return False
 
 
+# Читает последнюю строку лога без загрузки всего файла в память.
 def get_last_line():
     try:
-        with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-            return lines[-1].strip() if lines else None
+        with open(LOG_FILE, "rb") as log_file:
+            log_file.seek(0, os.SEEK_END)
+            file_end = log_file.tell()
+            if file_end == 0:
+                return None
+
+            log_file.seek(file_end - 1)
+            offset = file_end - 1 if log_file.read(1) == b"\n" else file_end
+
+            while offset > 0:
+                chunk_start = max(0, offset - LOG_READ_CHUNK_SIZE)
+                log_file.seek(chunk_start)
+                chunk = log_file.read(offset - chunk_start)
+                newline_index = chunk.rfind(b"\n")
+                if newline_index >= 0:
+                    offset = chunk_start + newline_index + 1
+                    break
+                offset = chunk_start
+
+            log_file.seek(offset)
+            return log_file.read(file_end - offset).decode(
+                "utf-8", errors="ignore"
+            ).strip()
     except Exception as e:
         logger.error(f"Error reading bot log: {e}")
         return None
 
 
+# Извлекает время из строки лога.
 def parse_time(line):
     try:
         if not line:
@@ -94,6 +118,7 @@ def parse_time(line):
     return None
 
 
+# Периодически проверяет свежесть лога и отправляет статус.
 def main():
     while True:
         last_line = get_last_line()
@@ -113,7 +138,10 @@ def main():
             age = None
             status = "⚠️ NO TIMESTAMP / LOG ERROR"
 
-        msg = f"{status}\nLast log:\n{last_line}"
+        compact_last_line = (
+            format_console_log_message(last_line) if last_line else last_line
+        )
+        msg = f"{status}\nLast log:\n{compact_last_line}"
 
         if age is not None:
             msg += f"\nAge: {int(age)} sec"
