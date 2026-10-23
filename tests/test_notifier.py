@@ -99,6 +99,24 @@ def test_build_display_prediction_leaves_handicap_unadjusted_without_score(
     assert "Could not recalculate handicap" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("over", "handicap", "team_order", "score", "expected", "warning"),
+    [
+        ("invalid", None, None, "0-0", "Тотал больше invalid", "format total"),
+        (None, "-0.5", "Unknown", "0-0", "Фора -0.5 Unknown", "map handicap"),
+        (None, "invalid", "Home", "0-0", "Фора 1 invalid", "parse handicap"),
+        (None, "-0.5", "Home", None, "Фора 1 -0.5", "unknown score"),
+    ],
+)
+def test_build_display_prediction_falls_back_for_invalid_inputs(
+    caplog, over, handicap, team_order, score, expected, warning
+):
+    assert notifier._build_display_prediction(
+        over, handicap, team_order, score
+    ) == expected
+    assert warning in caplog.text
+
+
 def test_build_message_linkifies_match_and_normalizes_time():
     message = notifier._build_message(
         "League",
@@ -558,6 +576,19 @@ def test_send_telegram_notification_handles_missing_message_id(
     assert send_over(on_sent=lambda *args: None) is True
     assert len(calls["saved"]) == 1
     assert ("did not include a message_id" in caplog.text) is expects_error
+
+
+def test_send_telegram_notification_without_tracking_callback_needs_no_message_id(
+    notification_dependencies, monkeypatch, caplog
+):
+    monkeypatch.setattr(
+        notifier,
+        "_send_message",
+        lambda *args, **kwargs: {"ok": True, "result": {}},
+    )
+
+    assert send_over() is True
+    assert "did not include a message_id" not in caplog.text
 
 
 @pytest.mark.parametrize("callback_kind", ["on_sent", "on_sent_details"])

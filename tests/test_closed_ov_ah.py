@@ -114,6 +114,22 @@ def test_collect_match_entries_handles_missing_or_empty_history(data):
     assert closed_ov_ah._collect_match_entries(data) == []
 
 
+@pytest.mark.parametrize(
+    ("entry_data", "expected"),
+    [
+        ({}, False),
+        ({"time": None, "match_time": None}, False),
+        ({"time": "45", "match_time": "HT"}, False),
+        ({"time": "45", "match_time": "90+"}, True),
+        ({"time": "FT", "match_time": "45"}, True),
+    ],
+)
+def test_is_finished_match_handles_missing_live_and_finished_times(
+    entry_data, expected
+):
+    assert closed_ov_ah._is_finished_match(entry_data) is expected
+
+
 def test_get_last_entry_before_closed_returns_latest_open_entry_and_index():
     entries = [
         entry(over="2.5", over_odds=1.9),

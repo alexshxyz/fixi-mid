@@ -213,6 +213,7 @@ def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
     context = FakeContext(page=page, cookies_error=RuntimeError("cookie error"))
     browser = FakeBrowser(context=context)
     playwright = FakePlaywright(browser)
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
     monkeypatch.setattr(main, "_retry_page_action", lambda *args, **kwargs: None)
 
     assert main.init_browser(playwright) == (browser, page)
@@ -222,6 +223,7 @@ def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
 def test_init_browser_closes_browser_when_navigation_fails(monkeypatch):
     browser = FakeBrowser()
     playwright = FakePlaywright(browser)
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
 
     def fail_navigation(*args, **kwargs):
         raise RuntimeError("navigation failed")
@@ -272,6 +274,18 @@ def test_refresh_live_table_clicks_waits_and_delays():
     assert page.locators["li#li_FilterLive"].click_calls == 1
     assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
     assert page.wait_timeout_calls == [1000]
+
+
+def test_refresh_live_table_logs_and_reraises_failure(caplog):
+    page = FakePage()
+    page.locators["table#table_live"] = FakeLocator(
+        wait_error=RuntimeError("table unavailable")
+    )
+
+    with pytest.raises(RuntimeError, match="table unavailable"):
+        main.refresh_live_table(page)
+
+    assert "Failed to refresh Live table" in caplog.text
 
 
 def test_refresh_page_without_data_wait_reloads_and_returns():
@@ -531,6 +545,25 @@ def test_main_restarts_after_24_hours_even_without_matches(monkeypatch):
     assert browser.close_calls == 1
 
 
+def test_restart_if_due_without_browser_restarts_script(monkeypatch):
+    calls = []
+
+    class StopRestart(Exception):
+        pass
+
+    monkeypatch.setattr(main.time, "monotonic", lambda: 100)
+    monkeypatch.setattr(
+        main,
+        "_restart_script",
+        lambda *args: (calls.append(args), (_ for _ in ()).throw(StopRestart))[1],
+    )
+
+    with pytest.raises(StopRestart):
+        main._restart_if_due(99, None)
+
+    assert calls == [()]
+
+
 def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
     page, browser = configure_main(
         monkeypatch, saved_state={"active_match_ids": ["1"]}
@@ -574,6 +607,28 @@ def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):
         main, "_collect_match_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
+    monkeypatch.setattr(
+        main,
+        "parse_and_monitor_match",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("monitor failed")),
+    )
+
+    with pytest.raises(ValueError, match="monitor failed"):
+        main.main()
+
+    assert browser.close_calls == 1
+
+
+def test_main_preserves_unexpected_failure_when_browser_close_fails(monkeypatch):
+    class BrokenBrowser(FakeBrowser):
+        def close(self):
+            self.close_calls += 1
+            raise RuntimeError("close failed")
+
+    page = FakePage()
+    browser = BrokenBrowser(context=FakeContext(page=page))
+    configure_main(monkeypatch, browser=browser)
+    monkeypatch.setattr(main, "collect_matches", lambda current_page: ["1"])
     monkeypatch.setattr(
         main,
         "parse_and_monitor_match",
