@@ -364,8 +364,8 @@ def test_register_pending_notification_sets_deadline_and_keys_by_string_id(
     [
         ({"ov": {"over": "Closed"}}, "listed", "🔥", "🔎 "),
         ({"ov": {"over": "2.5"}}, "listed", "⭐️", "🔎 "),
-        ({"ah": {"ah": "Closed"}}, "unlisted", "🔒", "⚽️ "),
-        ({"ah": {"ah": "-0.5"}}, "unlisted", "💩", "⚽️ "),
+        ({"ah": {"ah": "Closed"}}, "unlisted", "🔒", "🔎 "),
+        ({"ah": {"ah": "-0.5"}}, "unlisted", "💩", "🔎 "),
     ],
 )
 def test_process_due_notifications_selects_marker_and_persists_success(

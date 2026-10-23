@@ -241,14 +241,9 @@ class MatchMonitor:
                     marker = '🔒' if closed_remains else '💩'
 
                 message = notification['message']
-                if '🔎 ' in message:
-                    notification['edited_message'] = message.replace(
-                        '🔎 ', f'{marker} ', 1
-                    )
-                else:
-                    notification['edited_message'] = message.replace(
-                        '⚽️ ', f'{marker} ', 1
-                    )
+                notification['edited_message'] = message.replace(
+                    '🔎 ', f'{marker} ', 1
+                )
                 notification['mark'] = marker
 
             if edit_telegram_notification(
