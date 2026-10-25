@@ -1,7 +1,7 @@
 import pytest
 
-import main
-from tracker import PageRestartRequired
+from app import main
+from app.tracker import PageRestartRequired
 
 
 class FakeLocator:

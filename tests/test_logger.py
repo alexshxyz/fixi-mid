@@ -1,7 +1,7 @@
 import logging
 import re
 
-import logger as logger_module
+from app import logger as logger_module
 
 
 TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - ")

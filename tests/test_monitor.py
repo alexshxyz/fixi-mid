@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
 import pytest
-import tools.monitor as monitor
-from tools.monitor import parse_time
+import app.tools.monitor as monitor
+from app.tools.monitor import parse_time
 
 
 def test_parse_time_accepts_timestamp_without_milliseconds():

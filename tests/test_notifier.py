@@ -1,7 +1,7 @@
 import pytest
 
-import notifier
-from config import CHANNEL_ID, SITE_URL
+from app import notifier
+from app.config import CHANNEL_ID, SITE_URL
 
 
 @pytest.mark.parametrize(

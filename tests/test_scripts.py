@@ -1,4 +1,4 @@
-import scripts
+from app import scripts
 
 
 def test_live_odds_scripts_use_the_shared_readiness_criteria():

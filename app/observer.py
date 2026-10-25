@@ -5,7 +5,8 @@ from datetime import datetime
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from config import (
+from .config import (
+    DATA_DIR,
     DEBUGMODE,
     HARD_PAGE_REFRESH_MAX_RETRIES,
     HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
@@ -13,8 +14,8 @@ from config import (
     LIVE_REFRESH_MAX_RETRIES,
     LIVE_REFRESH_RETRY_DELAY_SECONDS,
 )
-from logger import setup_logger
-from scripts import (
+from .logger import setup_logger
+from .scripts import (
     COLLECT_MATCH_STATUS,
     EXTRACT_ALL_MATCH_DATA,
     INSTALL_LIVE_CHANGE_OBSERVER,
@@ -142,8 +143,9 @@ def _write_match_count(match_status, active_match_ids):
         category = 'Active' if str(item['match_id']) in active_ids else 'Inactive'
         payload[category].append(item['label'])
 
-    snapshot_path = os.path.join(os.path.dirname(__file__), 'count.json')
+    snapshot_path = DATA_DIR / 'count.json'
     try:
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         with open(snapshot_path, 'w', encoding='utf-8') as snapshot_file:
             json.dump(payload, snapshot_file, ensure_ascii=False, indent=2)
             snapshot_file.write('\n')

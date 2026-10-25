@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-import observer
+from app import observer
 
 
 class FakePage:
@@ -278,7 +278,7 @@ def test_write_match_count_respects_debug_mode(
     tmp_path, monkeypatch, debug_mode, expected_file
 ):
     monkeypatch.setattr(observer, "DEBUGMODE", debug_mode)
-    monkeypatch.setattr(observer, "__file__", str(tmp_path / "observer.py"))
+    monkeypatch.setattr(observer, "DATA_DIR", tmp_path / "data")
     records = [
         {"match_id": 10, "label": "Home - Away"},
         {"match_id": "20", "label": "One - Two"},
@@ -287,7 +287,7 @@ def test_write_match_count_respects_debug_mode(
 
     observer._write_match_count(records, [10])
 
-    snapshot = tmp_path / "count.json"
+    snapshot = tmp_path / "data" / "count.json"
     assert snapshot.exists() is expected_file
     if expected_file:
         assert json.loads(snapshot.read_text(encoding="utf-8")) == {
@@ -296,8 +296,9 @@ def test_write_match_count_respects_debug_mode(
         }
 
 
-def test_write_match_count_logs_snapshot_write_failure(monkeypatch, caplog):
+def test_write_match_count_logs_snapshot_write_failure(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(observer, "DEBUGMODE", 1)
+    monkeypatch.setattr(observer, "DATA_DIR", tmp_path / "data")
 
     def fail_open(*args, **kwargs):
         raise OSError("permission denied")

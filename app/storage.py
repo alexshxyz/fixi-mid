@@ -4,12 +4,11 @@ import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlparse
-from config import CHANNEL_ID, MATCHES_FILE
-from logger import setup_logger
+from .config import CHANNEL_ID, MATCHES_FILE
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 
-APP_DIR = Path(__file__).resolve().parent
 # Создаёт файл матчей, если он отсутствует.
 def _ensure_matches_file():
     path = Path(MATCHES_FILE)

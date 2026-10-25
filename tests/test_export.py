@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tools import export
+from app.tools import export
 
 
 @pytest.fixture
@@ -97,6 +97,20 @@ def test_export_resolves_relative_match_path_from_current_directory(
 
     assert count == 0
     assert csv_path == relative_path.with_suffix(".csv")
+
+
+def test_export_defaults_to_data_directory(tmp_path, monkeypatch):
+    monkeypatch.delenv("MATCHES_FILE", raising=False)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    matches_path = data_dir / "matches.json"
+    matches_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(export, "PROJECT_DIR", tmp_path)
+
+    count, csv_path = export.export_matches_to_csv()
+
+    assert count == 0
+    assert csv_path == data_dir / "matches.csv"
 
 
 @pytest.mark.parametrize("contents", ['{"match": 1}', "null", "{}", '[1, "invalid"]'])

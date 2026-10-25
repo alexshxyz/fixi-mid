@@ -3,8 +3,8 @@ import json
 import pytest
 from playwright.sync_api import sync_playwright
 
-import main
-from observer import _extract_all_match_data
+from app import main
+from app.observer import _extract_all_match_data
 
 
 @pytest.mark.smoke

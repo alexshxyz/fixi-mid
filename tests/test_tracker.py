@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-import tracker
+from app import tracker
 
 
 class FakePage:
@@ -134,6 +134,30 @@ def test_run_installs_and_removes_observer_and_propagates_restart(monkeypatch, m
         monitor.run()
 
     assert events == ["init", "install", "remove"]
+
+
+def test_run_logs_monitoring_started_after_match_synchronization(
+    monkeypatch, monitor
+):
+    messages = []
+    restart = tracker.PageRestartRequired("restart")
+
+    def initialize():
+        messages.append("Matches synchronized: Active 45 New 45 Removed 0")
+
+    monkeypatch.setattr(monitor, "_init_or_restore_state", initialize)
+    monkeypatch.setattr(tracker.logger, "info", messages.append)
+    monkeypatch.setattr(tracker, "_install_live_change_observer", lambda page: None)
+    monkeypatch.setattr(monitor, "_monitor_loop", lambda: (_ for _ in ()).throw(restart))
+    monkeypatch.setattr(tracker, "_remove_live_change_observer", lambda page: None)
+
+    with pytest.raises(tracker.PageRestartRequired, match="restart"):
+        monitor.run()
+
+    assert messages == [
+        "Matches synchronized: Active 45 New 45 Removed 0",
+        "Monitoring started",
+    ]
 
 
 def test_run_saves_state_and_wraps_unexpected_failure(monkeypatch, monitor, tmp_path):
@@ -369,13 +393,15 @@ def test_run_analyzer_filters_history_and_calls_pattern_matcher(
 
 def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
     monkeypatch.setattr(tracker, "DEBUGMODE", 1)
-    monkeypatch.setattr(tracker, "__file__", str(tmp_path / "tracker.py"))
+    monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(tracker, "find_pattern_matches", lambda *args: None)
     monitor.match_history = {"1": {"initial": market_data(), "changes": []}}
 
     monitor._run_analyzer()
 
-    snapshot = json.loads((tmp_path / "data_closed_ov_ah.json").read_text(encoding="utf-8"))
+    snapshot = json.loads(
+        (tmp_path / "data" / "data_closed_ov_ah.json").read_text(encoding="utf-8")
+    )
     assert snapshot["1"]["initial"] == monitor.match_history["1"]["initial"]
 
 
@@ -383,7 +409,7 @@ def test_run_analyzer_logs_debug_snapshot_write_error(
     monkeypatch, monitor, tmp_path, caplog
 ):
     monkeypatch.setattr(tracker, "DEBUGMODE", 1)
-    monkeypatch.setattr(tracker, "__file__", str(tmp_path / "tracker.py"))
+    monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(tracker, "find_pattern_matches", lambda *args: None)
     monkeypatch.setattr(
         "builtins.open",

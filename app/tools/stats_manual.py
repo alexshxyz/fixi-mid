@@ -6,10 +6,13 @@ import sys
 import os
 from datetime import datetime
 
-# Добавляем родительскую директорию в path для импорта модулей
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Добавляем корень проекта в path для поддержки прямого запуска файла.
+PROJECT_DIR = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+sys.path.insert(0, PROJECT_DIR)
 
-from storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
+from app.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
 
 
 def get_full_stats():

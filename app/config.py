@@ -6,7 +6,9 @@ from dotenv import load_dotenv
 
 # Настройки проекта
 APP_DIR = Path(__file__).resolve().parent
-load_dotenv(dotenv_path=APP_DIR / '.env')
+PROJECT_DIR = APP_DIR.parent
+DATA_DIR = PROJECT_DIR / 'data'
+load_dotenv(dotenv_path=PROJECT_DIR / '.env')
 
 # Настройки страницы
 SITE_URL = "https://www.goaloo.com/"
@@ -15,9 +17,9 @@ BROWSER_PROXY_SERVER = os.environ.get('BROWSER_PROXY_SERVER')
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 # Настройки файлов
-MATCHES_FILE = os.environ.get('MATCHES_FILE', str(APP_DIR / 'matches.json'))
-LEAGUES_FILE = str(APP_DIR / 'leagues.json')
-STATE_SAVE_FILE = str(APP_DIR / 'match_state.json')
+MATCHES_FILE = os.environ.get('MATCHES_FILE', str(DATA_DIR / 'matches.json'))
+LEAGUES_FILE = str(DATA_DIR / 'leagues.json')
+STATE_SAVE_FILE = str(DATA_DIR / 'match_state.json')
 
 # Настройки Telegram-бота
 BOT_TOKEN = os.environ.get('BOT_TOKEN')

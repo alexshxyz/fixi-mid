@@ -1,7 +1,8 @@
 import json
 import os
 import time
-from config import (
+from .config import (
+    DATA_DIR,
     DEBUGMODE,
     HARD_PAGE_REFRESH_MAX_RETRIES,
     HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
@@ -17,11 +18,11 @@ from config import (
     TELEGRAM_EDIT_MAX_ATTEMPTS,
     TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
 )
-from logger import setup_logger
-from closed_ov_ah import find_pattern_matches
-from notifier import edit_telegram_notification
-from storage import update_match_mark
-from observer import (
+from .logger import setup_logger
+from .closed_ov_ah import find_pattern_matches
+from .notifier import edit_telegram_notification
+from .storage import update_match_mark
+from .observer import (
     PageRestartRequired,
     _collect_match_status,
     _extract_all_match_data,
@@ -109,9 +110,9 @@ class MatchMonitor:
 
     # Запускает цикл мониторинга для текущего списка матчей.
     def run(self):
-        logger.info("Monitoring started")
         try:
             self._init_or_restore_state()
+            logger.info("Monitoring started")
             _install_live_change_observer(self.page)
             try:
                 self._monitor_loop()
@@ -190,11 +191,6 @@ class MatchMonitor:
             self.active_match_ids = restored_match_ids
             if self.match_ids is not None:
                 self._synchronize_matches(self.match_ids)
-            logger.info(
-                "Restored state and synchronized %d current matches from %s",
-                len(self.active_match_ids),
-                STATE_SAVE_FILE,
-            )
             return
 
         self.active_match_ids = list(self.match_ids or [])
@@ -207,10 +203,9 @@ class MatchMonitor:
     def _run_analyzer(self):
         analysis_history = _get_analysis_history(self.match_history)
         if DEBUGMODE == 1:
-            snapshot_path = os.path.join(
-                os.path.dirname(__file__), "data_closed_ov_ah.json"
-            )
+            snapshot_path = DATA_DIR / "data_closed_ov_ah.json"
             try:
+                snapshot_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
                     json.dump(
                         analysis_history,

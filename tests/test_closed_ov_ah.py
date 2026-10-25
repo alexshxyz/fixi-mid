@@ -1,7 +1,7 @@
 import pytest
 
-import closed_ov_ah
-from config import START_ODD, THRESHOLD
+from app import closed_ov_ah
+from app.config import START_ODD, THRESHOLD
 
 
 def entry(

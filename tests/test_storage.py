@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-import storage
-from config import CHANNEL_ID
+from app import storage
+from app.config import CHANNEL_ID
 
 
 @pytest.fixture

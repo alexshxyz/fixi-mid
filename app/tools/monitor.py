@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # Определяем директорию родительского проекта
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PARENT_DIR = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 
 sys.path.insert(0, PARENT_DIR)
-from config import (
+from app.config import (
     BOT_TOKEN,
     CHANNEL_ID,
     TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
@@ -19,7 +21,7 @@ from config import (
     TELEGRAM_PROXY_PORT,
     TELEGRAM_PROXY_USERNAME,
 )
-from logger import format_console_log_message, setup_logger
+from app.logger import format_console_log_message, setup_logger
 
 load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
 

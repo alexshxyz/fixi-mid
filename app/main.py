@@ -6,18 +6,23 @@ import threading
 import time
 from datetime import datetime
 from functools import partial
-from dotenv import load_dotenv
+
+if __package__ in (None, ""):
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, project_root)
+
 from playwright.sync_api import sync_playwright
-from tracker import (
+from app.tracker import (
     parse_and_monitor_match,
     load_state_from_json,
     PageRestartRequired,
 )
-from storage import init_storage
-from config import (
+from app.storage import init_storage
+from app.config import (
     BROWSER_HEADLESS,
     BROWSER_PROXY_SERVER,
     DEBUGMODE,
+    PROJECT_DIR,
     NO_MATCH_RETRY_DELAY_SECONDS,
     PAGE_ACTION_MAX_RETRIES,
     PAGE_ACTION_RETRY_DELAY_SECONDS,
@@ -30,15 +35,13 @@ from config import (
     SITE_COOKIES,
     SITE_URL,
 )
-from logger import setup_logger
-from observer import _collect_match_status, _write_match_count
-from scripts import HAS_VALID_MATCH_DATA
-
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+from app.logger import setup_logger
+from app.observer import _collect_match_status, _write_match_count
+from app.scripts import HAS_VALID_MATCH_DATA
 
 logger = setup_logger(__name__)
 ERROR_SCREENSHOTS_DIR = os.path.join(
-    os.path.dirname(__file__), "logs", "screenshots"
+    str(PROJECT_DIR), "logs", "screenshots"
 )
 
 
@@ -134,7 +137,7 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
 
     try:
         context.add_cookies(SITE_COOKIES)
-        logger.info("Cookies loaded")
+        logger.info("Cookies set")
     except Exception as e:
         logger.warning(f"Failed to add site cookies: {e}")
 
@@ -157,7 +160,7 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
         browser.close()
         raise
 
-    logger.info("Page loaded successfully")
+    logger.info("Page loaded, OK")
     return browser, page
 
 

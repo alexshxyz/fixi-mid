@@ -1,7 +1,7 @@
 import logging
-import os
 import re
 from copy import copy
+from pathlib import Path
 
 
 _MATCH_IDS_PATTERN = re.compile(
@@ -27,7 +27,8 @@ def setup_logger(name, log_filename='bot.log'):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
-    log_file = os.path.join(os.path.dirname(__file__), log_filename)
+    project_dir = Path(__file__).resolve().parent.parent
+    log_file = project_dir / log_filename
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.INFO)
     formatter = logging.Formatter(

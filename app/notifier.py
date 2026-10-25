@@ -4,9 +4,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from urllib.parse import quote
-from dotenv import load_dotenv
-
-from config import (
+from .config import (
     BOT_TOKEN,
     CHANNEL_ID,
     TELEGRAM_REQUEST_TIMEOUT_SECONDS,
@@ -19,13 +17,11 @@ from config import (
     TELEGRAM_PROXY_PORT,
     TELEGRAM_PROXY_USERNAME,
 )
-from storage import (
+from .storage import (
     save_match,
     check_duplicate_market,
 )
-from logger import setup_logger
-
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 

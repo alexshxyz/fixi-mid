@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 import pytest
 
-import config
+from app import config
 
 
 @contextmanager
@@ -40,6 +40,15 @@ def test_matches_file_can_be_overridden_with_environment(monkeypatch, tmp_path):
 
     with config_with_environment(monkeypatch, MATCHES_FILE=str(matches_file)) as settings:
         assert settings.MATCHES_FILE == str(matches_file)
+
+
+def test_default_match_data_paths_use_data_directory(monkeypatch):
+    monkeypatch.delenv("MATCHES_FILE", raising=False)
+    with config_with_environment(monkeypatch) as settings:
+        assert settings.DATA_DIR == settings.PROJECT_DIR / "data"
+        assert settings.MATCHES_FILE == str(settings.DATA_DIR / "matches.json")
+        assert settings.LEAGUES_FILE == str(settings.DATA_DIR / "leagues.json")
+        assert settings.STATE_SAVE_FILE == str(settings.DATA_DIR / "match_state.json")
 
 
 def test_browser_proxy_server_can_be_overridden_with_environment(monkeypatch):

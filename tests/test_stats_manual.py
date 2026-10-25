@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pytest
 
-from tools import stats_manual
+from app.tools import stats_manual
 
 
 def test_get_full_stats_formats_rates_and_profit(monkeypatch):

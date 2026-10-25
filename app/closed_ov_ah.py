@@ -1,9 +1,9 @@
 import json
 import re
 
-from config import START_ODD, THRESHOLD
-from notifier import send_telegram_notification
-from logger import setup_logger
+from .config import DATA_DIR, START_ODD, THRESHOLD
+from .notifier import send_telegram_notification
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -336,7 +336,8 @@ def find_pattern_matches(
 # Для тестирования, но в реальности match_history передается
 if __name__ == "__main__":
     try:
-        with open('matches_realtime.json', 'r', encoding='utf-8') as f:
+        matches_file = DATA_DIR / 'matches_realtime.json'
+        with matches_file.open('r', encoding='utf-8') as f:
             data = json.load(f)
         match_history = {}
         for match_id, match_data in data.items():
@@ -344,9 +345,9 @@ if __name__ == "__main__":
                 'initial': match_data['initial'],
                 'changes': match_data['changes']
             }
-        logger.info(f"Loaded {len(match_history)} matches from matches_realtime.json")
+        logger.info(f"Loaded {len(match_history)} matches from {matches_file}")
     except Exception as e:
-        logger.error(f"Failed to load matches_realtime.json: {e}")
+        logger.error(f"Failed to load {matches_file}: {e}")
         match_history = {}
     lines = find_pattern_matches(match_history)
     if lines:
