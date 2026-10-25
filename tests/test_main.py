@@ -51,6 +51,10 @@ class FakePage:
     def set_viewport_size(self, size):
         self.viewport_sizes.append(size)
 
+    def screenshot(self, *, path):
+        with open(path, "wb") as screenshot_file:
+            screenshot_file.write(b"fake screenshot")
+
 
 class FakeBrowser:
     def __init__(self, *, context=None):
@@ -276,16 +280,43 @@ def test_refresh_live_table_clicks_waits_and_delays():
     assert page.wait_timeout_calls == [1000]
 
 
-def test_refresh_live_table_logs_and_reraises_failure(caplog):
+def test_refresh_live_table_logs_and_reraises_failure(
+    monkeypatch, tmp_path, caplog
+):
     page = FakePage()
     page.locators["table#table_live"] = FakeLocator(
         wait_error=RuntimeError("table unavailable")
+    )
+    monkeypatch.setattr(
+        main,
+        "ERROR_SCREENSHOTS_DIR",
+        str(tmp_path / "logs" / "screenshots"),
     )
 
     with pytest.raises(RuntimeError, match="table unavailable"):
         main.refresh_live_table(page)
 
     assert "Failed to refresh Live table" in caplog.text
+
+
+def test_refresh_live_table_saves_screenshot_after_failure(
+    monkeypatch, tmp_path, caplog
+):
+    page = FakePage()
+    page.locators["li#li_FilterLive"] = FakeLocator(
+        wait_error=TimeoutError("filter not visible")
+    )
+    screenshots_dir = tmp_path / "logs" / "screenshots"
+    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+
+    with pytest.raises(TimeoutError, match="filter not visible"):
+        main.refresh_live_table(page)
+
+    screenshots = list(screenshots_dir.glob("*.png"))
+    assert len(screenshots) == 1
+    assert "ERROR - Failed to refresh Live table" in screenshots[0].name
+    assert screenshots[0].read_bytes() == b"fake screenshot"
+    assert "Saved error screenshot" in caplog.text
 
 
 def test_refresh_page_without_data_wait_reloads_and_returns():
@@ -308,11 +339,18 @@ def test_refresh_page_waits_until_data_is_valid(monkeypatch):
     assert page.wait_timeout_calls == [1000, 1000]
 
 
-def test_refresh_page_raises_timeout_when_data_never_becomes_ready(monkeypatch):
+def test_refresh_page_raises_timeout_when_data_never_becomes_ready(
+    monkeypatch, tmp_path
+):
     page = FakePage()
     ticks = iter([0, 61])
     monkeypatch.setattr(main.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(main, "has_valid_match_data", lambda current: False)
+    monkeypatch.setattr(
+        main,
+        "ERROR_SCREENSHOTS_DIR",
+        str(tmp_path / "logs" / "screenshots"),
+    )
 
     with pytest.raises(TimeoutError, match="Live table data did not become ready"):
         main.refresh_page(page)
@@ -320,13 +358,56 @@ def test_refresh_page_raises_timeout_when_data_never_becomes_ready(monkeypatch):
     assert page.wait_timeout_calls == []
 
 
-def test_refresh_page_propagates_reload_failure():
+def test_refresh_page_propagates_reload_failure(monkeypatch, tmp_path):
     class BrokenPage(FakePage):
         def reload(self, **kwargs):
             raise RuntimeError("reload failed")
 
+    monkeypatch.setattr(
+        main,
+        "ERROR_SCREENSHOTS_DIR",
+        str(tmp_path / "logs" / "screenshots"),
+    )
+
     with pytest.raises(RuntimeError, match="reload failed"):
         main.refresh_page(BrokenPage())
+
+
+def test_refresh_page_saves_screenshot_after_failure(monkeypatch, tmp_path):
+    class BrokenPage(FakePage):
+        def reload(self, **kwargs):
+            raise RuntimeError("navigation timeout")
+
+    screenshots_dir = tmp_path / "logs" / "screenshots"
+    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+
+    with pytest.raises(RuntimeError, match="navigation timeout"):
+        main.refresh_page(BrokenPage())
+
+    screenshots = list(screenshots_dir.glob("*.png"))
+    assert len(screenshots) == 1
+    assert "ERROR - Failed to refresh page" in screenshots[0].name
+    assert screenshots[0].read_bytes() == b"fake screenshot"
+
+
+def test_screenshot_failure_does_not_hide_refresh_error(
+    monkeypatch, tmp_path, caplog
+):
+    class BrokenScreenshotPage(FakePage):
+        def reload(self, **kwargs):
+            raise RuntimeError("navigation timeout")
+
+        def screenshot(self, *, path):
+            raise RuntimeError("screenshot unavailable")
+
+    monkeypatch.setattr(
+        main, "ERROR_SCREENSHOTS_DIR", str(tmp_path / "screenshots")
+    )
+
+    with pytest.raises(RuntimeError, match="navigation timeout"):
+        main.refresh_page(BrokenScreenshotPage())
+
+    assert "Failed to capture screenshot" in caplog.text
 
 
 def test_collect_matches_deduplicates_active_ids_and_writes_debug_snapshot(

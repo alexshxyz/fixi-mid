@@ -1,8 +1,10 @@
 import os
+import re
 import signal
 import sys
 import threading
 import time
+from datetime import datetime
 from functools import partial
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
@@ -35,6 +37,9 @@ from scripts import HAS_VALID_MATCH_DATA
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 logger = setup_logger(__name__)
+ERROR_SCREENSHOTS_DIR = os.path.join(
+    os.path.dirname(__file__), "logs", "screenshots"
+)
 
 
 def _request_shutdown(shutdown_requested, _signum, _frame):
@@ -43,6 +48,29 @@ def _request_shutdown(shutdown_requested, _signum, _frame):
 
 def _wait_for_shutdown(shutdown_requested, seconds):
     return shutdown_requested.wait(seconds)
+
+
+def _capture_error_screenshot(page, error_label, error):
+    try:
+        os.makedirs(ERROR_SCREENSHOTS_DIR, exist_ok=True)
+        error_detail = str(error).splitlines()[0] or error.__class__.__name__
+        error_detail = error_detail.encode("ascii", "replace").decode("ascii")
+        filename = (
+            f"{datetime.now().strftime('%Y-%m-%d %H-%M-%S-%f')} - "
+            f"ERROR - {error_label}: {error_detail}"
+        )
+        filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", filename)
+        screenshot_path = os.path.join(
+            ERROR_SCREENSHOTS_DIR, f"{filename[:200]}.png"
+        )
+        page.screenshot(path=screenshot_path)
+        logger.info("Saved error screenshot: %s", screenshot_path)
+    except Exception:
+        logger.warning(
+            "Failed to capture screenshot for %s",
+            error_label,
+            exc_info=True,
+        )
 
 
 # Повторяет действие со страницей после ошибки.
@@ -168,6 +196,7 @@ def refresh_live_table(page):
         logger.info("Live table refreshed")
     except Exception as e:
         logger.error("Failed to refresh Live table: %s", e)
+        _capture_error_screenshot(page, "Failed to refresh Live table", e)
         raise
 
 
@@ -193,6 +222,7 @@ def refresh_page(page, wait_for_data=True):
         raise TimeoutError("Live table data did not become ready after page refresh")
     except Exception as e:
         logger.error(f"Failed to refresh page: {e}")
+        _capture_error_screenshot(page, "Failed to refresh page", e)
         raise
 
 
