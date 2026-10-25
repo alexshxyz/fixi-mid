@@ -433,9 +433,11 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
                 "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
+                "shutdown_requested": calls[0][2]["shutdown_requested"],
             },
         )
     ]
+    assert isinstance(calls[0][2]["shutdown_requested"], main.threading.Event)
     assert browser.close_calls == 1
 
 
@@ -448,6 +450,9 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
     calls = []
     monkeypatch.setattr(main, "collect_matches", lambda current: next(matches))
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        main, "_wait_for_shutdown", lambda event, seconds: sleeps.append(seconds)
+    )
     monkeypatch.setattr(
         main, "refresh_page", lambda *args, **kwargs: refreshes.append((args, kwargs))
     )
@@ -470,6 +475,7 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
                 "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
+                "shutdown_requested": calls[0][1]["shutdown_requested"],
             },
         )
     ]
@@ -496,9 +502,11 @@ def test_main_starts_monitor_with_collected_matches(monkeypatch):
                 "restart_deadline": 100 + main.RESTART_HOURS * 3600,
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
+                "shutdown_requested": calls[0][1]["shutdown_requested"],
             },
         )
     ]
+    assert isinstance(calls[0][1]["shutdown_requested"], main.threading.Event)
 
 
 def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
@@ -509,6 +517,9 @@ def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
     calls = []
     monkeypatch.setattr(main, "collect_matches", lambda current: next(observed_matches))
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        main, "_wait_for_shutdown", lambda event, seconds: sleeps.append(seconds)
+    )
     monkeypatch.setattr(
         main, "refresh_page", lambda *args, **kwargs: refreshes.append((args, kwargs))
     )
@@ -524,6 +535,103 @@ def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
     assert sleeps == [60]
     assert refreshes == [((page,), {"wait_for_data": False})]
     assert calls == [(page, ["match-1"])]
+
+
+def test_main_stops_cleanly_when_shutdown_is_requested_without_matches(
+    monkeypatch,
+):
+    page, browser = configure_main(monkeypatch)
+    loads = []
+    monitor_calls = []
+    monkeypatch.setattr(main, "collect_matches", lambda current: [])
+    monkeypatch.setattr(
+        main, "load_state_from_json", lambda: loads.append(True)
+    )
+    monkeypatch.setattr(
+        main,
+        "parse_and_monitor_match",
+        lambda *args, **kwargs: monitor_calls.append((args, kwargs)),
+    )
+
+    def request_shutdown(event, seconds):
+        assert seconds == main.NO_MATCH_RETRY_DELAY_SECONDS
+        event.set()
+        return True
+
+    monkeypatch.setattr(main, "_wait_for_shutdown", request_shutdown)
+
+    main.main()
+
+    assert loads == []
+    assert monitor_calls == []
+    assert browser.close_calls == 1
+    assert page.reload_calls == []
+
+
+def test_main_passes_shutdown_event_to_monitor_and_closes_browser(monkeypatch):
+    _, browser = configure_main(monkeypatch)
+    events = []
+    monkeypatch.setattr(main, "collect_matches", lambda current: ["1"])
+
+    def stop_monitor(page, matches, **kwargs):
+        events.append(kwargs["shutdown_requested"])
+        kwargs["shutdown_requested"].set()
+
+    monkeypatch.setattr(main, "parse_and_monitor_match", stop_monitor)
+
+    main.main()
+
+    assert len(events) == 1
+    assert events[0].is_set()
+    assert browser.close_calls == 1
+
+
+def test_main_registers_and_restores_termination_signal_handlers(monkeypatch):
+    _, browser = configure_main(monkeypatch)
+    previous_handlers = {
+        main.signal.SIGINT: object(),
+        main.signal.SIGTERM: object(),
+    }
+    registered_handlers = {}
+    signal_calls = []
+
+    def register_handler(signum, handler):
+        signal_calls.append((signum, handler))
+        if len(signal_calls) <= 2:
+            registered_handlers[signum] = handler
+        return previous_handlers[signum]
+
+    monkeypatch.setattr(main.signal, "signal", register_handler)
+    monkeypatch.setattr(main, "collect_matches", lambda current: ["1"])
+    events = []
+
+    def stop_monitor(page, matches, **kwargs):
+        event = kwargs["shutdown_requested"]
+        events.append(event)
+        registered_handlers[main.signal.SIGTERM](main.signal.SIGTERM, None)
+
+    monkeypatch.setattr(main, "parse_and_monitor_match", stop_monitor)
+
+    main.main()
+
+    assert events[0].is_set()
+    assert [signum for signum, _ in signal_calls] == [
+        main.signal.SIGINT,
+        main.signal.SIGTERM,
+        main.signal.SIGINT,
+        main.signal.SIGTERM,
+    ]
+    assert signal_calls[-2][1] is previous_handlers[main.signal.SIGINT]
+    assert signal_calls[-1][1] is previous_handlers[main.signal.SIGTERM]
+    assert browser.close_calls == 1
+
+
+def test_request_shutdown_sets_event():
+    event = main.threading.Event()
+
+    main._request_shutdown(event, main.signal.SIGINT, None)
+
+    assert event.is_set()
 
 
 def test_main_restarts_after_24_hours_even_without_matches(monkeypatch):

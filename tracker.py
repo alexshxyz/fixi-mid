@@ -85,12 +85,14 @@ class MatchMonitor:
         live_refresh_callback,
         page_refresh_callback=None,
         restart_deadline=None,
+        shutdown_requested=None,
     ):
         self.page = page
         self.match_ids = match_ids
         self.saved_state = saved_state
         self.live_refresh_callback = live_refresh_callback
         self.page_refresh_callback = page_refresh_callback
+        self.shutdown_requested = shutdown_requested
         self.match_history = {}
         self.last_data = {}
         self.pending_notifications = {}
@@ -118,12 +120,29 @@ class MatchMonitor:
         except PageRestartRequired:
             raise
         except Exception as e:
+            if self._shutdown_is_requested():
+                logger.warning(
+                    "Browser operation was interrupted during shutdown",
+                    exc_info=True,
+                )
+                return
             logger.exception("Error in parse_and_monitor_match")
             if not self._save_state_to_json(self.active_match_ids, self.last_data):
                 logger.error("Could not save monitoring state before restart")
             raise PageRestartRequired(
                 f"Monitoring failed; restarting after error: {e}"
             ) from e
+        finally:
+            if self._shutdown_is_requested() and not self._save_state_to_json(
+                self.active_match_ids, self.last_data
+            ):
+                logger.error("Could not save monitoring state before shutdown")
+
+    def _shutdown_is_requested(self):
+        return (
+            self.shutdown_requested is not None
+            and self.shutdown_requested.is_set()
+        )
 
     # Сохраняет текущее состояние матчей в JSON.
     def _save_state_to_json(self, active_match_ids, last_data, path=STATE_SAVE_FILE):
@@ -321,12 +340,16 @@ class MatchMonitor:
 
     # Ждёт мутации Live-таблицы и периодически обновляет её.
     def _monitor_loop(self):
-        while True:
+        while not self._shutdown_is_requested():
             data_changed = False
             now = time.monotonic()
             self._restart_if_due()
+            if self._shutdown_is_requested():
+                break
             self._process_due_notifications()
             self._restart_if_due()
+            if self._shutdown_is_requested():
+                break
 
             if now >= self.next_heartbeat_at:
                 logger.info("Heartbeat: OK")
@@ -350,18 +373,26 @@ class MatchMonitor:
 
                 if data_changed:
                     self._run_analyzer()
+                if self._shutdown_is_requested():
+                    break
                 self._process_due_notifications()
                 continue
 
             if now >= self.next_reload_at:
                 data_changed = self._do_periodic_reload()
                 self._restart_if_due()
+                if self._shutdown_is_requested():
+                    break
                 if self.active_match_ids:
                     changed, _ = self._poll_and_update(log_data_loaded=True)
                     data_changed = data_changed or changed
                     self._restart_if_due()
+                    if self._shutdown_is_requested():
+                        break
                 if data_changed:
                     self._run_analyzer()
+                if self._shutdown_is_requested():
+                    break
                 self._process_due_notifications()
                 self._restart_if_due()
                 continue
@@ -377,10 +408,19 @@ class MatchMonitor:
             notification_timeout = self._next_notification_timeout()
             if notification_timeout is not None:
                 wait_seconds = min(wait_seconds, notification_timeout)
-            changed = _wait_for_live_change(
-                self.page,
-                timeout_ms=max(1, int(wait_seconds * 1000)),
-            )
+            if self.shutdown_requested is None:
+                changed = _wait_for_live_change(
+                    self.page,
+                    timeout_ms=max(1, int(wait_seconds * 1000)),
+                )
+            else:
+                changed = _wait_for_live_change(
+                    self.page,
+                    timeout_ms=max(1, int(wait_seconds * 1000)),
+                    shutdown_requested=self.shutdown_requested,
+                )
+            if self._shutdown_is_requested():
+                break
             self._restart_if_due()
             if changed and self.active_match_ids:
                 data_changed, _ = self._poll_and_update()
@@ -392,6 +432,8 @@ class MatchMonitor:
             self._restart_if_due()
 
     def _restart_if_due(self):
+        if self._shutdown_is_requested():
+            return
         if time.monotonic() >= self.restart_deadline:
             self._trigger_scheduled_restart()
 
@@ -631,6 +673,7 @@ def parse_and_monitor_match(
     live_refresh_callback,
     page_refresh_callback=None,
     restart_deadline=None,
+    shutdown_requested=None,
 ):
     MatchMonitor(
         page,
@@ -639,6 +682,7 @@ def parse_and_monitor_match(
         live_refresh_callback=live_refresh_callback,
         page_refresh_callback=page_refresh_callback,
         restart_deadline=restart_deadline,
+        shutdown_requested=shutdown_requested,
     ).run()
 
 

@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -96,6 +97,25 @@ def test_wait_for_live_change_returns_false_on_playwright_timeout():
     page = FakePage(function_error=PlaywrightTimeoutError("timed out"))
 
     assert observer._wait_for_live_change(page, 10) is False
+    assert page.evaluate_calls == []
+
+
+def test_wait_for_live_change_stops_when_shutdown_is_requested():
+    shutdown_requested = threading.Event()
+
+    class ShutdownPage(FakePage):
+        def wait_for_function(self, *args, **kwargs):
+            self.function_calls.append((args, kwargs))
+            shutdown_requested.set()
+            raise PlaywrightTimeoutError("wait interrupted")
+
+    page = ShutdownPage()
+
+    assert observer._wait_for_live_change(
+        page, 10_000, shutdown_requested=shutdown_requested
+    ) is False
+    assert len(page.function_calls) == 1
+    assert page.function_calls[0][1]["timeout"] <= 1000
     assert page.evaluate_calls == []
 
 

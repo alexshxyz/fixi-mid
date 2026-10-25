@@ -1,6 +1,9 @@
 import os
+import signal
 import sys
+import threading
 import time
+from functools import partial
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from tracker import (
@@ -32,6 +35,14 @@ from scripts import HAS_VALID_MATCH_DATA
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 logger = setup_logger(__name__)
+
+
+def _request_shutdown(shutdown_requested, _signum, _frame):
+    shutdown_requested.set()
+
+
+def _wait_for_shutdown(shutdown_requested, seconds):
+    return shutdown_requested.wait(seconds)
 
 
 # Повторяет действие со страницей после ошибки.
@@ -219,7 +230,9 @@ def _restart_script(browser=None):
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-def _restart_if_due(restart_deadline, browser):
+def _restart_if_due(restart_deadline, browser, shutdown_requested=None):
+    if shutdown_requested is not None and shutdown_requested.is_set():
+        return
     if time.monotonic() < restart_deadline:
         return
     logger.info(
@@ -233,66 +246,104 @@ def _restart_if_due(restart_deadline, browser):
 
 # Главный цикл запуска бота.
 def main():
-    restart_deadline = time.monotonic() + RESTART_HOURS * 3600
-    init_storage()
-    _restart_if_due(restart_deadline, None)
+    shutdown_requested = threading.Event()
+    previous_handlers = {
+        signum: signal.signal(
+            signum, partial(_request_shutdown, shutdown_requested)
+        )
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    try:
+        restart_deadline = time.monotonic() + RESTART_HOURS * 3600
+        init_storage()
+        _restart_if_due(restart_deadline, None, shutdown_requested)
 
-    while True:
-        with sync_playwright() as p:
-            browser, page = init_browser(p)
+        while not shutdown_requested.is_set():
+            with sync_playwright() as p:
+                browser, page = init_browser(p)
 
-            try:
-                _restart_if_due(restart_deadline, browser)
-                # Подготавливаем страницу перед запуском мониторинга.
-                _retry_page_action(
-                    page,
-                    lambda: switch_to_live(page),
-                    "prepare page",
-                )
-                _restart_if_due(restart_deadline, browser)
-                # Всегда получаем актуальные матчи; состояние загружается после ожидания,
-                # чтобы оно оставалось на диске, если перезапуск наступит без матчей.
-                matches = collect_matches(page)
-                while not matches:
-                    _restart_if_due(restart_deadline, browser)
-                    remaining_seconds = restart_deadline - time.monotonic()
-                    logger.info(
-                        "No matches found. Retrying in %s seconds...",
-                        NO_MATCH_RETRY_DELAY_SECONDS,
-                    )
-                    time.sleep(
-                        max(
-                            0,
-                            min(NO_MATCH_RETRY_DELAY_SECONDS, remaining_seconds),
-                        )
-                    )
-                    _restart_if_due(restart_deadline, browser)
-                    refresh_page(page, wait_for_data=False)
-                    matches = collect_matches(page)
-
-                _restart_if_due(restart_deadline, browser)
-                saved_state = load_state_from_json()
-                parse_and_monitor_match(
-                    page,
-                    matches,
-                    saved_state=saved_state,
-                    restart_deadline=restart_deadline,
-                    live_refresh_callback=refresh_live_table,
-                    page_refresh_callback=refresh_page,
-                )
-            except PageRestartRequired as e:
-                if not str(e).startswith("Scheduled restart after "):
-                    logger.info(f"{e}. Restarting script...")
-                _restart_script(browser)
-            except Exception as e:
-                logger.error(f"Unexpected error in main: {e}")
                 try:
-                    browser.close()
-                except Exception:
-                    pass
-                raise
+                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    # Подготавливаем страницу перед запуском мониторинга.
+                    _retry_page_action(
+                        page,
+                        lambda: switch_to_live(page),
+                        "prepare page",
+                    )
+                    if shutdown_requested.is_set():
+                        break
+                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    # Всегда получаем актуальные матчи; состояние загружается после ожидания,
+                    # чтобы оно оставалось на диске, если перезапуск наступит без матчей.
+                    matches = collect_matches(page)
+                    while not matches and not shutdown_requested.is_set():
+                        _restart_if_due(restart_deadline, browser, shutdown_requested)
+                        remaining_seconds = restart_deadline - time.monotonic()
+                        logger.info(
+                            "No matches found. Retrying in %s seconds...",
+                            NO_MATCH_RETRY_DELAY_SECONDS,
+                        )
+                        _wait_for_shutdown(
+                            shutdown_requested,
+                            max(
+                                0,
+                                min(NO_MATCH_RETRY_DELAY_SECONDS, remaining_seconds),
+                            ),
+                        )
+                        if shutdown_requested.is_set():
+                            break
+                        _restart_if_due(restart_deadline, browser, shutdown_requested)
+                        refresh_page(page, wait_for_data=False)
+                        matches = collect_matches(page)
 
-        # Если execv подхватил, этот код не выполнится.
+                    if shutdown_requested.is_set():
+                        break
+
+                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    saved_state = load_state_from_json()
+                    parse_and_monitor_match(
+                        page,
+                        matches,
+                        saved_state=saved_state,
+                        restart_deadline=restart_deadline,
+                        live_refresh_callback=refresh_live_table,
+                        page_refresh_callback=refresh_page,
+                        shutdown_requested=shutdown_requested,
+                    )
+                except PageRestartRequired as e:
+                    if shutdown_requested.is_set():
+                        logger.info("Shutdown requested")
+                        return
+                    if not str(e).startswith("Scheduled restart after "):
+                        logger.info(f"{e}. Restarting script...")
+                    _restart_script(browser)
+                except Exception as e:
+                    if shutdown_requested.is_set():
+                        logger.warning(
+                            "Browser operation was interrupted during shutdown",
+                            exc_info=True,
+                        )
+                        return
+                    logger.error(f"Unexpected error in main: {e}")
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    if shutdown_requested.is_set():
+                        try:
+                            browser.close()
+                            logger.info("Browser closed")
+                        except Exception:
+                            logger.error("Failed to close browser", exc_info=True)
+
+            # Если execv подхватил, этот код не выполнится.
+            if shutdown_requested.is_set():
+                return
+    finally:
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
 
 
 if __name__ == "__main__":

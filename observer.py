@@ -45,15 +45,33 @@ def _remove_live_change_observer(page):
 
 
 # Ждёт изменения Live-таблицы и возвращает, произошло ли оно до таймаута.
-def _wait_for_live_change(page, timeout_ms):
-    try:
-        page.wait_for_function(
-            LIVE_CHANGE_PREDICATE,
-            timeout=timeout_ms,
-            polling=LIVE_CHANGE_POLL_INTERVAL_MS,
-        )
-    except PlaywrightTimeoutError:
-        return False
+def _wait_for_live_change(page, timeout_ms, shutdown_requested=None):
+    if shutdown_requested is None:
+        try:
+            page.wait_for_function(
+                LIVE_CHANGE_PREDICATE,
+                timeout=timeout_ms,
+                polling=LIVE_CHANGE_POLL_INTERVAL_MS,
+            )
+        except PlaywrightTimeoutError:
+            return False
+    else:
+        deadline = time.monotonic() + max(1, timeout_ms) / 1000
+        while not shutdown_requested.is_set():
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                return False
+            try:
+                page.wait_for_function(
+                    LIVE_CHANGE_PREDICATE,
+                    timeout=min(remaining_ms, 1000),
+                    polling=LIVE_CHANGE_POLL_INTERVAL_MS,
+                )
+                break
+            except PlaywrightTimeoutError:
+                continue
+        if shutdown_requested.is_set():
+            return False
 
     page.evaluate(RESET_LIVE_CHANGE_FLAG)
     return True

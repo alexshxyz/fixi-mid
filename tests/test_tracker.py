@@ -1,4 +1,5 @@
 import json
+import threading
 
 import pytest
 
@@ -167,6 +168,53 @@ def test_run_logs_when_state_cannot_be_saved_before_restart(
         monitor.run()
 
     assert "Could not save monitoring state before restart" in caplog.text
+
+
+def test_run_saves_current_match_state_on_graceful_shutdown(
+    monkeypatch, tmp_path
+):
+    page = FakePage()
+    shutdown_requested = threading.Event()
+    initial = market_data()
+    monitor = tracker.MatchMonitor(
+        page,
+        ["1"],
+        live_refresh_callback=lambda current_page: None,
+        shutdown_requested=shutdown_requested,
+    )
+    state_path = tmp_path / "state.json"
+    save_state = monitor._save_state_to_json
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda active, last: save_state(active, last, state_path),
+    )
+    monkeypatch.setattr(
+        tracker, "_extract_all_match_data", lambda current_page, ids: {"1": initial}
+    )
+    monkeypatch.setattr(tracker, "_install_live_change_observer", lambda page: None)
+    removed = []
+    monkeypatch.setattr(
+        tracker, "_remove_live_change_observer", lambda page: removed.append(page)
+    )
+
+    def request_shutdown(page, timeout_ms, shutdown_requested=None):
+        assert shutdown_requested is monitor.shutdown_requested
+        shutdown_requested.set()
+        return False
+
+    monkeypatch.setattr(tracker, "_wait_for_live_change", request_shutdown)
+
+    monitor.run()
+
+    saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved_state["active_match_ids"] == ["1"]
+    assert saved_state["match_history"] == {
+        "1": {"initial": initial, "changes": []}
+    }
+    assert saved_state["last_data"]["1"]["score"] == initial["score"]
+    assert saved_state["pending_notifications"] == {}
+    assert removed == [page]
 
 
 def test_save_state_to_json_persists_all_state_and_returns_true(monitor, tmp_path):
@@ -1106,6 +1154,7 @@ def test_parse_and_monitor_match_constructs_and_runs_monitor(monkeypatch):
                 "live_refresh_callback": callback,
                 "page_refresh_callback": None,
                 "restart_deadline": 123,
+                "shutdown_requested": None,
             },
         ),
         "run",
