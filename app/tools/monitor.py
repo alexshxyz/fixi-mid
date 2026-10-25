@@ -3,7 +3,6 @@ import requests
 import os
 import sys
 from urllib.parse import quote
-from dotenv import load_dotenv
 from datetime import datetime
 
 # Определяем директорию родительского проекта
@@ -12,9 +11,8 @@ PARENT_DIR = os.path.dirname(
 )
 
 sys.path.insert(0, PARENT_DIR)
+from app import config
 from app.config import (
-    BOT_TOKEN,
-    CHANNEL_ID,
     TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
     TELEGRAM_PROXY_HOST,
     TELEGRAM_PROXY_PASSWORD,
@@ -22,12 +20,6 @@ from app.config import (
     TELEGRAM_PROXY_USERNAME,
 )
 from app.logger import format_console_log_message, setup_logger
-
-load_dotenv(dotenv_path=os.path.join(PARENT_DIR, '.env'))
-
-LOG_FILE = os.path.join(PARENT_DIR, 'bot.log')
-TELEGRAM_TOKEN = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
-CHAT_ID = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
 
 TELEGRAM_PROXIES = None
 if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
@@ -48,20 +40,16 @@ if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
 
 logger = setup_logger(__name__, 'monitor.log')
 
-CHECK_INTERVAL = 1800  # 30 минут
-STALE_LIMIT = 120      # 2 минуты без логов = проблема
-LOG_READ_CHUNK_SIZE = 4096  # Размер блока при поиске последней строки лога
-
 
 # Отправляет статус мониторинга в Telegram.
 def send(msg):
-    url = TELEGRAM_API_URL_TEMPLATE.format(token=TELEGRAM_TOKEN)
+    url = TELEGRAM_API_URL_TEMPLATE.format(token=config.MONITOR_TELEGRAM_TOKEN)
     try:
         response = requests.post(
             url,
-            data={"chat_id": CHAT_ID, "text": msg},
+            data={"chat_id": config.MONITOR_CHAT_ID, "text": msg},
             proxies=TELEGRAM_PROXIES,
-            timeout=5,
+            timeout=config.MONITOR_TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
         if response.status_code != 200:
             logger.error(f"Monitor notification failed: {response.text}")
@@ -75,7 +63,7 @@ def send(msg):
 # Читает последнюю строку лога без загрузки всего файла в память.
 def get_last_line():
     try:
-        with open(LOG_FILE, "rb") as log_file:
+        with open(config.BOT_LOG_FILE, "rb") as log_file:
             log_file.seek(0, os.SEEK_END)
             file_end = log_file.tell()
             if file_end == 0:
@@ -85,7 +73,7 @@ def get_last_line():
             offset = file_end - 1 if log_file.read(1) == b"\n" else file_end
 
             while offset > 0:
-                chunk_start = max(0, offset - LOG_READ_CHUNK_SIZE)
+                chunk_start = max(0, offset - config.MONITOR_LOG_READ_CHUNK_SIZE)
                 log_file.seek(chunk_start)
                 chunk = log_file.read(offset - chunk_start)
                 newline_index = chunk.rfind(b"\n")
@@ -132,7 +120,7 @@ def main():
         if status_time:
             age = (now - status_time).total_seconds()
 
-            if age < STALE_LIMIT:
+            if age < config.MONITOR_STALE_LIMIT_SECONDS:
                 status = "✅ OK"
             else:
                 status = "❌ STALE (no activity)"
@@ -150,7 +138,7 @@ def main():
 
         send(msg)
 
-        time.sleep(CHECK_INTERVAL)
+        time.sleep(config.MONITOR_CHECK_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":

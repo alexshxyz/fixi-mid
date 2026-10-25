@@ -36,6 +36,7 @@ from .observer import (
 logger = setup_logger(__name__)
 
 
+# Убирает из истории анализа записи без изменений отслеживаемых полей.
 def _get_analysis_history(match_history):
     analysis_history = {}
     tracked_fields = ('ah', 'ov', 'match_time', 'score')
@@ -77,6 +78,7 @@ def load_state_from_json(path=STATE_SAVE_FILE):
 
 # Создаёт монитор и инициализирует состояние и расписание проверок.
 class MatchMonitor:
+    # Создаёт монитор и инициализирует состояние и расписание проверок.
     def __init__(
         self,
         page,
@@ -139,6 +141,7 @@ class MatchMonitor:
             ):
                 logger.error("Could not save monitoring state before shutdown")
 
+    # Проверяет, запрошено ли завершение мониторинга.
     def _shutdown_is_requested(self):
         return (
             self.shutdown_requested is not None
@@ -426,6 +429,7 @@ class MatchMonitor:
             self._process_due_notifications()
             self._restart_if_due()
 
+    # Проверяет, наступил ли срок планового перезапуска.
     def _restart_if_due(self):
         if self._shutdown_is_requested():
             return

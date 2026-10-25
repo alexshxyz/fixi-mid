@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 import app.tools.monitor as monitor
+from app import config
 from app.tools.monitor import parse_time
 
 
@@ -29,7 +30,7 @@ def test_parse_time_returns_none_for_empty_or_malformed_values(line):
 def test_get_last_line_reads_final_line(tmp_path, monkeypatch):
     log_file = tmp_path / "bot.log"
     log_file.write_text("first line\nlast line\n", encoding="utf-8")
-    monkeypatch.setattr(monitor, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(config, "BOT_LOG_FILE", log_file)
 
     assert monitor.get_last_line() == "last line"
 
@@ -37,7 +38,7 @@ def test_get_last_line_reads_final_line(tmp_path, monkeypatch):
 def test_get_last_line_handles_empty_file(tmp_path, monkeypatch):
     log_file = tmp_path / "bot.log"
     log_file.touch()
-    monkeypatch.setattr(monitor, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(config, "BOT_LOG_FILE", log_file)
 
     assert monitor.get_last_line() is None
 
@@ -45,15 +46,17 @@ def test_get_last_line_handles_empty_file(tmp_path, monkeypatch):
 def test_get_last_line_handles_file_without_trailing_newline(tmp_path, monkeypatch):
     log_file = tmp_path / "bot.log"
     log_file.write_text("first line\nlast line", encoding="utf-8")
-    monkeypatch.setattr(monitor, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(config, "BOT_LOG_FILE", log_file)
 
     assert monitor.get_last_line() == "last line"
 
 
 def test_get_last_line_skips_large_earlier_content(tmp_path, monkeypatch):
     log_file = tmp_path / "bot.log"
-    log_file.write_bytes(b"x" * (monitor.LOG_READ_CHUNK_SIZE * 8) + b"\nlast line\n")
-    monkeypatch.setattr(monitor, "LOG_FILE", str(log_file))
+    log_file.write_bytes(
+        b"x" * (config.MONITOR_LOG_READ_CHUNK_SIZE * 8) + b"\nlast line\n"
+    )
+    monkeypatch.setattr(config, "BOT_LOG_FILE", log_file)
 
     assert monitor.get_last_line() == "last line"
 
@@ -61,7 +64,7 @@ def test_get_last_line_skips_large_earlier_content(tmp_path, monkeypatch):
 def test_get_last_line_ignores_invalid_utf8_bytes(tmp_path, monkeypatch):
     log_file = tmp_path / "bot.log"
     log_file.write_bytes(b"last\xffline\n")
-    monkeypatch.setattr(monitor, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(config, "BOT_LOG_FILE", log_file)
 
     assert monitor.get_last_line() == "lastline"
 
@@ -69,7 +72,7 @@ def test_get_last_line_ignores_invalid_utf8_bytes(tmp_path, monkeypatch):
 def test_get_last_line_returns_none_and_logs_when_file_is_missing(
     tmp_path, monkeypatch, caplog
 ):
-    monkeypatch.setattr(monitor, "LOG_FILE", str(tmp_path / "missing.log"))
+    monkeypatch.setattr(config, "BOT_LOG_FILE", tmp_path / "missing.log")
 
     assert monitor.get_last_line() is None
     assert "Error reading bot log" in caplog.text
@@ -88,8 +91,8 @@ def test_send_posts_telegram_status_and_handles_http_result(
         status_code = response_status
         text = "service unavailable"
 
-    monkeypatch.setattr(monitor, "TELEGRAM_TOKEN", "test-token")
-    monkeypatch.setattr(monitor, "CHAT_ID", "test-chat")
+    monkeypatch.setattr(config, "MONITOR_TELEGRAM_TOKEN", "test-token")
+    monkeypatch.setattr(config, "MONITOR_CHAT_ID", "test-chat")
     monkeypatch.setattr(monitor, "TELEGRAM_PROXIES", {"https": "proxy"})
     monkeypatch.setattr(
         monitor.requests,
@@ -104,7 +107,7 @@ def test_send_posts_telegram_status_and_handles_http_result(
             {
                 "data": {"chat_id": "test-chat", "text": "status"},
                 "proxies": {"https": "proxy"},
-                "timeout": 5,
+                "timeout": config.MONITOR_TELEGRAM_REQUEST_TIMEOUT_SECONDS,
             },
         )
     ]
@@ -128,8 +131,18 @@ def test_send_returns_false_and_logs_request_exception(monkeypatch, caplog):
 @pytest.mark.parametrize(
     ("age_seconds", "line", "expected_status", "expected_age"),
     [
-        (monitor.STALE_LIMIT - 1, "Fresh log", "✅ OK", monitor.STALE_LIMIT - 1),
-        (monitor.STALE_LIMIT, "Stale log", "❌ STALE (no activity)", monitor.STALE_LIMIT),
+        (
+            config.MONITOR_STALE_LIMIT_SECONDS - 1,
+            "Fresh log",
+            "✅ OK",
+            config.MONITOR_STALE_LIMIT_SECONDS - 1,
+        ),
+        (
+            config.MONITOR_STALE_LIMIT_SECONDS,
+            "Stale log",
+            "❌ STALE (no activity)",
+            config.MONITOR_STALE_LIMIT_SECONDS,
+        ),
         (None, "unparseable", "⚠️ NO TIMESTAMP / LOG ERROR", None),
     ],
 )

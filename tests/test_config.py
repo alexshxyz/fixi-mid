@@ -78,3 +78,9 @@ def test_site_cookies_have_expected_names_and_domain():
     assert {cookie["name"] for cookie in config.SITE_COOKIES} == expected_names
     assert all(cookie["domain"] == config.SITE_COOKIE_DOMAIN for cookie in config.SITE_COOKIES)
     assert all(cookie["path"] == "/" for cookie in config.SITE_COOKIES)
+
+
+def test_application_settings_are_centralized():
+    assert config.FINISHED_TIME_MARKERS == ("90", "90+", "FT", "ET")
+    assert config.ERROR_SCREENSHOTS_DIR == config.PROJECT_DIR / "logs" / "screenshots"
+    assert config.BOT_LOG_FILE == config.PROJECT_DIR / "bot.log"

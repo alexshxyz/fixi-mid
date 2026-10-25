@@ -350,6 +350,7 @@ def _save_notification(
         logger.error(f"Failed to save match: {db_error}")
 
 
+# Отправляет сигнал в Telegram и сохраняет отправленное уведомление.
 def send_telegram_notification(
     league,
     team1,

@@ -3,6 +3,8 @@ import threading
 
 import pytest
 
+from app.config import TELEGRAM_EDIT_RETRY_DELAY_SECONDS
+
 from app import tracker
 
 
@@ -520,7 +522,7 @@ def test_process_due_notifications_retries_failed_edit_then_gives_up(
     monitor._process_due_notifications()
 
     assert item["edit_attempts"] == 2
-    assert item["deadline"] == 130
+    assert item["deadline"] == 100 + TELEGRAM_EDIT_RETRY_DELAY_SECONDS
     assert monitor.pending_notifications["10"] is item
     assert "Retrying Telegram status edit" in caplog.text
 
@@ -723,7 +725,9 @@ def test_monitor_loop_reschedules_failed_scheduled_page_refresh(
     with pytest.raises(StopLoop):
         monitor._monitor_loop()
 
-    assert monitor.next_page_refresh_at == 70
+    assert monitor.next_page_refresh_at == (
+        10 + tracker.PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS
+    )
     assert "Scheduled page refresh failed" in caplog.text
 
 

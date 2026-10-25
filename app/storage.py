@@ -182,6 +182,7 @@ def update_match_mark(link, prediction, mark, channel_id=CHANNEL_ID):
     return False
 
 
+# Сохраняет сигнал матча в JSON, не добавляя дубликаты.
 def save_match(
     league,
     home_team,

@@ -22,7 +22,7 @@ from app.config import (
     BROWSER_HEADLESS,
     BROWSER_PROXY_SERVER,
     DEBUGMODE,
-    PROJECT_DIR,
+    ERROR_SCREENSHOTS_DIR,
     NO_MATCH_RETRY_DELAY_SECONDS,
     PAGE_ACTION_MAX_RETRIES,
     PAGE_ACTION_RETRY_DELAY_SECONDS,
@@ -40,19 +40,19 @@ from app.observer import _collect_match_status, _write_match_count
 from app.scripts import HAS_VALID_MATCH_DATA
 
 logger = setup_logger(__name__)
-ERROR_SCREENSHOTS_DIR = os.path.join(
-    str(PROJECT_DIR), "logs", "screenshots"
-)
 
 
+# Устанавливает флаг завершения при получении системного сигнала.
 def _request_shutdown(shutdown_requested, _signum, _frame):
     shutdown_requested.set()
 
 
+# Ожидает завершения работы или истечения заданного времени.
 def _wait_for_shutdown(shutdown_requested, seconds):
     return shutdown_requested.wait(seconds)
 
 
+# Сохраняет снимок страницы с контекстом ошибки в имени файла.
 def _capture_error_screenshot(page, error_label, error):
     try:
         os.makedirs(ERROR_SCREENSHOTS_DIR, exist_ok=True)
@@ -141,6 +141,7 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     except Exception as e:
         logger.warning(f"Failed to add site cookies: {e}")
 
+    # Загружает страницу сайта с таймаутом конфигурации.
     def open_page():
         page.goto(
             SITE_URL,
@@ -263,6 +264,7 @@ def _restart_script(browser=None):
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
+# Перезапускает браузер или процесс, когда наступает срок перезапуска.
 def _restart_if_due(restart_deadline, browser, shutdown_requested=None):
     if shutdown_requested is not None and shutdown_requested.is_set():
         return

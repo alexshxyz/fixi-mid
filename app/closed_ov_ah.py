@@ -1,14 +1,11 @@
 import json
 import re
 
-from .config import DATA_DIR, START_ODD, THRESHOLD
+from .config import DATA_DIR, FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
 from .notifier import send_telegram_notification
 from .logger import setup_logger
 
 logger = setup_logger(__name__)
-
-# Маркеры времени, при которых матч считается завершенным и сигнал не отправляется.
-FINISHED_TIME_MARKERS = ["90", "90+", "FT", "ET"]
 
 
 # Преобразует значение в число с плавающей точкой или возвращает None.
@@ -74,6 +71,7 @@ def _get_last_entry_before_closed(entries, field_name):
 
 # Сравнивает счета; неизвестный счет не блокирует отправку сигнала.
 def _scores_match(closed_entry, confirming_entry):
+    # Возвращает счёт, если он задан и известен.
     def known_score(entry):
         score = entry.get("score")
         if score is None:
@@ -90,6 +88,7 @@ def _scores_match(closed_entry, confirming_entry):
     )
 
 
+# Проверяет, указывает ли игровое время на завершение матча.
 def _is_finished_match(entry):
     for field in ("time", "match_time"):
         value = entry.get(field)

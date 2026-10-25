@@ -20,6 +20,7 @@ PREFERRED_COLUMNS = (
 )
 
 
+# Экспортирует сохранённые матчи в CSV-файл рядом с JSON-данными.
 def export_matches_to_csv():
     configured_path = os.environ.get('MATCHES_FILE')
     matches_path = (
@@ -50,6 +51,7 @@ def export_matches_to_csv():
     return len(export_rows), csv_path
 
 
+# Запускает экспорт и выводит результат или сообщение об ошибке.
 def main():
     try:
         match_count, csv_path = export_matches_to_csv()

@@ -15,8 +15,8 @@ sys.path.insert(0, PROJECT_DIR)
 from app.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
 
 
+# Формирует сводную статистику по всем сохранённым матчам.
 def get_full_stats():
-    # Получает полную статистику со всех матчей в matches.json.
     #
     # Returns:
     # str: отформатированный HTML-текст с общей статистикой
@@ -53,8 +53,8 @@ def get_full_stats():
         return f"❌ Ошибка при получении статистики: {e}"
 
 
+# Формирует список трёх лиг с наибольшим количеством побед.
 def get_top_leagues():
-    # Получает топ 3 лиги по количеству побед.
     #
     # Returns:
     # str: отформатированный HTML-текст с топ лигами
@@ -96,8 +96,8 @@ def get_top_leagues():
         return f"❌ Ошибка при получении статистики: {e}"
 
 
+# Формирует список трёх лиг с наименьшим количеством побед.
 def get_worst_leagues():
-    # Получает худшие 3 лиги по количеству побед.
     #
     # Returns:
     # str: отформатированный HTML-текст с худшими лигами
@@ -139,8 +139,8 @@ def get_worst_leagues():
         return f"❌ Ошибка при получении статистики: {e}"
 
 
+# Возвращает данные о пяти последних сохранённых матчах.
 def get_last_5_matches():
-    # Получает последние 5 матчей из matches.json.
     #
     # Returns:
     # list: список данных матчей
@@ -190,8 +190,8 @@ def get_last_5_matches():
         return []
 
 
+# Форматирует список последних матчей в текстовый блок.
 def format_last_5_matches(matches_data):
-    # Форматирует последние 5 матчей для вывода.
     #
     # Returns:
     # str: отформатированный текст
@@ -209,8 +209,8 @@ def format_last_5_matches(matches_data):
     return text.rstrip()
 
 
+# Возвращает подробности матча по его позиции с конца списка.
 def get_match_details_by_index(index):
-    # Получает подробную информацию о конкретном матче по индексу.
     #
     # Args:
     # index: индекс матча в списке (0 для последнего)
@@ -267,8 +267,8 @@ def get_match_details_by_index(index):
         return None
 
 
+# Формирует статистику по матчам за текущий календарный месяц.
 def get_this_month_stats():
-    # Получает статистику матчей за текущий месяц из matches.json.
     #
     # Returns:
     # str: отформатированный HTML-текст со статистикой за месяц

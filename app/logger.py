@@ -10,11 +10,13 @@ _MATCH_IDS_PATTERN = re.compile(
 )
 
 
+# Убирает подробные ID матчей из сообщений для консольного вывода.
 def format_console_log_message(message):
     return _MATCH_IDS_PATTERN.sub(r"\1", message)
 
 
 class _ConsoleLogHandler(logging.StreamHandler):
+    # Форматирует сообщение для консоли, не меняя запись в файловом логе.
     def emit(self, record):
         console_record = copy(record)
         console_record.msg = format_console_log_message(record.getMessage())
