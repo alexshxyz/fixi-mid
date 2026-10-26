@@ -21,15 +21,6 @@ _LIVE_ODDS_READINESS_HELPER = """
         };
     """
 
-# Проверяет наличие Crown и видимых коэффициентов.
-HAS_VALID_MATCH_DATA = """
-        () => {
-""" + _LIVE_ODDS_READINESS_HELPER + """
-            const {hasCrownOdds, hasVisibleOdds} = getLiveOddsReadiness();
-            return hasCrownOdds && hasVisibleOdds;
-        }
-    """
-
 # Устанавливает наблюдатель за изменениями Live-таблицы.
 INSTALL_LIVE_CHANGE_OBSERVER = """
         () => {

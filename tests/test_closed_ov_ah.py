@@ -177,7 +177,13 @@ def test_notification_sent_callback_registers_message_details():
         received.append, "match-1", "ah", "League"
     )
 
-    callback(42, "message", "https://example.test/match-1", "Handicap -0.5 Away")
+    callback(
+        42,
+        "message",
+        "https://example.test/match-1",
+        "Handicap -0.5 Away",
+        "custom-channel",
+    )
 
     assert received == [
         {
@@ -188,6 +194,7 @@ def test_notification_sent_callback_registers_message_details():
             "message": "message",
             "link": "https://example.test/match-1",
             "prediction": "Handicap -0.5 Away",
+            "channel_id": "custom-channel",
         }
     ]
 
@@ -198,7 +205,7 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
 
     def fake_send(**kwargs):
         sent.append(kwargs)
-        kwargs["on_sent_details"](7, "text", "link", "Over 2.5")
+        kwargs["on_sent_details"](7, "text", "link", "Over 2.5", "channel")
 
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
     match = entry(
@@ -542,7 +549,9 @@ def test_send_ah_notification_formats_payload_and_callback(monkeypatch):
 
     def fake_send(**kwargs):
         sent.append(kwargs)
-        kwargs["on_sent_details"](8, "text", "link", "Handicap -0.5 Home")
+        kwargs["on_sent_details"](
+            8, "text", "link", "Handicap -0.5 Home", "channel"
+        )
 
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
     match = entry(team1="Home", team2="Away", score="0-0", league="League")

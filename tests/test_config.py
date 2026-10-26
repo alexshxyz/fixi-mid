@@ -51,6 +51,47 @@ def test_default_match_data_paths_use_data_directory(monkeypatch):
         assert settings.STATE_SAVE_FILE == str(settings.DATA_DIR / "match_state.json")
 
 
+def test_table_live_reload_interval_is_generated_each_time(monkeypatch):
+    generated_values = iter((103, 118))
+    calls = []
+
+    def randint(lower, upper):
+        calls.append((lower, upper))
+        return next(generated_values)
+
+    monkeypatch.setattr(config.random, "randint", randint)
+
+    assert config.get_table_live_reload_interval() == 103
+    assert config.get_table_live_reload_interval() == 118
+    assert calls == [(100, 120), (100, 120)]
+
+
+def test_telegram_proxies_are_configured_with_encoded_credentials(monkeypatch):
+    with config_with_environment(
+        monkeypatch,
+        TELEGRAM_PROXY_HOST="proxy.example",
+        TELEGRAM_PROXY_PORT="1080",
+        TELEGRAM_PROXY_USERNAME="user name",
+        TELEGRAM_PROXY_PASSWORD="p@ss",
+    ) as settings:
+        proxy_url = "socks5h://user%20name:p%40ss@proxy.example:1080"
+        assert settings.TELEGRAM_PROXIES == {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
+
+
+def test_telegram_proxies_are_disabled_without_host_or_port(monkeypatch):
+    with config_with_environment(
+        monkeypatch,
+        TELEGRAM_PROXY_HOST="proxy.example",
+        TELEGRAM_PROXY_PORT="",
+        TELEGRAM_PROXY_USERNAME="user",
+        TELEGRAM_PROXY_PASSWORD="password",
+    ) as settings:
+        assert settings.TELEGRAM_PROXIES is None
+
+
 def test_browser_proxy_server_can_be_overridden_with_environment(monkeypatch):
     with config_with_environment(
         monkeypatch, BROWSER_PROXY_SERVER="socks5://proxy.example:1080"
@@ -81,6 +122,6 @@ def test_site_cookies_have_expected_names_and_domain():
 
 
 def test_application_settings_are_centralized():
-    assert config.FINISHED_TIME_MARKERS == ("90", "90+", "FT", "ET")
+    assert config.FINISHED_TIME_MARKERS == ("90", "90+", "FT", "ET", "Penalty")
     assert config.ERROR_SCREENSHOTS_DIR == config.PROJECT_DIR / "logs" / "screenshots"
     assert config.BOT_LOG_FILE == config.PROJECT_DIR / "bot.log"

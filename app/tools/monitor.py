@@ -2,7 +2,6 @@ import time
 import requests
 import os
 import sys
-from urllib.parse import quote
 from datetime import datetime
 
 # Определяем директорию родительского проекта
@@ -14,29 +13,9 @@ sys.path.insert(0, PARENT_DIR)
 from app import config
 from app.config import (
     TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
-    TELEGRAM_PROXY_HOST,
-    TELEGRAM_PROXY_PASSWORD,
-    TELEGRAM_PROXY_PORT,
-    TELEGRAM_PROXY_USERNAME,
+    TELEGRAM_PROXIES,
 )
 from app.logger import format_console_log_message, setup_logger
-
-TELEGRAM_PROXIES = None
-if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
-    proxy_auth = ''
-    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
-        proxy_auth = (
-            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
-            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
-        )
-
-    telegram_proxy_url = (
-        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
-    )
-    TELEGRAM_PROXIES = {
-        'http': telegram_proxy_url,
-        'https': telegram_proxy_url,
-    }
 
 logger = setup_logger(__name__, 'monitor.log')
 

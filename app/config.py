@@ -2,6 +2,7 @@ import json
 import os
 import random
 from pathlib import Path
+from urllib.parse import quote
 from dotenv import load_dotenv
 
 # Настройки проекта
@@ -32,13 +33,39 @@ TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
 TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
 TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
 TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
+TELEGRAM_PROXIES = None
+if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
+    proxy_auth = ''
+    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
+        proxy_auth = (
+            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
+            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
+        )
+
+    telegram_proxy_url = (
+        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
+    )
+    TELEGRAM_PROXIES = {
+        'http': telegram_proxy_url,
+        'https': telegram_proxy_url,
+    }
 
 THRESHOLD = 1.61 # Максимальный коэффициент перед Closed (1.61)
 START_ODD = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
 
 DEBUGMODE = 0 # Запись истории анализа в data_closed_ov_ah.json и count.json: 0 — выключена, 1 — включена
 
-TABLE_LIVE_RELOAD = random.randint(100, 120) # Перезагрузка таблицы Live
+TABLE_LIVE_RELOAD_MIN_SECONDS = 100
+TABLE_LIVE_RELOAD_MAX_SECONDS = 120
+
+
+def get_table_live_reload_interval():
+    return random.randint(
+        TABLE_LIVE_RELOAD_MIN_SECONDS,
+        TABLE_LIVE_RELOAD_MAX_SECONDS,
+    )
+
+
 PAGE_LIVE_RELOAD = 3600 # Полная перезагрузка страницы
 
 RESTART_HOURS = 24 # Плановая перезагрузка скрипта

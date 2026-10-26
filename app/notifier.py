@@ -1,9 +1,7 @@
 import requests
-import os
 import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from urllib.parse import quote
 from .config import (
     BOT_TOKEN,
     CHANNEL_ID,
@@ -12,10 +10,7 @@ from .config import (
     TELEGRAM_SEND_MAX_ATTEMPTS,
     SITE_URL,
     TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
-    TELEGRAM_PROXY_HOST,
-    TELEGRAM_PROXY_PASSWORD,
-    TELEGRAM_PROXY_PORT,
-    TELEGRAM_PROXY_USERNAME,
+    TELEGRAM_PROXIES,
 )
 from .storage import (
     save_match,
@@ -24,23 +19,6 @@ from .storage import (
 from .logger import setup_logger
 
 logger = setup_logger(__name__)
-
-TELEGRAM_PROXIES = None
-if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
-    proxy_auth = ''
-    if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
-        proxy_auth = (
-            f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
-            f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
-        )
-
-    telegram_proxy_url = (
-        f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
-    )
-    TELEGRAM_PROXIES = {
-        'http': telegram_proxy_url,
-        'https': telegram_proxy_url,
-    }
 
 TELEGRAM_API_URL = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
 TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
@@ -291,17 +269,6 @@ def _send_message(
     return None
 
 
-# Отправляет произвольное HTML-сообщение в Telegram-канал.
-def send_telegram_message(text):
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    return bool(_send_message(payload, success_message="Telegram message sent"))
-
-
 # Редактирует ранее отправленное сообщение в Telegram.
 def edit_telegram_notification(message_id, text, channel_id=CHANNEL_ID):
     payload = {
@@ -327,7 +294,6 @@ def _save_notification(
     odds_value,
     drop_type,
     match_url,
-    channel_id,
     match_id,
     market,
     strategy,
@@ -341,7 +307,6 @@ def _save_notification(
             odds=odds_value,
             drop_type=drop_type,
             link=match_url,
-            channel_id=channel_id,
             match_id=match_id,
             market=market,
             strategy=strategy,
@@ -362,7 +327,6 @@ def send_telegram_notification(
     handicap_text=None,
     handicap_team_order=None,
     match_time='Unknown',
-    on_sent=None,
     on_sent_details=None,
     channel_id=None,
     drop_type=None,
@@ -418,7 +382,6 @@ def send_telegram_notification(
         odds_value,
         drop_type,
         match_url,
-        target_channel_id,
         match_id,
         market,
         strategy,
@@ -428,33 +391,17 @@ def send_telegram_notification(
         result.get('message_id') if isinstance(result, dict) else None
     )
     if telegram_message_id is not None:
-        if on_sent:
-            try:
-                on_sent(telegram_message_id, message)
-            except Exception as callback_error:
-                logger.error(f"Failed to register Telegram notification: {callback_error}")
         if on_sent_details:
             try:
-                on_sent_details(telegram_message_id, message, match_url, prediction)
+                on_sent_details(
+                    telegram_message_id,
+                    message,
+                    match_url,
+                    prediction,
+                    target_channel_id,
+                )
             except Exception as callback_error:
                 logger.error(f"Failed to register Telegram notification details: {callback_error}")
-    elif on_sent or on_sent_details:
+    elif on_sent_details:
         logger.error("Telegram response did not include a message_id for status tracking")
     return True
-
-
-
-# Для тестирования
-if __name__ == "__main__":
-    if not BOT_TOKEN or not CHANNEL_ID:
-        logger.warning("Please configure BOT_TOKEN and CHANNEL_ID in .env file")
-    else:
-        send_telegram_notification(
-            league="Test League",
-            team1="Team 1",
-            team2="Team 2",
-            score="1 - 0",
-            over="2.5",
-            over_odds="1.60",
-            match_id="1234567"
-        )

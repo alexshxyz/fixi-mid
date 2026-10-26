@@ -99,3 +99,48 @@ def test_match_id_lists_are_hidden_only_in_console(tmp_path, capsys):
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
             handler.close()
+
+
+def test_sensitive_telegram_values_are_redacted_from_logs_and_tracebacks(
+    tmp_path, capsys, monkeypatch
+):
+    token = "123456:secret-token"
+    channel_id = "-100123456789"
+    monitor_token = "654321:monitor-secret"
+    monitor_channel_id = "-100987654321"
+    monkeypatch.setenv("BOT_TOKEN", token)
+    monkeypatch.setenv("CHANNEL_ID", channel_id)
+    monkeypatch.setenv("MONITOR_TELEGRAM_TOKEN", monitor_token)
+    monkeypatch.setenv("MONITOR_CHAT_ID", monitor_channel_id)
+
+    name = f"{__name__}.test_sensitive_values"
+    log_file = tmp_path / "bot.log"
+    logger = logger_module.setup_logger(name, str(log_file))
+
+    try:
+        try:
+            raise RuntimeError(
+                f"Request failed for https://api.telegram.org/bot{token}/sendMessage "
+                f"and https://api.telegram.org/bot{monitor_token}/sendMessage"
+            )
+        except RuntimeError:
+            logger.exception(
+                "Telegram request to channels %s and %s failed: %s %s",
+                channel_id,
+                monitor_channel_id,
+                token,
+                monitor_token,
+            )
+
+        console_output = capsys.readouterr().err
+        file_output = log_file.read_text(encoding="utf-8")
+        for output in (console_output, file_output):
+            assert token not in output
+            assert channel_id not in output
+            assert monitor_token not in output
+            assert monitor_channel_id not in output
+            assert output.count("[REDACTED]") >= 6
+    finally:
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()

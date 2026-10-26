@@ -121,7 +121,6 @@ def test_match_monitor_initializes_runtime_state_and_callbacks():
     assert result.last_data == {}
     assert result.pending_notifications == {}
     assert result.active_match_ids == []
-    assert result.consecutive_table_errors == 0
 
 
 def test_run_installs_and_removes_observer_and_propagates_restart(monkeypatch, monitor):
@@ -479,7 +478,7 @@ def test_process_due_notifications_selects_marker_and_persists_success(
     assert notification["edited_message"] == f"before {expected_marker} match"
     assert notification["mark"] == expected_marker
     assert edits == [("10", notification["edited_message"], "channel")]
-    assert marks == [("link", "prediction", expected_marker, "channel")]
+    assert marks == [("link", "prediction", expected_marker)]
     assert monitor.pending_notifications == {}
 
 
@@ -516,6 +515,7 @@ def test_process_due_notifications_retries_failed_edit_then_gives_up(
         "edit_attempts": 1,
     }
     monitor.pending_notifications["10"] = item
+    monitor.last_data["1"] = market_data()
     monkeypatch.setattr(tracker.time, "time", lambda: 100)
     monkeypatch.setattr(tracker, "edit_telegram_notification", lambda *args: False)
 
@@ -530,6 +530,7 @@ def test_process_due_notifications_retries_failed_edit_then_gives_up(
     monitor._process_due_notifications()
 
     assert "10" not in monitor.pending_notifications
+    assert "1" not in monitor.last_data
     assert "Giving up Telegram status edit" in caplog.text
 
 
@@ -624,14 +625,12 @@ def test_next_notification_timeout_returns_none_or_time_until_earliest(
 def test_load_initial_data_sets_history_and_last_data(monkeypatch, monitor):
     initial = market_data()
     monitor.active_match_ids = ["1", "2"]
-    monitor.consecutive_table_errors = 3
     monkeypatch.setattr(
         tracker, "_extract_all_match_data", lambda page, ids: {"1": initial, "2": None}
     )
 
     monitor._load_initial_data()
 
-    assert monitor.consecutive_table_errors == 0
     assert monitor.match_history == {"1": {"initial": initial, "changes": []}}
     assert monitor.last_data["1"] == {
         "ah": initial["ah"],
@@ -647,7 +646,7 @@ def test_trigger_scheduled_restart_saves_and_raises(monkeypatch, monitor):
         monitor, "_save_state_to_json", lambda *args: saved.append(args) or True
     )
 
-    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+    with pytest.raises(tracker.ScheduledRestartRequired, match="Scheduled restart"):
         monitor._trigger_scheduled_restart()
 
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
@@ -658,7 +657,7 @@ def test_trigger_scheduled_restart_continues_when_state_save_fails(
 ):
     monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
 
-    with pytest.raises(tracker.PageRestartRequired, match="Scheduled restart"):
+    with pytest.raises(tracker.ScheduledRestartRequired, match="Scheduled restart"):
         monitor._trigger_scheduled_restart()
 
     assert "proceeding with restart" in caplog.text
@@ -901,6 +900,11 @@ def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
 ):
     statuses = [{"match_id": "1", "active": True}]
     calls = []
+    reload_intervals = iter((117,))
+    monkeypatch.setattr(
+        tracker, "get_table_live_reload_interval", lambda: next(reload_intervals)
+    )
+    monkeypatch.setattr(tracker.time, "monotonic", lambda: 50)
     monkeypatch.setattr(tracker, "_reload_page_with_retries", lambda *args: reload_result)
     monkeypatch.setattr(
         tracker,
@@ -921,6 +925,7 @@ def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
     assert expected_status_source in calls
     assert ["1"] in calls
     assert calls[-1] == "write"
+    assert monitor.next_reload_at == 167
 
 
 def test_do_periodic_reload_waits_for_matches_when_status_is_inactive(monkeypatch, monitor):
@@ -979,7 +984,7 @@ def test_do_scheduled_page_refresh_syncs_and_polls(monkeypatch, monitor):
     monkeypatch.setattr(monitor, "_synchronize_matches", lambda ids: calls.append(ids) or True)
     monkeypatch.setattr(tracker, "_write_match_count", lambda *args: calls.append("write"))
     monkeypatch.setattr(
-        monitor, "_poll_and_update", lambda **kwargs: calls.append(kwargs) or (False, False)
+        monitor, "_poll_and_update", lambda **kwargs: calls.append(kwargs) or False
     )
     monitor.active_match_ids = ["1"]
 
@@ -1055,7 +1060,6 @@ def test_synchronize_matches_adds_deduplicated_new_ids_and_removes_old(
         "stay": {"initial": old_data, "changes": []},
     }
     monitor.last_data = {"old": old_data, "stay": old_data}
-    monitor.consecutive_table_errors = 5
     monkeypatch.setattr(
         tracker,
         "_extract_all_match_data",
@@ -1070,7 +1074,6 @@ def test_synchronize_matches_adds_deduplicated_new_ids_and_removes_old(
     assert "old" not in monitor.last_data
     assert monitor.match_history["new"] == {"initial": new_data, "changes": []}
     assert monitor.last_data["new"]["score"] == "2-0"
-    assert monitor.consecutive_table_errors == 0
 
 
 def test_synchronize_matches_retains_removed_match_data_for_pending_notification(
@@ -1130,11 +1133,10 @@ def test_poll_and_update_detects_market_time_and_score_changes(monkeypatch, moni
 
     result = monitor._poll_and_update(log_data_loaded=True)
 
-    assert result == (True, False)
+    assert result is True
     assert monitor.match_history["1"]["changes"] == [changed]
     assert monitor.last_data["1"]["score"] == "1-0"
     assert monitor.match_history["2"]["changes"] == []
-    assert monitor.consecutive_table_errors == 0
 
 
 def test_poll_and_update_ignores_unchanged_data_and_missing_last_state(
@@ -1148,7 +1150,7 @@ def test_poll_and_update_ignores_unchanged_data_and_missing_last_state(
         tracker, "_extract_all_match_data", lambda *args: {"1": current, "2": current}
     )
 
-    assert monitor._poll_and_update() == (False, False)
+    assert monitor._poll_and_update() is False
     assert monitor.match_history["1"]["changes"] == []
 
 

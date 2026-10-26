@@ -4,7 +4,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlparse
-from .config import CHANNEL_ID, MATCHES_FILE
+from .config import MATCHES_FILE
 from .logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -26,8 +26,9 @@ def _load_matches():
             data = json.load(f)
         if isinstance(data, list):
             return data
+        logger.error("Matches file does not contain a JSON list. Resetting %s.", path)
     except (json.JSONDecodeError, OSError, ValueError):
-        logger.warning(f"Matches file is empty or corrupted. Resetting {path}.")
+        logger.error("Matches file is empty or corrupted. Resetting %s.", path)
 
     with path.open('w', encoding='utf-8') as f:
         json.dump([], f, ensure_ascii=False, indent=2)
@@ -68,7 +69,7 @@ def init_storage():
 
 
 # Проверяет, есть ли уже запись с таким же link и prediction.
-def check_duplicate_match(link, prediction, channel_id=CHANNEL_ID):
+def check_duplicate_match(link, prediction):
     if not link or not prediction:
         return False
 
@@ -105,19 +106,7 @@ def _get_market(item):
     return None
 
 
-# Определяет семейство стратегии, включая записи, созданные до поля strategy.
-def _get_strategy(item):
-    strategy = item.get('strategy')
-    if strategy in {'default', 'old', 'new'}:
-        return strategy
-
-    drop_type = str(item.get('drop_type') or '')
-    if drop_type.startswith('LINE '):
-        return 'new'
-    return 'default'
-
-
-# Возвращает отправленные рынки и семейства стратегий для всех матчей.
+# Возвращает отправленные рынки для всех матчей.
 def get_match_notification_states():
     states = {}
     for item in _load_matches():
@@ -128,24 +117,19 @@ def get_match_notification_states():
         if match_id is None:
             continue
 
-        state = states.setdefault(
-            match_id,
-            {'sent_markets': set(), 'strategies': set()},
-        )
+        state = states.setdefault(match_id, {'sent_markets': set()})
         market = _get_market(item)
-        strategy = _get_strategy(item)
         if market is not None:
             state['sent_markets'].add(market)
-        state['strategies'].add(strategy)
 
     return states
 
 
-# Возвращает отправленные рынки и семейства стратегий для матча.
+# Возвращает отправленные рынки для матча.
 def get_match_notification_state(match_id):
     return get_match_notification_states().get(
         str(match_id),
-        {'sent_markets': set(), 'strategies': set()},
+        {'sent_markets': set()},
     )
 
 
@@ -155,7 +139,7 @@ def check_duplicate_market(match_id, market):
 
 
 # Обновляет эмодзи для сохранённого уведомления.
-def update_match_mark(link, prediction, mark, channel_id=CHANNEL_ID):
+def update_match_mark(link, prediction, mark):
     if not link or not prediction:
         return False
 
@@ -193,7 +177,6 @@ def save_match(
     final_score=None,
     result=None,
     date_value=None,
-    channel_id=CHANNEL_ID,
     drop_type=None,
     match_id=None,
     market=None,

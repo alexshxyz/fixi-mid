@@ -15,6 +15,19 @@ sys.path.insert(0, PROJECT_DIR)
 from app.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
 
 
+def _calculate_win_rate(wins, losses):
+    matches_without_void = wins + losses
+    return int(wins * 100 / matches_without_void) if matches_without_void else 0
+
+
+def _result_emoji(result):
+    return {
+        'Won': "✅",
+        'Lost': "❌",
+        'Void': "🔁",
+    }.get(result, "?")
+
+
 # Формирует сводную статистику по всем сохранённым матчам.
 def get_full_stats():
     #
@@ -25,12 +38,7 @@ def get_full_stats():
         total_matches, wins, losses, voids = calculate_stats(matches)
 
         if total_matches > 0:
-            # Рассчитываем WR (Win Rate) - исключаем Void
-            matches_without_void = wins + losses
-            if matches_without_void > 0:
-                win_rate = int(wins * 100 / matches_without_void)
-            else:
-                win_rate = 0
+            win_rate = _calculate_win_rate(wins, losses)
 
             # Рассчитываем Profit и ROI
             # Won = +0.8, Lost = -1, Void = 0
@@ -53,37 +61,22 @@ def get_full_stats():
         return f"❌ Ошибка при получении статистики: {e}"
 
 
-# Формирует список трёх лиг с наибольшим количеством побед.
-def get_top_leagues():
-    #
-    # Returns:
-    # str: отформатированный HTML-текст с топ лигами
+def _get_league_summary(header, sort_key, error_label):
     try:
         matches = get_all_matches()
         league_stats = get_stats_by_league(matches)
 
         if not league_stats:
-            return "🏆 TOP LEAGUES\n\nNo data available."
+            return f"{header}\n\nNo data available."
 
-        # Сортируем по победам (убывающий порядок) и потерям (возрастающий порядок)
-        sorted_leagues = sorted(
-            league_stats.items(),
-            key=lambda x: (-x[1]['wins'], x[1]['losses'])
-        )[:3]
-
-        stats_text = "🏆 TOP LEAGUES\n\n"
+        sorted_leagues = sorted(league_stats.items(), key=sort_key)[:3]
+        stats_text = f"{header}\n\n"
         emojis = ['1️⃣', '2️⃣', '3️⃣']
         for idx, (league, stats) in enumerate(sorted_leagues, 1):
             wins = stats['wins']
             losses = stats['losses']
             voids = stats['voids']
-
-            # Рассчитываем WR - исключаем Void
-            matches_without_void = wins + losses
-            if matches_without_void > 0:
-                win_rate = int(wins * 100 / matches_without_void)
-            else:
-                win_rate = 0
+            win_rate = _calculate_win_rate(wins, losses)
 
             emoji = emojis[idx - 1] if idx - 1 < len(emojis) else str(idx)
             stats_text += (
@@ -92,51 +85,26 @@ def get_top_leagues():
             )
         return stats_text.rstrip()
     except Exception as e:
-        print(f"[JSON] Ошибка при получении топ-лиг: {e}")
+        print(f"[JSON] Ошибка при получении {error_label}: {e}")
         return f"❌ Ошибка при получении статистики: {e}"
+
+
+# Формирует список трёх лиг с наибольшим количеством побед.
+def get_top_leagues():
+    return _get_league_summary(
+        "🏆 TOP LEAGUES",
+        lambda item: (-item[1]['wins'], item[1]['losses']),
+        "топ-лиг",
+    )
 
 
 # Формирует список трёх лиг с наименьшим количеством побед.
 def get_worst_leagues():
-    #
-    # Returns:
-    # str: отформатированный HTML-текст с худшими лигами
-    try:
-        matches = get_all_matches()
-        league_stats = get_stats_by_league(matches)
-
-        if not league_stats:
-            return "⛔️ WORST LEAGUES\n\nNo data available."
-
-        # Сортируем по победам (возрастающий порядок) и потерям (убывающий порядок)
-        sorted_leagues = sorted(
-            league_stats.items(),
-            key=lambda x: (x[1]['wins'], -x[1]['losses'])
-        )[:3]
-
-        stats_text = "⛔️ WORST LEAGUES\n\n"
-        emojis = ['1️⃣', '2️⃣', '3️⃣']
-        for idx, (league, stats) in enumerate(sorted_leagues, 1):
-            wins = stats['wins']
-            losses = stats['losses']
-            voids = stats['voids']
-
-            # Рассчитываем WR - исключаем Void
-            matches_without_void = wins + losses
-            if matches_without_void > 0:
-                win_rate = int(wins * 100 / matches_without_void)
-            else:
-                win_rate = 0
-
-            emoji = emojis[idx - 1] if idx - 1 < len(emojis) else str(idx)
-            stats_text += (
-                f"{emoji} {league}\n"
-                f"{wins}W / {losses}L / {voids}D — {win_rate}%\n\n"
-            )
-        return stats_text.rstrip()
-    except Exception as e:
-        print(f"[JSON] Ошибка при получении худших лиг: {e}")
-        return f"❌ Ошибка при получении статистики: {e}"
+    return _get_league_summary(
+        "⛔️ WORST LEAGUES",
+        lambda item: (item[1]['wins'], -item[1]['losses']),
+        "худших лиг",
+    )
 
 
 # Возвращает данные о пяти последних сохранённых матчах.
@@ -157,16 +125,8 @@ def get_last_5_matches():
                 home_team = match.get('home_team') or "?"
                 away_team = match.get('away_team') or "?"
 
-                # Форматируем результат только смайликом
                 result = match.get('result')
-                if result == 'Won':
-                    result_emoji = "✅"
-                elif result == 'Lost':
-                    result_emoji = "❌"
-                elif result == 'Void':
-                    result_emoji = "🔁"
-                else:
-                    result_emoji = "?"
+                result_emoji = _result_emoji(result)
 
                 # Сохраняем полные данные
                 matches_data.append({
@@ -209,64 +169,6 @@ def format_last_5_matches(matches_data):
     return text.rstrip()
 
 
-# Возвращает подробности матча по его позиции с конца списка.
-def get_match_details_by_index(index):
-    #
-    # Args:
-    # index: индекс матча в списке (0 для последнего)
-    #
-    # Returns:
-    # dict: информация о матче или None если не найден
-    try:
-        matches = get_all_matches()
-
-        if index < 0 or index >= len(matches):
-            return None
-
-        match = matches[-(index + 1)]  # Берем с конца (последний матч имеет индекс 0)
-
-        # Преобразуем дату
-        match_date = match.get('date')
-        if match_date:
-            try:
-                if isinstance(match_date, str):
-                    date_obj = datetime.strptime(match_date, '%Y-%m-%d')
-                    formatted_date = date_obj.strftime('%d.%m.%y')
-                else:
-                    formatted_date = match_date.strftime('%d.%m.%y')
-            except Exception as e:
-                print(f"[STATS] Ошибка при преобразовании даты {match_date}: {e}")
-                formatted_date = "?"
-        else:
-            formatted_date = "?"
-
-        # Форматируем результат смайликом
-        result_status = match.get('result')
-        if result_status == 'Won':
-            result_emoji = "✅"
-        elif result_status == 'Lost':
-            result_emoji = "❌"
-        elif result_status == 'Void':
-            result_emoji = "🔁"
-        else:
-            result_emoji = "?"
-
-        return {
-            'emoji': result_emoji,
-            'league': match.get('league') or "?",
-            'home_team': match.get('home_team') or "?",
-            'away_team': match.get('away_team') or "?",
-            'prediction': match.get('prediction') or "?",
-            'final_score': match.get('final_score') or "?",
-            'date': formatted_date,
-            'link': match.get('link') or "#",
-            'odds': match.get('odds')
-        }
-    except Exception as e:
-        print(f"[JSON] Ошибка при получении деталей матча: {e}")
-        return None
-
-
 # Формирует статистику по матчам за текущий календарный месяц.
 def get_this_month_stats():
     #
@@ -298,12 +200,7 @@ def get_this_month_stats():
         total_matches, wins, losses, voids = calculate_stats(matches)
 
         if total_matches > 0:
-            # Вычисляем WR (Win Rate) - исключаем Void
-            matches_without_void = wins + losses
-            if matches_without_void > 0:
-                win_rate = int(wins * 100 / matches_without_void)
-            else:
-                win_rate = 0
+            win_rate = _calculate_win_rate(wins, losses)
 
             # Вычисляем прибыль (Won = +0.8, Lost = -1, Void = 0)
             profit = wins * 0.8 - losses * 1

@@ -255,39 +255,6 @@ def test_send_message_with_zero_attempts_does_not_post(monkeypatch):
     assert calls == []
 
 
-@pytest.mark.parametrize(
-    ("response", "expected"),
-    [
-        ({"ok": True}, True),
-        (None, False),
-    ],
-)
-def test_send_telegram_message_builds_payload_and_returns_boolean(
-    monkeypatch, response, expected
-):
-    calls = []
-    monkeypatch.setattr(
-        notifier,
-        "_send_message",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or response,
-    )
-
-    assert notifier.send_telegram_message("<b>Hello</b>") is expected
-    assert calls == [
-        (
-            (
-                {
-                    "chat_id": CHANNEL_ID,
-                    "text": "<b>Hello</b>",
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-            ),
-            {"success_message": "Telegram message sent"},
-        )
-    ]
-
-
 def test_edit_telegram_notification_uses_edit_endpoint_and_fallback_channel(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -345,7 +312,6 @@ def test_save_notification_forwards_fields_to_storage(monkeypatch):
         1.6,
         "ODDS 1.9 -> 1.6",
         "match-url",
-        "channel",
         "match-id",
         "ov",
         "old",
@@ -360,7 +326,6 @@ def test_save_notification_forwards_fields_to_storage(monkeypatch):
             "odds": 1.6,
             "drop_type": "ODDS 1.9 -> 1.6",
             "link": "match-url",
-            "channel_id": "channel",
             "match_id": "match-id",
             "market": "ov",
             "strategy": "old",
@@ -375,7 +340,7 @@ def test_save_notification_logs_storage_failure(monkeypatch, caplog):
     monkeypatch.setattr(notifier, "save_match", fail_save)
 
     notifier._save_notification(
-        "League", "Home", "Away", "Over 2.5", 1.6, None, "url", "channel",
+        "League", "Home", "Away", "Over 2.5", 1.6, None, "url",
         "id", "ov", "old"
     )
 
@@ -422,11 +387,9 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
     notification_dependencies,
 ):
     calls = notification_dependencies
-    sent_callback = []
     details_callback = []
 
     result = send_over(
-        on_sent=lambda *args: sent_callback.append(args),
         on_sent_details=lambda *args: details_callback.append(args),
         channel_id="custom-channel",
         strategy="new",
@@ -465,15 +428,13 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
             1.55,
             "ODDS 1.9 -> 1.55",
             match_url,
-            "custom-channel",
             "match-1",
             "ov",
             "new",
         )
     ]
-    assert sent_callback == [(123, message)]
     assert details_callback == [
-        (123, message, match_url, "Over 2.5")
+        (123, message, match_url, "Over 2.5", "custom-channel")
     ]
 
 
@@ -494,7 +455,7 @@ def test_send_telegram_notification_builds_handicap_signal(notification_dependen
     assert " · " not in args[0]["text"]
     assert calls["market_duplicate"] == [("match-1", "ah")]
     assert calls["saved"][0][3] == "Handicap -0.75 Away"
-    assert calls["saved"][0][9:] == ("ah", "default")
+    assert calls["saved"][0][8:] == ("ah", "default")
 
 
 def test_send_telegram_notification_converts_display_but_keeps_internal_prediction(
@@ -573,7 +534,7 @@ def test_send_telegram_notification_handles_missing_message_id(
     calls = notification_dependencies
     monkeypatch.setattr(notifier, "_send_message", lambda *args, **kwargs: response)
 
-    assert send_over(on_sent=lambda *args: None) is True
+    assert send_over(on_sent_details=lambda *args: None) is True
     assert len(calls["saved"]) == 1
     assert ("did not include a message_id" in caplog.text) is expects_error
 
@@ -591,13 +552,11 @@ def test_send_telegram_notification_without_tracking_callback_needs_no_message_i
     assert "did not include a message_id" not in caplog.text
 
 
-@pytest.mark.parametrize("callback_kind", ["on_sent", "on_sent_details"])
 def test_send_telegram_notification_logs_callback_errors_without_failing(
-    notification_dependencies, monkeypatch, callback_kind, caplog
+    notification_dependencies, caplog
 ):
     def fail_callback(*args):
         raise RuntimeError("callback failed")
 
-    callbacks = {callback_kind: fail_callback}
-    assert send_over(**callbacks) is True
+    assert send_over(on_sent_details=fail_callback) is True
     assert "Failed to register Telegram notification" in caplog.text

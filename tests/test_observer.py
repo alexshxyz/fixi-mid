@@ -8,6 +8,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from app import observer
 
 
+def test_observer_logger_uses_observer_module_name():
+    assert observer.logger.name == observer.__name__
+
+
 class FakePage:
     def __init__(self, *, evaluate_result=None, evaluate_error=None, function_error=None):
         self.evaluate_result = evaluate_result
@@ -127,18 +131,18 @@ def test_wait_for_live_change_propagates_non_timeout_errors():
 
 
 @pytest.mark.parametrize(
-    ("active", "ready", "expected"),
+    ("active", "expected"),
     [
-        ([{"active": True}], {"hasCrownOdds": True, "hasVisibleOdds": True}, True),
-        ([{"active": False}], {"hasCrownOdds": True, "hasVisibleOdds": True}, False),
-        ([{"active": True}], {"hasCrownOdds": False, "hasVisibleOdds": True}, False),
-        ([{"active": True}], {"hasCrownOdds": True, "hasVisibleOdds": False}, False),
+        ([{"active": True}], True),
+        ([{"active": False}], False),
+        ([{"active": True}, {"active": False}], True),
+        ([], False),
     ],
 )
 def test_reload_page_with_retries_handles_active_and_readiness_states(
-    monkeypatch, active, ready, expected
+    monkeypatch, active, expected
 ):
-    page = FakePage(evaluate_result=ready)
+    page = FakePage()
     refreshes = []
     sleeps = []
     monkeypatch.setattr(observer, "_collect_match_status", lambda *args, **kwargs: active)
@@ -151,25 +155,19 @@ def test_reload_page_with_retries_handles_active_and_readiness_states(
     assert result is expected
     assert refreshes == [page]
     assert sleeps == []
-    if active and active[0]["active"]:
-        assert len(page.evaluate_calls) == 1
-        assert "hasCrownOdds" in page.evaluate_calls[0][0]
-        assert result is expected
-    else:
-        assert page.evaluate_calls == []
 
 
 @pytest.mark.parametrize(
-    ("active", "ready"),
+    "active",
     [
-        ([{"active": False}], None),
-        ([{"active": True}], {"hasCrownOdds": False, "hasVisibleOdds": True}),
+        [{"active": False}],
+        [],
     ],
 )
 def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missing(
-    monkeypatch, active, ready
+    monkeypatch, active
 ):
-    page = FakePage(evaluate_result=ready)
+    page = FakePage()
     refreshes = []
     sleeps = []
     monkeypatch.setattr(observer, "_collect_match_status", lambda *args, **kwargs: active)
@@ -187,25 +185,20 @@ def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missin
 
 
 @pytest.mark.parametrize(
-    ("status_error", "evaluate_error", "max_retries", "expected", "expected_sleeps"),
+    ("status_error", "max_retries", "expected", "expected_sleeps"),
     [
-        (RuntimeError("status failed"), None, 3, None, [2, 2]),
-        (None, RuntimeError("page failed"), 2, None, [2]),
+        (RuntimeError("status failed"), 3, None, [2, 2]),
     ],
 )
 def test_reload_page_with_retries_retries_errors_then_returns_none(
     monkeypatch,
     status_error,
-    evaluate_error,
     max_retries,
     expected,
     expected_sleeps,
     caplog,
 ):
-    page = FakePage(
-        evaluate_error=evaluate_error,
-        evaluate_result={"hasCrownOdds": True, "hasVisibleOdds": True},
-    )
+    page = FakePage()
     attempts = []
     sleeps = []
 
@@ -253,21 +246,6 @@ def test_collect_match_status_passes_require_crown_and_returns_page_result(
     script, args = page.evaluate_calls[0]
     assert "table#table_live tbody tr.tds" in script
     assert args == (require_crown,)
-
-
-def test_collect_match_ids_filters_status_to_active_ids(monkeypatch):
-    page = FakePage()
-    monkeypatch.setattr(
-        observer,
-        "_collect_match_status",
-        lambda received_page: [
-            {"match_id": "10", "active": True},
-            {"match_id": "20", "active": False},
-            {"match_id": "30", "active": True},
-        ],
-    )
-
-    assert observer._collect_match_ids(page) == ["10", "30"]
 
 
 @pytest.mark.parametrize(

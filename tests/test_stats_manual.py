@@ -209,48 +209,6 @@ def test_format_last_5_matches_handles_empty_and_populated_data():
 
 
 @pytest.mark.parametrize(
-    ("index", "match", "expected_date", "expected_emoji"),
-    [
-        (0, {"date": "2026-10-23", "result": "Won"}, "23.10.26", "✅"),
-        (1, {"date": date(2026, 1, 2), "result": "Void"}, "02.01.26", "🔁"),
-        (0, {"date": "2026-10-23", "result": "Lost"}, "23.10.26", "❌"),
-        (0, {"date": "invalid", "result": "Unknown"}, "?", "?"),
-        (0, {}, "?", "?"),
-    ],
-)
-def test_get_match_details_formats_and_defaults_data(
-    monkeypatch, index, match, expected_date, expected_emoji
-):
-    matches = [{}, match] if index == 0 else [match, {}]
-    monkeypatch.setattr(stats_manual, "get_all_matches", lambda: matches)
-
-    result = stats_manual.get_match_details_by_index(index)
-
-    assert result["date"] == expected_date
-    assert result["emoji"] == expected_emoji
-    assert result["league"] == (match.get("league") or "?")
-    assert result["link"] == (match.get("link") or "#")
-
-
-@pytest.mark.parametrize("index", [-1, 2])
-def test_get_match_details_rejects_out_of_range_indexes(monkeypatch, index):
-    monkeypatch.setattr(stats_manual, "get_all_matches", lambda: [{}, {}])
-
-    assert stats_manual.get_match_details_by_index(index) is None
-
-
-def test_get_match_details_reports_storage_errors(monkeypatch, capsys):
-    monkeypatch.setattr(
-        stats_manual,
-        "get_all_matches",
-        lambda: (_ for _ in ()).throw(OSError("unavailable")),
-    )
-
-    assert stats_manual.get_match_details_by_index(0) is None
-    assert "Ошибка при получении деталей матча: unavailable" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize(
     ("now", "expected_start", "expected_end", "expected_month"),
     [
         (datetime(2026, 10, 23), "2026-10-01", "2026-11-01", "OCTOBER"),

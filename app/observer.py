@@ -1,5 +1,4 @@
 import json
-import os
 import time
 from datetime import datetime
 
@@ -8,8 +7,6 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from .config import (
     DATA_DIR,
     DEBUGMODE,
-    HARD_PAGE_REFRESH_MAX_RETRIES,
-    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
     LIVE_CHANGE_POLL_INTERVAL_MS,
     LIVE_REFRESH_MAX_RETRIES,
     LIVE_REFRESH_RETRY_DELAY_SECONDS,
@@ -20,15 +17,18 @@ from .scripts import (
     EXTRACT_ALL_MATCH_DATA,
     INSTALL_LIVE_CHANGE_OBSERVER,
     LIVE_CHANGE_PREDICATE,
-    LIVE_ODDS_READINESS,
     REMOVE_LIVE_CHANGE_OBSERVER,
     RESET_LIVE_CHANGE_FLAG,
 )
 
-logger = setup_logger('tracker')
+logger = setup_logger(__name__)
 
 
 class PageRestartRequired(Exception):
+    pass
+
+
+class ScheduledRestartRequired(PageRestartRequired):
     pass
 
 
@@ -89,15 +89,7 @@ def _reload_page_with_retries(
         try:
             live_refresh_callback(page)
             match_status = _collect_match_status(page, require_crown=True)
-            if not any(item['active'] for item in match_status):
-                return False
-
-            data_ready = page.evaluate(LIVE_ODDS_READINESS)
-
-            if not data_ready["hasCrownOdds"] or not data_ready["hasVisibleOdds"]:
-                return False
-
-            return True
+            return any(item['active'] for item in match_status)
         except Exception as e:
             if attempt == max_retries:
                 logger.error(
@@ -121,15 +113,6 @@ def _reload_page_with_retries(
 # Собирает видимые строки Live и отмечает, проходят ли они критерии наблюдения.
 def _collect_match_status(page, require_crown=False):
     return page.evaluate(COLLECT_MATCH_STATUS, require_crown)
-
-
-# Возвращает ID матчей, которые сейчас видны и проходят критерии наблюдения.
-def _collect_match_ids(page):
-    return [
-        item['match_id']
-        for item in _collect_match_status(page)
-        if item['active']
-    ]
 
 
 # Перезаписывает диагностический список активных и исключённых матчей.

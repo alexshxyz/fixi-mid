@@ -16,6 +16,7 @@ from app.tracker import (
     parse_and_monitor_match,
     load_state_from_json,
     PageRestartRequired,
+    ScheduledRestartRequired,
 )
 from app.storage import init_storage
 from app.config import (
@@ -37,7 +38,7 @@ from app.config import (
 )
 from app.logger import setup_logger
 from app.observer import _collect_match_status, _write_match_count
-from app.scripts import HAS_VALID_MATCH_DATA
+from app.scripts import LIVE_ODDS_READINESS
 
 logger = setup_logger(__name__)
 
@@ -165,17 +166,6 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     return browser, page
 
 
-# Закрытие всплывающего окна.
-def close_popup(page):
-    try:
-        logger.info("Waiting for popup close button...")
-        page.locator("i.closebtn").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
-        page.locator("i.closebtn").click()
-        logger.info("Popup closed")
-    except Exception as e:
-        logger.info("Popup did not appear or could not be closed")
-
-
 # Переключение на фильтр Live.
 def switch_to_live(page):
     try:
@@ -218,7 +208,6 @@ def refresh_page(page, wait_for_data=True):
         deadline = time.monotonic() + PAGE_DATA_READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if has_valid_match_data(page):
-                page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
                 logger.info("Page refreshed")
                 return
             page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
@@ -251,7 +240,8 @@ def collect_matches(page):
 # Проверяем, что после загрузки доступны Crown и видимые odds.
 def has_valid_match_data(page):
     page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
-    return page.evaluate(HAS_VALID_MATCH_DATA)
+    readiness = page.evaluate(LIVE_ODDS_READINESS)
+    return readiness["hasCrownOdds"] and readiness["hasVisibleOdds"]
 
 
 # Полностью перезапускает процесс скрипта.
@@ -276,7 +266,9 @@ def _restart_if_due(restart_deadline, browser, shutdown_requested=None):
     )
     if browser is None:
         _restart_script()
-    raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
+    raise ScheduledRestartRequired(
+        f"Scheduled restart after {RESTART_HOURS} hours"
+    )
 
 
 # Главный цикл запуска бота.
@@ -349,7 +341,7 @@ def main():
                     if shutdown_requested.is_set():
                         logger.info("Shutdown requested")
                         return
-                    if not str(e).startswith("Scheduled restart after "):
+                    if not isinstance(e, ScheduledRestartRequired):
                         logger.info(f"{e}. Restarting script...")
                     _restart_script(browser)
                 except Exception as e:

@@ -1,7 +1,6 @@
-import json
 import re
 
-from .config import DATA_DIR, FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
+from .config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
 from .notifier import send_telegram_notification
 from .logger import setup_logger
 
@@ -106,7 +105,7 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
         return None
 
     # Передаёт callback-у данные об отправленном сообщении.
-    def register(message_id, message, link, prediction):
+    def register(message_id, message, link, prediction, channel_id):
         on_notification_sent({
             'match_id': match_id,
             'market': market,
@@ -115,9 +114,58 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
             'message': message,
             'link': link,
             'prediction': prediction,
+            'channel_id': channel_id,
         })
 
     return register
+
+
+# Отправляет Telegram-уведомление для найденного паттерна рынка.
+def _send_market_notification(
+    market,
+    match_id,
+    last_entry,
+    line,
+    odds,
+    drop_type,
+    odds_side=None,
+    on_notification_sent=None,
+):
+    team1 = last_entry.get("team1", "Unknown")
+    team2 = last_entry.get("team2", "Unknown")
+    score = last_entry.get("score", "Unknown")
+    league = last_entry.get("league", "Unknown")
+    match_time = last_entry.get("match_time", "Unknown")
+
+    notification = {
+        "league": league,
+        "team1": team1,
+        "team2": team2,
+        "score": score,
+        "drop_type": drop_type,
+        "match_id": match_id,
+        "match_time": match_time,
+        "on_sent_details": _notification_sent_callback(
+            on_notification_sent, match_id, market, league
+        ),
+        "strategy": "default",
+    }
+    if market == "ov":
+        notification.update(over=line, over_odds=odds)
+    else:
+        handicap = line
+        if handicap and not handicap.startswith("-") and _ah_sign(handicap) != -1:
+            handicap = f"-{handicap}"
+        notification.update(
+            over_odds=odds,
+            handicap_text=handicap,
+            handicap_team_order="Home" if odds_side == "home" else "Away",
+        )
+
+    try:
+        send_telegram_notification(**notification)
+    except Exception as e:
+        logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
 # Отправляет Telegram-уведомление для найденного over-паттерна.
@@ -129,78 +177,15 @@ def _send_over_notification(
     drop_type,
     on_notification_sent=None,
 ):
-    team1 = last_entry.get("team1", "Unknown")
-    team2 = last_entry.get("team2", "Unknown")
-    score = last_entry.get("score", "Unknown")
-    league = last_entry.get("league", "Unknown")
-    match_time = last_entry.get("match_time", "Unknown")
-
-    try:
-        send_telegram_notification(
-            league=league,
-            team1=team1,
-            team2=team2,
-            score=score,
-            over=last_total,
-            over_odds=last_over_odds,
-            drop_type=drop_type,
-            match_id=match_id,
-            match_time=match_time,
-            on_sent_details=_notification_sent_callback(
-                on_notification_sent, match_id, 'ov', league
-            ),
-            strategy="default",
-        )
-    except Exception as e:
-        logger.error(f"Match {match_id}: Failed to send notification: {e}")
-
-
-# Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
-def _find_over_pattern(entries, match_id, on_notification_sent=None):
-    if (
-        len(entries) < 2
-        or entries[-1].get("ov", {}).get("over") != "Closed"
-        or _is_finished_match(entries[-1])
-    ):
-        return False
-
-    last_entry, last_idx = _get_last_entry_before_closed(entries, "ov")
-    if last_entry is None:
-        return False
-
-    last_over_odds = _to_float(last_entry.get("ov", {}).get("over_odds"))
-    last_total = last_entry.get("ov", {}).get("over")
-
-    if last_over_odds is None or last_total is None or last_total == "Closed" or last_over_odds > THRESHOLD:
-        return False
-
-    start_search_idx = last_idx - 1
-    for search_idx in range(start_search_idx, -1, -1):
-        current_entry = entries[search_idx]
-
-        if current_entry.get("ov", {}).get("over") == "Closed":
-            continue
-
-        current_total = current_entry.get("ov", {}).get("over")
-        current_over_odds = _to_float(current_entry.get("ov", {}).get("over_odds"))
-
-        if current_total != last_total:
-            break
-
-        if current_over_odds is not None and current_over_odds >= START_ODD:
-            if not _scores_match(entries[-1], current_entry):
-                return False
-            _send_over_notification(
-                match_id,
-                last_entry,
-                last_total,
-                last_over_odds,
-                f"ODDS {current_over_odds:.2f} -> {last_over_odds:.2f}",
-                on_notification_sent,
-            )
-            return True
-
-    return False
+    _send_market_notification(
+        "ov",
+        match_id,
+        last_entry,
+        last_total,
+        last_over_odds,
+        drop_type,
+        on_notification_sent=on_notification_sent,
+    )
 
 
 # Отправляет Telegram-уведомление для найденного handicaps-паттерна.
@@ -213,98 +198,108 @@ def _send_ah_notification(
     drop_type,
     on_notification_sent=None,
 ):
-    team1 = last_entry.get("team1", "Unknown")
-    team2 = last_entry.get("team2", "Unknown")
-    score = last_entry.get("score", "Unknown")
-    league = last_entry.get("league", "Unknown")
-    match_time = last_entry.get("match_time", "Unknown")
-    handicap = last_ah
-    handicap_order = "Home" if odds_side == "home" else "Away"
+    _send_market_notification(
+        "ah",
+        match_id,
+        last_entry,
+        last_ah,
+        last_ah_odds,
+        drop_type,
+        odds_side=odds_side,
+        on_notification_sent=on_notification_sent,
+    )
 
-    if handicap and not handicap.startswith("-") and not _is_away_zero_split_handicap(handicap):
-        handicap = f"-{handicap}"
 
-    try:
-        send_telegram_notification(
-            league=league,
-            team1=team1,
-            team2=team2,
-            score=score,
-            match_id=match_id,
-            over_odds=last_ah_odds,
-            drop_type=drop_type,
-            handicap_text=handicap,
-            handicap_team_order=handicap_order,
-            match_time=match_time,
-            on_sent_details=_notification_sent_callback(
-                on_notification_sent, match_id, 'ah', league
-            ),
-            strategy="default",
+def _get_market_values(entry, market):
+    market_data = entry.get(market, {})
+    if market == "ov":
+        return (
+            market_data.get("over"),
+            _to_float(market_data.get("over_odds")),
+            None,
         )
-    except Exception as e:
-        logger.error(f"Match {match_id}: Failed to send notification: {e}")
+
+    handicap = market_data.get("ah")
+    sign = _ah_sign(handicap)
+    if sign in (None, 0):
+        return handicap, None, None
+
+    odds_side = "home" if sign > 0 else "away"
+    odds_key = "home_ah_odds" if odds_side == "home" else "away_ah_odds"
+    return handicap, _to_float(market_data.get(odds_key)), odds_side
 
 
-# Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
-def _find_ah_pattern(entries, match_id, on_notification_sent=None):
+# Проверяет общий паттерн закрытия линии с последующим подтверждающим коэффициентом.
+def _find_market_pattern(entries, match_id, market, notify, on_notification_sent):
+    line_key = "over" if market == "ov" else "ah"
     if (
         len(entries) < 2
-        or entries[-1].get("ah", {}).get("ah") != "Closed"
+        or entries[-1].get(market, {}).get(line_key) != "Closed"
         or _is_finished_match(entries[-1])
     ):
         return False
 
-    last_entry, last_idx = _get_last_entry_before_closed(entries, "ah")
+    last_entry, last_idx = _get_last_entry_before_closed(entries, market)
     if last_entry is None:
         return False
 
-    last_ah = last_entry.get("ah", {}).get("ah")
-    raw_ah = last_ah
-    sign = _ah_sign(raw_ah)
-    last_ah_odds = None
-    odds_side = None
+    last_line, last_odds, odds_side = _get_market_values(last_entry, market)
 
-    if sign is not None and sign != 0:
-        if sign > 0 and not _is_away_zero_split_handicap(raw_ah):
-            last_ah_odds = _to_float(last_entry.get("ah", {}).get("home_ah_odds"))
-            odds_side = "home"
-        else:
-            last_ah_odds = _to_float(last_entry.get("ah", {}).get("away_ah_odds"))
-            odds_side = "away"
-
-    if not last_ah or last_ah == "Closed" or last_ah_odds is None or last_ah_odds > THRESHOLD:
+    if last_line is None or last_odds is None or last_odds > THRESHOLD:
         return False
 
     start_search_idx = last_idx - 1
     for search_idx in range(start_search_idx, -1, -1):
         current_entry = entries[search_idx]
-        if current_entry.get("ah", {}).get("ah") == "Closed":
+
+        if current_entry.get(market, {}).get(line_key) == "Closed":
             continue
 
-        current_ah = current_entry.get("ah", {}).get("ah")
-        if current_ah != last_ah:
+        current_line, current_odds, _ = _get_market_values(current_entry, market)
+
+        if current_line != last_line:
             break
 
-        if odds_side == "home":
-            current_ah_odds = _to_float(current_entry.get("ah", {}).get("home_ah_odds"))
-        else:
-            current_ah_odds = _to_float(current_entry.get("ah", {}).get("away_ah_odds"))
-
-        if current_ah_odds is not None and current_ah_odds >= START_ODD:
+        if current_odds is not None and current_odds >= START_ODD:
             if not _scores_match(entries[-1], current_entry):
                 return False
-            _send_ah_notification(
-                match_id,
-                last_entry,
-                last_ah,
-                last_ah_odds,
-                odds_side,
-                f"ODDS {current_ah_odds:.2f} -> {last_ah_odds:.2f}",
-                on_notification_sent,
-            )
+            drop_type = f"ODDS {current_odds:.2f} -> {last_odds:.2f}"
+            if market == "ov":
+                notify(
+                    match_id,
+                    last_entry,
+                    last_line,
+                    last_odds,
+                    drop_type,
+                    on_notification_sent,
+                )
+            else:
+                notify(
+                    match_id,
+                    last_entry,
+                    last_line,
+                    last_odds,
+                    odds_side,
+                    drop_type,
+                    on_notification_sent,
+                )
             return True
 
     return False
+
+
+# Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
+def _find_over_pattern(entries, match_id, on_notification_sent=None):
+    return _find_market_pattern(
+        entries, match_id, "ov", _send_over_notification, on_notification_sent
+    )
+
+
+# Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
+def _find_ah_pattern(entries, match_id, on_notification_sent=None):
+    return _find_market_pattern(
+        entries, match_id, "ah", _send_ah_notification, on_notification_sent
+    )
 
 
 # Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
@@ -317,39 +312,10 @@ def find_pattern_matches(
     for match_id, data in match_history.items():
         entries = _collect_match_entries(data)
 
-        old_over_matched = _find_over_pattern(
-            entries, match_id, on_notification_sent
-        )
-        if old_over_matched:
+        if _find_over_pattern(entries, match_id, on_notification_sent):
             sent_matches.append(match_id)
 
-        old_ah_matched = _find_ah_pattern(
-            entries, match_id, on_notification_sent
-        )
-        if old_ah_matched:
+        if _find_ah_pattern(entries, match_id, on_notification_sent):
             sent_matches.append(match_id)
 
     return sent_matches
-
-
-# Для тестирования, но в реальности match_history передается
-if __name__ == "__main__":
-    try:
-        matches_file = DATA_DIR / 'matches_realtime.json'
-        with matches_file.open('r', encoding='utf-8') as f:
-            data = json.load(f)
-        match_history = {}
-        for match_id, match_data in data.items():
-            match_history[match_id] = {
-                'initial': match_data['initial'],
-                'changes': match_data['changes']
-            }
-        logger.info(f"Loaded {len(match_history)} matches from {matches_file}")
-    except Exception as e:
-        logger.error(f"Failed to load {matches_file}: {e}")
-        match_history = {}
-    lines = find_pattern_matches(match_history)
-    if lines:
-        logger.info(f"Pattern found: {lines}")
-    else:
-        logger.info("No matches found")

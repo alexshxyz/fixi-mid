@@ -240,20 +240,6 @@ def test_init_browser_closes_browser_when_navigation_fails(monkeypatch):
     assert browser.close_calls == 1
 
 
-def test_close_popup_clicks_button_and_swallows_missing_popup(caplog):
-    page = FakePage()
-    main.close_popup(page)
-    assert page.locators["i.closebtn"].wait_calls == [{"timeout": 10000}]
-    assert page.locators["i.closebtn"].click_calls == 1
-
-    missing_page = FakePage()
-    missing_page.locators["i.closebtn"] = FakeLocator(
-        wait_error=TimeoutError("not found")
-    )
-    main.close_popup(missing_page)
-    assert "Popup did not appear" in caplog.text
-
-
 def test_switch_to_live_waits_clicks_and_propagates_failure():
     page = FakePage()
 
@@ -336,7 +322,7 @@ def test_refresh_page_waits_until_data_is_valid(monkeypatch):
     monkeypatch.setattr(main, "has_valid_match_data", lambda current: next(outcomes))
 
     assert main.refresh_page(page) is None
-    assert page.wait_timeout_calls == [1000, 1000]
+    assert page.wait_timeout_calls == [1000]
 
 
 def test_refresh_page_raises_timeout_when_data_never_becomes_ready(
@@ -452,12 +438,31 @@ def test_collect_matches_logs_collection_error_and_skips_debug_write(
 
 def test_has_valid_match_data_waits_and_returns_page_evaluation():
     page = FakePage()
-    page.evaluate_result = True
+    page.evaluate_result = {
+        "hasCrownOdds": True,
+        "hasVisibleOdds": True,
+    }
 
     assert main.has_valid_match_data(page) is True
     assert page.wait_timeout_calls == [1000]
     assert "hasCrownOdds" in page.evaluate_calls[0]
     assert "hasVisibleOdds" in page.evaluate_calls[0]
+
+
+@pytest.mark.parametrize(
+    ("has_crown_odds", "has_visible_odds"),
+    [(False, True), (True, False), (False, False)],
+)
+def test_has_valid_match_data_requires_both_readiness_checks(
+    has_crown_odds, has_visible_odds
+):
+    page = FakePage()
+    page.evaluate_result = {
+        "hasCrownOdds": has_crown_odds,
+        "hasVisibleOdds": has_visible_odds,
+    }
+
+    assert main.has_valid_match_data(page) is False
 
 
 class FakeSyncPlaywright:
@@ -786,6 +791,36 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
         if record.message == "restart. Restarting script..."
     )
     assert restart_log.levelname == "INFO"
+
+
+def test_main_handles_scheduled_restart_without_string_matching(monkeypatch, caplog):
+    _, browser = configure_main(
+        monkeypatch, saved_state={"active_match_ids": ["1"]}
+    )
+    monkeypatch.setattr(
+        main,
+        "parse_and_monitor_match",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            main.ScheduledRestartRequired("Scheduled restart after 24 hours")
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "_collect_match_status",
+        lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
+    )
+    monkeypatch.setattr(
+        main.os, "execv", lambda *args: (_ for _ in ()).throw(RuntimeError("exec"))
+    )
+
+    with pytest.raises(RuntimeError, match="exec"):
+        main.main()
+
+    assert browser.close_calls == 1
+    assert not any(
+        record.message == "Scheduled restart after 24 hours. Restarting script..."
+        for record in caplog.records
+    )
 
 
 def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):

@@ -14,7 +14,7 @@ from .config import (
     PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS,
     RESTART_HOURS,
     STATE_SAVE_FILE,
-    TABLE_LIVE_RELOAD,
+    get_table_live_reload_interval,
     TELEGRAM_EDIT_MAX_ATTEMPTS,
     TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
 )
@@ -24,6 +24,7 @@ from .notifier import edit_telegram_notification
 from .storage import update_match_mark
 from .observer import (
     PageRestartRequired,
+    ScheduledRestartRequired,
     _collect_match_status,
     _extract_all_match_data,
     _install_live_change_observer,
@@ -34,6 +35,15 @@ from .observer import (
 )
 
 logger = setup_logger(__name__)
+
+
+def _get_last_data(match_data):
+    return {
+        'ah': match_data['ah'],
+        'ov': match_data['ov'],
+        'match_time': match_data.get('match_time', 'Unknown'),
+        'score': match_data.get('score', 'Unknown'),
+    }
 
 
 # Убирает из истории анализа записи без изменений отслеживаемых полей.
@@ -100,8 +110,7 @@ class MatchMonitor:
         self.last_data = {}
         self.pending_notifications = {}
         self.active_match_ids = []
-        self.consecutive_table_errors = 0
-        self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
+        self.next_reload_at = time.monotonic() + get_table_live_reload_interval()
         self.next_page_refresh_at = time.monotonic() + PAGE_LIVE_RELOAD
         self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
         self.restart_deadline = (
@@ -273,7 +282,6 @@ class MatchMonitor:
                         notification['link'],
                         notification['prediction'],
                         notification['mark'],
-                        notification.get('channel_id'),
                     ):
                         logger.error(
                             "Failed to persist Telegram mark for message %s",
@@ -281,21 +289,13 @@ class MatchMonitor:
                         )
                 del self.pending_notifications[message_id]
                 match_id = str(notification['match_id'])
-                if (match_id not in self.active_match_ids and not any(
-                    str(item['match_id']) == match_id
-                    for item in self.pending_notifications.values()
-                )):
-                    self.last_data.pop(match_id, None)
+                self._discard_match_data_if_unused(match_id)
             else:
                 notification['edit_attempts'] = notification.get('edit_attempts', 0) + 1
                 if notification['edit_attempts'] >= TELEGRAM_EDIT_MAX_ATTEMPTS:
                     del self.pending_notifications[message_id]
                     match_id = str(notification['match_id'])
-                    if (match_id not in self.active_match_ids and not any(
-                        str(item['match_id']) == match_id
-                        for item in self.pending_notifications.values()
-                    )):
-                        self.last_data.pop(match_id, None)
+                    self._discard_match_data_if_unused(match_id)
                     logger.error(
                         "Giving up Telegram status edit for message %s after %s attempts",
                         message_id,
@@ -309,6 +309,16 @@ class MatchMonitor:
                         TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
                     )
 
+    def _discard_match_data_if_unused(self, match_id):
+        if match_id in self.active_match_ids:
+            return
+        if any(
+            str(item['match_id']) == match_id
+            for item in self.pending_notifications.values()
+        ):
+            return
+        self.last_data.pop(match_id, None)
+
     # Возвращает время до ближайшей отложенной проверки.
     def _next_notification_timeout(self):
         if not self.pending_notifications:
@@ -321,18 +331,12 @@ class MatchMonitor:
     # Загружает стартовые данные для всех активных матчей.
     def _load_initial_data(self):
         initial_all_data = _extract_all_match_data(self.page, self.active_match_ids)
-        self.consecutive_table_errors = 0
 
         for match_id in self.active_match_ids:
             initial_data = initial_all_data.get(match_id)
             if initial_data:
                 self.match_history[match_id] = {'initial': initial_data, 'changes': []}
-                self.last_data[match_id] = {
-                    'ah': initial_data['ah'],
-                    'ov': initial_data['ov'],
-                    'match_time': initial_data.get('match_time', 'Unknown'),
-                    'score': initial_data.get('score', 'Unknown'),
-                }
+                self.last_data[match_id] = _get_last_data(initial_data)
             else:
                 logger.info(f"No initial data for match {match_id}")
 
@@ -357,7 +361,9 @@ class MatchMonitor:
                 try:
                     data_changed = self._do_scheduled_page_refresh()
                     self._restart_if_due()
-                    self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
+                    self.next_reload_at = (
+                        time.monotonic() + get_table_live_reload_interval()
+                    )
                     self.next_page_refresh_at = (
                         time.monotonic() + PAGE_LIVE_RELOAD
                     )
@@ -382,8 +388,10 @@ class MatchMonitor:
                 if self._shutdown_is_requested():
                     break
                 if self.active_match_ids:
-                    changed, _ = self._poll_and_update(log_data_loaded=True)
-                    data_changed = data_changed or changed
+                    data_changed = (
+                        self._poll_and_update(log_data_loaded=True)
+                        or data_changed
+                    )
                     self._restart_if_due()
                     if self._shutdown_is_requested():
                         break
@@ -421,7 +429,7 @@ class MatchMonitor:
                 break
             self._restart_if_due()
             if changed and self.active_match_ids:
-                data_changed, _ = self._poll_and_update()
+                data_changed = self._poll_and_update()
                 self._restart_if_due()
 
             if data_changed:
@@ -443,10 +451,12 @@ class MatchMonitor:
             RESTART_HOURS,
         )
         if self._save_state_to_json(self.active_match_ids, self.last_data):
-            logger.info("State saved successfully. Raising PageRestartRequired to restart browser.")
+            logger.info("State saved successfully before scheduled restart.")
         else:
             logger.error("Failed to save state, but proceeding with restart.")
-        raise PageRestartRequired(f"Scheduled restart after {RESTART_HOURS} hours")
+        raise ScheduledRestartRequired(
+            f"Scheduled restart after {RESTART_HOURS} hours"
+        )
 
     # Выполняет регулярное обновление Live-таблицы и синхронизацию матчей.
     def _do_periodic_reload(self):
@@ -470,7 +480,7 @@ class MatchMonitor:
         ]
         synchronized = self._synchronize_matches(current_match_ids)
         _write_match_count(match_status, self.active_match_ids)
-        self.next_reload_at = time.monotonic() + TABLE_LIVE_RELOAD
+        self.next_reload_at = time.monotonic() + get_table_live_reload_interval()
         return synchronized
 
     # Ждёт появления валидных матчей, повторяя жёсткую перезагрузку раз в минуту.
@@ -508,8 +518,10 @@ class MatchMonitor:
         data_changed = self._synchronize_matches(current_match_ids)
         _write_match_count(match_status, self.active_match_ids)
         if self.active_match_ids:
-            changed, _ = self._poll_and_update(log_data_loaded=True)
-            data_changed = data_changed or changed
+            data_changed = (
+                self._poll_and_update(log_data_loaded=True)
+                or data_changed
+            )
         return data_changed
 
     # Повторяет перезагрузку страницы и сохраняет состояние при отказе.
@@ -589,18 +601,12 @@ class MatchMonitor:
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:
             new_data = _extract_all_match_data(self.page, new_match_ids)
-            self.consecutive_table_errors = 0
 
             for new_id in new_match_ids:
                 initial_data = new_data.get(new_id)
                 if initial_data:
                     self.match_history[new_id] = {'initial': initial_data, 'changes': []}
-                    self.last_data[new_id] = {
-                        'ah': initial_data['ah'],
-                        'ov': initial_data['ov'],
-                        'match_time': initial_data.get('match_time', 'Unknown'),
-                        'score': initial_data.get('score', 'Unknown'),
-                    }
+                    self.last_data[new_id] = _get_last_data(initial_data)
                     initialized_match_ids.append(new_id)
 
         self.active_match_ids = initialized_match_ids
@@ -618,7 +624,6 @@ class MatchMonitor:
     # Проверяет изменение данных по текущим матчам и обновляет историю.
     def _poll_and_update(self, log_data_loaded=False):
         all_match_data = _extract_all_match_data(self.page, self.active_match_ids)
-        self.consecutive_table_errors = 0
 
         if log_data_loaded:
             logger.info("Matches data reloaded")
@@ -642,12 +647,7 @@ class MatchMonitor:
             )
             if existing_data_changed:
                 self.match_history[match_id]['changes'].append(current_data)
-                self.last_data[match_id] = {
-                    'ah': current_data['ah'],
-                    'ov': current_data['ov'],
-                    'match_time': current_data.get('match_time', 'Unknown'),
-                    'score': current_data.get('score', 'Unknown'),
-                }
+                self.last_data[match_id] = _get_last_data(current_data)
                 updated_match_ids.append(match_id)
                 analysis_data_changed = (
                     analysis_data_changed or existing_data_changed
@@ -660,7 +660,7 @@ class MatchMonitor:
                 ", ".join(updated_match_ids),
             )
 
-        return analysis_data_changed, False
+        return analysis_data_changed
 
 
 # Запускает мониторинг матчей с новым или восстановленным состоянием.

@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from copy import copy
 from pathlib import Path
@@ -8,6 +9,46 @@ _MATCH_IDS_PATTERN = re.compile(
     r"((?:Active|New|Removed) \d+|Matches (?:updated|found): \d+)"
     r"\s*\([^)]*\)"
 )
+_SENSITIVE_ENVIRONMENT_VARIABLES = (
+    'BOT_TOKEN',
+    'MONITOR_TELEGRAM_TOKEN',
+    'CHANNEL_ID',
+    'MONITOR_CHAT_ID',
+)
+
+
+class _SensitiveDataFilter(logging.Filter):
+    def filter(self, record):
+        secrets = sorted(
+            {
+                value
+                for name in _SENSITIVE_ENVIRONMENT_VARIABLES
+                if (value := os.environ.get(name))
+            },
+            key=len,
+            reverse=True,
+        )
+        if not secrets:
+            return True
+
+        message = record.getMessage()
+        for secret in secrets:
+            message = message.replace(secret, '[REDACTED]')
+        record.msg = message
+        record.args = ()
+
+        if record.exc_info:
+            formatter = logging.Formatter()
+            exception_text = formatter.formatException(record.exc_info)
+            for secret in secrets:
+                exception_text = exception_text.replace(secret, '[REDACTED]')
+            record.exc_text = exception_text
+            record.exc_info = None
+        elif record.exc_text:
+            for secret in secrets:
+                record.exc_text = record.exc_text.replace(secret, '[REDACTED]')
+
+        return True
 
 
 # Убирает подробные ID матчей из сообщений для консольного вывода.
@@ -28,6 +69,8 @@ class _ConsoleLogHandler(logging.StreamHandler):
 def setup_logger(name, log_filename='bot.log'):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
+    if not any(isinstance(item, _SensitiveDataFilter) for item in logger.filters):
+        logger.addFilter(_SensitiveDataFilter())
 
     project_dir = Path(__file__).resolve().parent.parent
     log_file = project_dir / log_filename
