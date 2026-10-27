@@ -28,6 +28,7 @@ from .observer import (
     _collect_match_status,
     _extract_all_match_data,
     _install_live_change_observer,
+    _page_is_closed,
     _reload_page_with_retries,
     _remove_live_change_observer,
     _wait_for_live_change,
@@ -494,7 +495,7 @@ class MatchMonitor:
                 "No matches found. Retrying in %s seconds...",
                 NO_MATCH_RETRY_DELAY_SECONDS,
             )
-            time.sleep(
+            self._wait_for_shutdown_or_timeout(
                 max(
                     0,
                     min(
@@ -503,6 +504,8 @@ class MatchMonitor:
                     ),
                 )
             )
+            if self._shutdown_is_requested():
+                raise PageRestartRequired("Shutdown requested")
             self._restart_if_due()
             match_status = self._do_hard_page_refresh_with_retries()
             self._restart_if_due()
@@ -531,20 +534,37 @@ class MatchMonitor:
         retry_delay=HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ):
         for attempt in range(1, max_retries + 1):
+            if self._shutdown_is_requested():
+                raise PageRestartRequired("Shutdown requested during page refresh")
             self._restart_if_due()
             try:
                 if self.page_refresh_callback is None:
                     raise RuntimeError("Page refresh callback is not configured")
                 self.page_refresh_callback(self.page, wait_for_data=False)
+                if self._shutdown_is_requested():
+                    raise PageRestartRequired(
+                        "Shutdown requested during page refresh"
+                    )
                 self._restart_if_due()
                 _install_live_change_observer(self.page)
                 match_status = _collect_match_status(self.page, require_crown=True)
+                if self._shutdown_is_requested():
+                    raise PageRestartRequired(
+                        "Shutdown requested during page refresh"
+                    )
                 self._restart_if_due()
                 return match_status
             except PageRestartRequired:
                 raise
             except Exception as e:
-                if attempt < max_retries:
+                if self._shutdown_is_requested():
+                    logger.info("Shutdown requested during page refresh")
+                    raise PageRestartRequired(
+                        "Shutdown requested during page refresh"
+                    ) from e
+
+                page_closed = _page_is_closed(self.page, e)
+                if attempt < max_retries and not page_closed:
                     logger.warning(
                         "Page refresh attempt %s/%s failed: %s. "
                         "Retrying in %s seconds...",
@@ -553,7 +573,7 @@ class MatchMonitor:
                         e,
                         retry_delay,
                     )
-                    time.sleep(
+                    self._wait_for_shutdown_or_timeout(
                         max(
                             0,
                             min(
@@ -562,6 +582,10 @@ class MatchMonitor:
                             ),
                         )
                     )
+                    if self._shutdown_is_requested():
+                        raise PageRestartRequired(
+                            "Shutdown requested during page refresh"
+                        ) from e
                     self._restart_if_due()
                     continue
 
@@ -569,18 +593,24 @@ class MatchMonitor:
                     logger.error(
                         "Page refresh failed after %s attempts. "
                         "Saved state to %s and requesting restart.",
-                        max_retries,
+                        attempt,
                         STATE_SAVE_FILE,
                     )
                 else:
                     logger.error(
                         "Page refresh failed after %s attempts and state save "
                         "failed. Requesting restart anyway.",
-                        max_retries,
+                        attempt,
                     )
                 raise PageRestartRequired(
-                    f"Page refresh failed after {max_retries} attempts: {e}"
+                    f"Page refresh failed after {attempt} attempts: {e}"
                 ) from e
+
+    def _wait_for_shutdown_or_timeout(self, seconds):
+        if self.shutdown_requested is not None:
+            self.shutdown_requested.wait(seconds)
+        else:
+            time.sleep(seconds)
 
     # Синхронизирует набор активных матчей после обновления таблицы.
     def _synchronize_matches(self, current_match_ids):

@@ -1018,6 +1018,51 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     assert "Full page refresh" not in caplog.text
 
 
+def test_page_refresh_stops_retrying_when_shutdown_is_requested(
+    monkeypatch, monitor
+):
+    shutdown_requested = threading.Event()
+    attempts = []
+    sleeps = []
+    monitor.shutdown_requested = shutdown_requested
+
+    def refresh(page, wait_for_data):
+        attempts.append(wait_for_data)
+        shutdown_requested.set()
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    monitor.page_refresh_callback = refresh
+    monkeypatch.setattr(tracker.time, "sleep", sleeps.append)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Shutdown requested"):
+        monitor._do_hard_page_refresh_with_retries(max_retries=3)
+
+    assert attempts == [False]
+    assert sleeps == []
+
+
+def test_page_refresh_does_not_retry_when_page_is_closed(
+    monkeypatch, monitor
+):
+    attempts = []
+    saved = []
+
+    def refresh(page, wait_for_data):
+        attempts.append(wait_for_data)
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    monitor.page_refresh_callback = refresh
+    monkeypatch.setattr(
+        monitor, "_save_state_to_json", lambda *args: saved.append(args) or True
+    )
+
+    with pytest.raises(tracker.PageRestartRequired, match="after 1 attempts"):
+        monitor._do_hard_page_refresh_with_retries(max_retries=3)
+
+    assert attempts == [False]
+    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+
+
 def test_hard_page_refresh_missing_callback_saves_state_and_raises(
     monkeypatch, monitor
 ):

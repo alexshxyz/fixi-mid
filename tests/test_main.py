@@ -376,6 +376,24 @@ def test_refresh_page_saves_screenshot_after_failure(monkeypatch, tmp_path):
     assert screenshots[0].read_bytes() == b"fake screenshot"
 
 
+def test_refresh_page_skips_screenshot_when_page_is_closed(
+    monkeypatch, tmp_path
+):
+    class ClosedPage(FakePage):
+        def reload(self, **kwargs):
+            raise RuntimeError(
+                "Page.reload: Target page, context or browser has been closed"
+            )
+
+    screenshots_dir = tmp_path / "logs" / "screenshots"
+    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+
+    with pytest.raises(RuntimeError, match="has been closed"):
+        main.refresh_page(ClosedPage())
+
+    assert not screenshots_dir.exists()
+
+
 def test_screenshot_failure_does_not_hide_refresh_error(
     monkeypatch, tmp_path, caplog
 ):
@@ -652,6 +670,31 @@ def test_main_stops_cleanly_when_shutdown_is_requested_without_matches(
     assert monitor_calls == []
     assert browser.close_calls == 1
     assert page.reload_calls == []
+
+
+def test_main_does_not_log_browser_close_failure_as_error_during_shutdown(
+    monkeypatch, caplog
+):
+    class DisconnectedBrowser(FakeBrowser):
+        def close(self):
+            self.close_calls += 1
+            raise RuntimeError("Connection closed while reading from the driver")
+
+    browser = DisconnectedBrowser()
+    configure_main(monkeypatch, browser=browser)
+    monkeypatch.setattr(main, "collect_matches", lambda current: [])
+
+    def request_shutdown(event, seconds):
+        event.set()
+        return True
+
+    monkeypatch.setattr(main, "_wait_for_shutdown", request_shutdown)
+
+    main.main()
+
+    assert browser.close_calls == 1
+    assert "Failed to close browser" not in caplog.text
+    assert "already closed during shutdown" in caplog.text
 
 
 def test_main_passes_shutdown_event_to_monitor_and_closes_browser(monkeypatch):

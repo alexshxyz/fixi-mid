@@ -24,6 +24,14 @@ from .scripts import (
 logger = setup_logger(__name__)
 
 
+def _page_is_closed(page, error=None):
+    if error is not None and "has been closed" in str(error).lower():
+        return True
+
+    is_closed = getattr(page, "is_closed", None)
+    return callable(is_closed) and is_closed()
+
+
 class PageRestartRequired(Exception):
     pass
 
@@ -39,6 +47,8 @@ def _install_live_change_observer(page):
 
 # Отключает наблюдатель за Live-таблицей и удаляет его флаги из страницы.
 def _remove_live_change_observer(page):
+    if _page_is_closed(page):
+        return
     try:
         page.evaluate(REMOVE_LIVE_CHANGE_OBSERVER)
     except Exception:

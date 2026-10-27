@@ -37,7 +37,11 @@ from app.config import (
     SITE_URL,
 )
 from app.logger import setup_logger
-from app.observer import _collect_match_status, _write_match_count
+from app.observer import (
+    _collect_match_status,
+    _page_is_closed,
+    _write_match_count,
+)
 from app.scripts import LIVE_ODDS_READINESS
 
 logger = setup_logger(__name__)
@@ -55,6 +59,8 @@ def _wait_for_shutdown(shutdown_requested, seconds):
 
 # Сохраняет снимок страницы с контекстом ошибки в имени файла.
 def _capture_error_screenshot(page, error_label, error):
+    if _page_is_closed(page, error):
+        return
     try:
         os.makedirs(ERROR_SCREENSHOTS_DIR, exist_ok=True)
         error_detail = str(error).splitlines()[0] or error.__class__.__name__
@@ -362,8 +368,18 @@ def main():
                         try:
                             browser.close()
                             logger.info("Browser closed")
-                        except Exception:
-                            logger.error("Failed to close browser", exc_info=True)
+                        except Exception as e:
+                            if shutdown_requested.is_set():
+                                logger.info(
+                                    "Browser connection was already closed "
+                                    "during shutdown: %s",
+                                    e,
+                                )
+                            else:
+                                logger.error(
+                                    "Failed to close browser",
+                                    exc_info=True,
+                                )
 
             # Если execv подхватил, этот код не выполнится.
             if shutdown_requested.is_set():
