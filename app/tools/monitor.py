@@ -20,8 +20,8 @@ from app.logger import format_console_log_message, setup_logger
 logger = setup_logger(__name__, 'monitor.log')
 
 
-# Отправляет статус мониторинга в Telegram.
 def send(msg):
+    """Отправить сообщение о состоянии мониторинга в Telegram."""
     url = TELEGRAM_API_URL_TEMPLATE.format(token=config.MONITOR_TELEGRAM_TOKEN)
     try:
         response = requests.post(
@@ -39,8 +39,8 @@ def send(msg):
         return False
 
 
-# Читает последнюю строку лога без загрузки всего файла в память.
 def get_last_line():
+    """Прочитать последнюю строку файла лога, не загружая его целиком."""
     try:
         with open(config.BOT_LOG_FILE, "rb") as log_file:
             log_file.seek(0, os.SEEK_END)
@@ -70,8 +70,8 @@ def get_last_line():
         return None
 
 
-# Извлекает время из строки лога.
 def parse_time(line):
+    """Извлечь дату и время из строки лога."""
     try:
         if not line:
             return None
@@ -87,8 +87,8 @@ def parse_time(line):
     return None
 
 
-# Периодически проверяет свежесть лога и отправляет статус.
 def main():
+    """Периодически проверять свежесть лога и отправлять статус."""
     while True:
         last_line = get_last_line()
 

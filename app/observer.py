@@ -2,6 +2,7 @@ import json
 import time
 from datetime import datetime
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .config import (
@@ -24,30 +25,39 @@ from .scripts import (
 logger = setup_logger(__name__)
 
 
-def _page_is_closed(page, error=None):
+def page_is_closed(page, error=None):
+    """Проверить, закрыта ли страница браузера."""
+    is_closed = getattr(page, "is_closed", None)
+    page_is_closed = callable(is_closed) and is_closed()
+    if isinstance(error, PlaywrightError) and page_is_closed:
+        return True
+
     if error is not None and "has been closed" in str(error).lower():
         return True
 
-    is_closed = getattr(page, "is_closed", None)
-    return callable(is_closed) and is_closed()
+    return page_is_closed
 
 
 class PageRestartRequired(Exception):
+    """Сообщить, что мониторинг должен перезапустить страницу или процесс."""
+
     pass
 
 
 class ScheduledRestartRequired(PageRestartRequired):
+    """Сообщить о наступлении планового перезапуска."""
+
     pass
 
 
-# Устанавливает наблюдатель за изменениями Live-таблицы в DOM.
-def _install_live_change_observer(page):
+def install_live_change_observer(page):
+    """Установить наблюдатель за изменениями Live-таблицы в DOM."""
     page.evaluate(INSTALL_LIVE_CHANGE_OBSERVER)
 
 
-# Отключает наблюдатель за Live-таблицей и удаляет его флаги из страницы.
-def _remove_live_change_observer(page):
-    if _page_is_closed(page):
+def remove_live_change_observer(page):
+    """Отключить наблюдатель и удалить его флаги из страницы."""
+    if page_is_closed(page):
         return
     try:
         page.evaluate(REMOVE_LIVE_CHANGE_OBSERVER)
@@ -55,8 +65,8 @@ def _remove_live_change_observer(page):
         logger.warning("Could not stop live table observer.", exc_info=True)
 
 
-# Ждёт изменения Live-таблицы и возвращает, произошло ли оно до таймаута.
-def _wait_for_live_change(page, timeout_ms, shutdown_requested=None):
+def wait_for_live_change(page, timeout_ms, shutdown_requested=None):
+    """Дождаться изменения Live-таблицы или истечения таймаута."""
     if shutdown_requested is None:
         try:
             page.wait_for_function(
@@ -88,19 +98,34 @@ def _wait_for_live_change(page, timeout_ms, shutdown_requested=None):
     return True
 
 
-# Обновляет Live-таблицу с ограниченным числом повторных попыток.
-def _reload_page_with_retries(
+def reload_page_with_retries(
     page,
     live_refresh_callback,
     max_retries=LIVE_REFRESH_MAX_RETRIES,
     retry_delay=LIVE_REFRESH_RETRY_DELAY_SECONDS,
+    shutdown_requested=None,
 ):
+    """Обновить Live-таблицу, повторяя неудачные попытки."""
     for attempt in range(1, max_retries + 1):
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during Live refresh")
+
         try:
             live_refresh_callback(page)
-            match_status = _collect_match_status(page, require_crown=True)
+            match_status = collect_match_status(page, require_crown=True)
+            if shutdown_requested is not None and shutdown_requested.is_set():
+                raise PageRestartRequired(
+                    "Shutdown requested during Live refresh"
+                )
             return any(item['active'] for item in match_status)
+        except PageRestartRequired:
+            raise
         except Exception as e:
+            if shutdown_requested is not None and shutdown_requested.is_set():
+                raise PageRestartRequired(
+                    "Shutdown requested during Live refresh"
+                ) from e
+
             if attempt == max_retries:
                 logger.error(
                     "Live refresh failed after %s attempts: %s",
@@ -116,17 +141,22 @@ def _reload_page_with_retries(
                 e,
                 retry_delay,
             )
-            time.sleep(retry_delay)
+            if shutdown_requested is None:
+                time.sleep(retry_delay)
+            elif shutdown_requested.wait(retry_delay):
+                raise PageRestartRequired(
+                    "Shutdown requested during Live refresh"
+                ) from e
     return None
 
 
-# Собирает видимые строки Live и отмечает, проходят ли они критерии наблюдения.
-def _collect_match_status(page, require_crown=False):
+def collect_match_status(page, require_crown=False):
+    """Собрать статусы видимых матчей в Live-таблице."""
     return page.evaluate(COLLECT_MATCH_STATUS, require_crown)
 
 
-# Перезаписывает диагностический список активных и исключённых матчей.
-def _write_match_count(match_status, active_match_ids):
+def write_match_count(match_status, active_match_ids):
+    """Записать диагностический список активных и исключённых матчей."""
     if DEBUGMODE != 1:
         return
 
@@ -146,12 +176,12 @@ def _write_match_count(match_status, active_match_ids):
         logger.exception("Failed to write match count snapshot to %s", snapshot_path)
 
 
-# Извлекает данные ВСЕ матчей за один evaluate() вызов.
-def _extract_all_match_data(page, match_ids):
+def extract_all_match_data(page, match_ids):
+    """Извлечь данные указанных матчей одним вызовом evaluate()."""
     try:
         match_data = page.evaluate(EXTRACT_ALL_MATCH_DATA, match_ids)
     except Exception as e:
-        logger.error(f"Error in _extract_all_match_data: {e}")
+        logger.error(f"Error in extract_all_match_data: {e}")
         raise
 
     observed_at = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -160,3 +190,17 @@ def _extract_all_match_data(page, match_ids):
             entry["date"] = observed_at
 
     return match_data
+
+
+__all__ = [
+    "PageRestartRequired",
+    "ScheduledRestartRequired",
+    "page_is_closed",
+    "install_live_change_observer",
+    "remove_live_change_observer",
+    "wait_for_live_change",
+    "reload_page_with_retries",
+    "collect_match_status",
+    "write_match_count",
+    "extract_all_match_data",
+]

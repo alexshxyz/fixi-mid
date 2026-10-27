@@ -16,11 +16,13 @@ from app.storage import get_all_matches, get_matches_in_date_range, calculate_st
 
 
 def _calculate_win_rate(wins, losses):
+    """Рассчитать процент побед без учёта возвратов."""
     matches_without_void = wins + losses
     return int(wins * 100 / matches_without_void) if matches_without_void else 0
 
 
 def _result_emoji(result):
+    """Вернуть эмодзи для результата матча."""
     return {
         'Won': "✅",
         'Lost': "❌",
@@ -28,11 +30,8 @@ def _result_emoji(result):
     }.get(result, "?")
 
 
-# Формирует сводную статистику по всем сохранённым матчам.
 def get_full_stats():
-    #
-    # Returns:
-    # str: отформатированный HTML-текст с общей статистикой
+    """Сформировать HTML-сводку по всем сохранённым матчам."""
     try:
         matches = get_all_matches()
         total_matches, wins, losses, voids = calculate_stats(matches)
@@ -62,6 +61,7 @@ def get_full_stats():
 
 
 def _get_league_summary(header, sort_key, error_label):
+    """Сформировать краткую статистику по лигам с указанной сортировкой."""
     try:
         matches = get_all_matches()
         league_stats = get_stats_by_league(matches)
@@ -89,8 +89,8 @@ def _get_league_summary(header, sort_key, error_label):
         return f"❌ Ошибка при получении статистики: {e}"
 
 
-# Формирует список трёх лиг с наибольшим количеством побед.
 def get_top_leagues():
+    """Сформировать список трёх лиг с наибольшим количеством побед."""
     return _get_league_summary(
         "🏆 TOP LEAGUES",
         lambda item: (-item[1]['wins'], item[1]['losses']),
@@ -98,8 +98,8 @@ def get_top_leagues():
     )
 
 
-# Формирует список трёх лиг с наименьшим количеством побед.
 def get_worst_leagues():
+    """Сформировать список трёх лиг с наименьшим количеством побед."""
     return _get_league_summary(
         "⛔️ WORST LEAGUES",
         lambda item: (item[1]['wins'], -item[1]['losses']),
@@ -107,11 +107,8 @@ def get_worst_leagues():
     )
 
 
-# Возвращает данные о пяти последних сохранённых матчах.
 def get_last_5_matches():
-    #
-    # Returns:
-    # list: список данных матчей
+    """Вернуть данные о пяти последних сохранённых матчах."""
     try:
         matches = get_all_matches()
 
@@ -150,11 +147,8 @@ def get_last_5_matches():
         return []
 
 
-# Форматирует список последних матчей в текстовый блок.
 def format_last_5_matches(matches_data):
-    #
-    # Returns:
-    # str: отформатированный текст
+    """Отформатировать список последних матчей в текстовый блок."""
     if not matches_data:
         return "🕒 LAST 5 MATCHES\n\nNo recent matches available."
 
@@ -169,11 +163,8 @@ def format_last_5_matches(matches_data):
     return text.rstrip()
 
 
-# Формирует статистику по матчам за текущий календарный месяц.
 def get_this_month_stats():
-    #
-    # Returns:
-    # str: отформатированный HTML-текст со статистикой за месяц
+    """Сформировать сводку по матчам за текущий календарный месяц."""
     try:
         # Получаем текущий год и месяц
         now = datetime.now()

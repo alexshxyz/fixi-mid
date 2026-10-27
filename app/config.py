@@ -60,6 +60,7 @@ TABLE_LIVE_RELOAD_MAX_SECONDS = 120
 
 
 def get_table_live_reload_interval():
+    """Случайно выбрать интервал обновления Live-таблицы."""
     return random.randint(
         TABLE_LIVE_RELOAD_MIN_SECONDS,
         TABLE_LIVE_RELOAD_MAX_SECONDS,

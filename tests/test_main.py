@@ -424,10 +424,10 @@ def test_collect_matches_deduplicates_active_ids_and_writes_debug_snapshot(
         {"match_id": "2", "active": False, "label": "C - D"},
     ]
     writes = []
-    monkeypatch.setattr(main, "_collect_match_status", lambda *args, **kwargs: status)
+    monkeypatch.setattr(main, "collect_match_status", lambda *args, **kwargs: status)
     monkeypatch.setattr(main, "DEBUGMODE", 1)
     monkeypatch.setattr(
-        main, "_write_match_count", lambda *args: writes.append(args)
+        main, "write_match_count", lambda *args: writes.append(args)
     )
 
     assert main.collect_matches(page) == ["1"]
@@ -442,11 +442,11 @@ def test_collect_matches_logs_collection_error_and_skips_debug_write(
     writes = []
     monkeypatch.setattr(
         main,
-        "_collect_match_status",
+        "collect_match_status",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("collection failed")),
     )
     monkeypatch.setattr(main, "DEBUGMODE", 1)
-    monkeypatch.setattr(main, "_write_match_count", lambda *args: writes.append(args))
+    monkeypatch.setattr(main, "write_match_count", lambda *args: writes.append(args))
 
     assert main.collect_matches(page) == []
     assert writes == []
@@ -502,6 +502,9 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     page = page or FakePage()
     browser = browser or FakeBrowser(context=FakeContext(page=page))
     playwright = FakePlaywright(browser)
+    monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
     monkeypatch.setattr(main, "init_storage", lambda: True)
     monkeypatch.setattr(main, "sync_playwright", lambda: FakeSyncPlaywright(playwright))
     monkeypatch.setattr(main, "init_browser", lambda p: (browser, page))
@@ -509,6 +512,31 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     monkeypatch.setattr(main, "switch_to_live", lambda page: None)
     monkeypatch.setattr(main.time, "monotonic", lambda: 100)
     return page, browser
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("BOT_TOKEN", ""),
+        ("CHANNEL_ID", "  "),
+        ("BROWSER_PROXY_SERVER", None),
+    ],
+)
+def test_main_fails_before_startup_when_required_configuration_is_missing(
+    monkeypatch, setting, value
+):
+    configure_main(monkeypatch)
+    monkeypatch.setattr(main, setting, value)
+    storage_calls = []
+    signal_calls = []
+    monkeypatch.setattr(main, "init_storage", lambda: storage_calls.append(True))
+    monkeypatch.setattr(main.signal, "signal", lambda *args: signal_calls.append(args))
+
+    with pytest.raises(RuntimeError, match=f"{setting}"):
+        main.main()
+
+    assert storage_calls == []
+    assert signal_calls == []
 
 
 def test_main_starts_monitor_with_saved_state(monkeypatch):
@@ -817,7 +845,7 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "_collect_match_status",
+        main, "collect_match_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(main.os, "execv", restart)
@@ -849,7 +877,7 @@ def test_main_handles_scheduled_restart_without_string_matching(monkeypatch, cap
     )
     monkeypatch.setattr(
         main,
-        "_collect_match_status",
+        "collect_match_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(
@@ -871,7 +899,7 @@ def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):
         monkeypatch, saved_state={"active_match_ids": ["1"]}
     )
     monkeypatch.setattr(
-        main, "_collect_match_status",
+        main, "collect_match_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(
@@ -926,7 +954,7 @@ def test_main_ignores_browser_close_error_during_restart(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "_collect_match_status",
+        main, "collect_match_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(

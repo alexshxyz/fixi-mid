@@ -4,7 +4,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from app import main
-from app.observer import _extract_all_match_data
+from app.observer import extract_all_match_data
 
 
 @pytest.mark.smoke
@@ -40,7 +40,7 @@ def test_real_site_loads_and_live_table_is_active():
             assert main.has_valid_match_data(page), (
                 "Live table did not expose Crown odds and visible odds"
             )
-            match_status = main._collect_match_status(page, require_crown=True)
+            match_status = main.collect_match_status(page, require_crown=True)
             matches = list(dict.fromkeys(
                 item["match_id"]
                 for item in match_status
@@ -50,7 +50,7 @@ def test_real_site_loads_and_live_table_is_active():
             assert matches, "No active matches found on the Live page"
 
             first_match_id = matches[0]
-            parsed_matches = _extract_all_match_data(page, [first_match_id])
+            parsed_matches = extract_all_match_data(page, [first_match_id])
             first_match = parsed_matches.get(first_match_id)
             assert first_match is not None, (
                 f"Could not parse data for first active match {first_match_id}"

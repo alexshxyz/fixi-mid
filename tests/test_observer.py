@@ -3,9 +3,25 @@ import threading
 from datetime import datetime, timezone
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app import observer
+
+
+def test_observer_exports_shared_page_operations():
+    assert observer.__all__ == [
+        "PageRestartRequired",
+        "ScheduledRestartRequired",
+        "page_is_closed",
+        "install_live_change_observer",
+        "remove_live_change_observer",
+        "wait_for_live_change",
+        "reload_page_with_retries",
+        "collect_match_status",
+        "write_match_count",
+        "extract_all_match_data",
+    ]
 
 
 def test_observer_logger_uses_observer_module_name():
@@ -41,10 +57,35 @@ def test_page_restart_required_is_a_dedicated_exception():
     assert str(error) == "restart"
 
 
+@pytest.mark.parametrize("is_closed", [True, False])
+def test_page_is_closed_uses_playwright_page_state(is_closed):
+    class ClosedStatePage:
+        def is_closed(self):
+            return is_closed
+
+    assert observer.page_is_closed(
+        ClosedStatePage(), PlaywrightError("unrelated wording")
+    ) is is_closed
+
+
+def test_page_is_closed_uses_error_text_as_fallback():
+    class PageWithoutClosedState:
+        pass
+
+    assert observer.page_is_closed(
+        PageWithoutClosedState(),
+        RuntimeError("Target page has been closed"),
+    )
+    assert observer.page_is_closed(
+        type("OpenPage", (), {"is_closed": lambda self: False})(),
+        PlaywrightError("Target page has been closed"),
+    )
+
+
 def test_install_live_change_observer_evaluates_install_script():
     page = FakePage()
 
-    observer._install_live_change_observer(page)
+    observer.install_live_change_observer(page)
 
     assert len(page.evaluate_calls) == 1
     script, args = page.evaluate_calls[0]
@@ -59,13 +100,13 @@ def test_install_live_change_observer_propagates_evaluation_error():
     page = FakePage(evaluate_error=RuntimeError("page closed"))
 
     with pytest.raises(RuntimeError, match="page closed"):
-        observer._install_live_change_observer(page)
+        observer.install_live_change_observer(page)
 
 
 def test_remove_live_change_observer_evaluates_removal_script():
     page = FakePage()
 
-    observer._remove_live_change_observer(page)
+    observer.remove_live_change_observer(page)
 
     script, args = page.evaluate_calls[0]
     assert not args
@@ -77,7 +118,7 @@ def test_remove_live_change_observer_evaluates_removal_script():
 def test_remove_live_change_observer_logs_and_swallows_page_error(caplog):
     page = FakePage(evaluate_error=RuntimeError("page closed"))
 
-    observer._remove_live_change_observer(page)
+    observer.remove_live_change_observer(page)
 
     assert "Could not stop live table observer" in caplog.text
 
@@ -85,7 +126,7 @@ def test_remove_live_change_observer_logs_and_swallows_page_error(caplog):
 def test_wait_for_live_change_resets_flag_and_returns_true():
     page = FakePage()
 
-    assert observer._wait_for_live_change(page, 2500) is True
+    assert observer.wait_for_live_change(page, 2500) is True
     assert page.function_calls == [
         (
             ("() => window.__fixi_live_table_changed === true",),
@@ -100,7 +141,7 @@ def test_wait_for_live_change_resets_flag_and_returns_true():
 def test_wait_for_live_change_returns_false_on_playwright_timeout():
     page = FakePage(function_error=PlaywrightTimeoutError("timed out"))
 
-    assert observer._wait_for_live_change(page, 10) is False
+    assert observer.wait_for_live_change(page, 10) is False
     assert page.evaluate_calls == []
 
 
@@ -115,7 +156,7 @@ def test_wait_for_live_change_stops_when_shutdown_is_requested():
 
     page = ShutdownPage()
 
-    assert observer._wait_for_live_change(
+    assert observer.wait_for_live_change(
         page, 10_000, shutdown_requested=shutdown_requested
     ) is False
     assert len(page.function_calls) == 1
@@ -127,7 +168,7 @@ def test_wait_for_live_change_propagates_non_timeout_errors():
     page = FakePage(function_error=RuntimeError("execution context destroyed"))
 
     with pytest.raises(RuntimeError, match="execution context destroyed"):
-        observer._wait_for_live_change(page, 10)
+        observer.wait_for_live_change(page, 10)
 
 
 @pytest.mark.parametrize(
@@ -145,10 +186,10 @@ def test_reload_page_with_retries_handles_active_and_readiness_states(
     page = FakePage()
     refreshes = []
     sleeps = []
-    monkeypatch.setattr(observer, "_collect_match_status", lambda *args, **kwargs: active)
+    monkeypatch.setattr(observer, "collect_match_status", lambda *args, **kwargs: active)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
-    result = observer._reload_page_with_retries(
+    result = observer.reload_page_with_retries(
         page, lambda page: refreshes.append(page), max_retries=1
     )
 
@@ -170,10 +211,10 @@ def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missin
     page = FakePage()
     refreshes = []
     sleeps = []
-    monkeypatch.setattr(observer, "_collect_match_status", lambda *args, **kwargs: active)
+    monkeypatch.setattr(observer, "collect_match_status", lambda *args, **kwargs: active)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
-    result = observer._reload_page_with_retries(
+    result = observer.reload_page_with_retries(
         page,
         lambda current_page: refreshes.append(current_page),
         max_retries=3,
@@ -207,10 +248,10 @@ def test_reload_page_with_retries_retries_errors_then_returns_none(
             raise status_error
         return [{"active": True}]
 
-    monkeypatch.setattr(observer, "_collect_match_status", collect)
+    monkeypatch.setattr(observer, "collect_match_status", collect)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
-    result = observer._reload_page_with_retries(
+    result = observer.reload_page_with_retries(
         page,
         lambda current_page: attempts.append(current_page),
         max_retries=max_retries,
@@ -226,7 +267,74 @@ def test_reload_page_with_retries_retries_errors_then_returns_none(
 def test_reload_page_with_retries_zero_attempts_returns_none():
     page = FakePage()
 
-    assert observer._reload_page_with_retries(page, lambda page: None, max_retries=0) is None
+    assert observer.reload_page_with_retries(page, lambda page: None, max_retries=0) is None
+
+
+def test_reload_page_with_retries_stops_when_shutdown_is_already_requested():
+    page = FakePage()
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    refreshes = []
+
+    with pytest.raises(observer.PageRestartRequired, match="Shutdown requested"):
+        observer.reload_page_with_retries(
+            page,
+            lambda current_page: refreshes.append(current_page),
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert refreshes == []
+
+
+def test_reload_page_with_retries_stops_after_refresh_is_interrupted():
+    page = FakePage()
+    shutdown_requested = threading.Event()
+    refreshes = []
+
+    def refresh(current_page):
+        refreshes.append(current_page)
+        shutdown_requested.set()
+        raise RuntimeError("Target page has been closed")
+
+    with pytest.raises(observer.PageRestartRequired, match="Shutdown requested"):
+        observer.reload_page_with_retries(
+            page,
+            refresh,
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert refreshes == [page]
+
+
+def test_reload_page_with_retries_stops_when_shutdown_interrupts_retry_wait(
+    monkeypatch,
+):
+    page = FakePage()
+    shutdown_requested = threading.Event()
+    refreshes = []
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        shutdown_requested.set()
+        return True
+
+    monkeypatch.setattr(shutdown_requested, "wait", wait)
+
+    def refresh(current_page):
+        refreshes.append(current_page)
+        raise RuntimeError("refresh failed")
+
+    with pytest.raises(observer.PageRestartRequired, match="Shutdown requested"):
+        observer.reload_page_with_retries(
+            page,
+            refresh,
+            retry_delay=5,
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert refreshes == [page]
+    assert waits == [5]
     assert page.evaluate_calls == []
 
 
@@ -242,7 +350,7 @@ def test_collect_match_status_passes_require_crown_and_returns_page_result(
 ):
     page = FakePage(evaluate_result=expected)
 
-    assert observer._collect_match_status(page, require_crown) == expected
+    assert observer.collect_match_status(page, require_crown) == expected
     script, args = page.evaluate_calls[0]
     assert "table#table_live tbody tr.tds" in script
     assert args == (require_crown,)
@@ -263,7 +371,7 @@ def test_write_match_count_respects_debug_mode(
         {"match_id": None, "label": "Unknown - Unknown"},
     ]
 
-    observer._write_match_count(records, [10])
+    observer.write_match_count(records, [10])
 
     snapshot = tmp_path / "data" / "count.json"
     assert snapshot.exists() is expected_file
@@ -283,7 +391,7 @@ def test_write_match_count_logs_snapshot_write_failure(monkeypatch, tmp_path, ca
 
     monkeypatch.setattr("builtins.open", fail_open)
 
-    observer._write_match_count([{"match_id": "1", "label": "A - B"}], [])
+    observer.write_match_count([{"match_id": "1", "label": "A - B"}], [])
 
     assert "Failed to write match count snapshot" in caplog.text
 
@@ -299,7 +407,7 @@ def test_extract_all_match_data_passes_ids_and_adds_local_timestamp(monkeypatch)
     }))
     page = FakePage(evaluate_result=returned)
 
-    result = observer._extract_all_match_data(page, ["1", "2"])
+    result = observer.extract_all_match_data(page, ["1", "2"])
 
     assert result is returned
     script, args = page.evaluate_calls[0]
@@ -313,6 +421,6 @@ def test_extract_all_match_data_logs_and_reraises_page_error(caplog):
     page = FakePage(evaluate_error=RuntimeError("page unavailable"))
 
     with pytest.raises(RuntimeError, match="page unavailable"):
-        observer._extract_all_match_data(page, ["1"])
+        observer.extract_all_match_data(page, ["1"])
 
-    assert "Error in _extract_all_match_data: page unavailable" in caplog.text
+    assert "Error in extract_all_match_data: page unavailable" in caplog.text

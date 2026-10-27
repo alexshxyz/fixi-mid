@@ -1,45 +1,60 @@
 import re
+from typing import Callable, List, Optional, Tuple, Union
 
 from .config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
 from .notifier import send_telegram_notification
 from .logger import setup_logger
+from .match_types import (
+    HandicapMarketLine,
+    MarketType,
+    MarketValue,
+    MatchHistory,
+    MatchHistoryMap,
+    MatchSnapshot,
+    NotificationSentCallback,
+    NotificationSentRegistrar,
+    OddsSide,
+    OverMarketLine,
+    TelegramNotification,
+)
 
 logger = setup_logger(__name__)
 
 
-# Преобразует значение в число с плавающей точкой или возвращает None.
-def _to_float(value):
+def _to_float(value: MarketValue) -> Optional[float]:
+    """Преобразовать значение рынка в число или вернуть None."""
+    if value is None:
+        return None
     try:
         return float(value)
     except (ValueError, TypeError):
         return None
 
 
-# Приводит значение форы к очищенной строке или возвращает None.
-def _normalize_ah_text(value):
+def _normalize_ah_text(value: MarketValue) -> Optional[str]:
+    """Очистить значение форы и вернуть None для пустой строки."""
     if value is None:
         return None
     text = str(value).strip()
     return text if text else None
 
 
-# Проверяет, является ли значение форы одним из вариантов нуля.
-def _is_exact_zero_ah(value):
+def _is_exact_zero_ah(value: MarketValue) -> bool:
+    """Проверить, обозначает ли значение нулевую фору."""
     text = _normalize_ah_text(value)
     return text in {"0", "0.0", "+0", "-0", "-0.0"}
 
 
-# Распознаёт азиатскую фору вида 0/-0.5 для второй команды.
-def _is_away_zero_split_handicap(value):
+def _is_away_zero_split_handicap(value: MarketValue) -> bool:
+    """Распознать дробную фору ноль/-значение для второй команды."""
     text = _normalize_ah_text(value)
     if text is None:
         return False
-    # Example: 0/-0.5 — это фора второй команды
     return bool(re.match(r"^\+?0\s*/\s*-[\d.,]+$", text))
 
 
-# Определяет знак форы: 1 для первой команды, -1 для второй, 0 для нуля.
-def _ah_sign(value):
+def _ah_sign(value: MarketValue) -> Optional[int]:
+    """Определить сторону форы: 1, -1, 0 или None."""
     text = _normalize_ah_text(value)
     if text is None:
         return None
@@ -50,28 +65,41 @@ def _ah_sign(value):
     return -1 if text.startswith("-") else 1
 
 
-# Собирает историю матча в один список для дальнейшего анализа.
-def _collect_match_entries(data):
-    entries = []
-    if data.get("initial"):
-        entries.append(data["initial"])
+def _collect_match_entries(data: MatchHistory) -> List[MatchSnapshot]:
+    """Собрать исходный снимок и изменения в хронологическом порядке."""
+    entries: List[MatchSnapshot] = []
+    initial = data.get("initial")
+    if initial:
+        entries.append(initial)
     entries.extend(data.get("changes", []))
     return entries
 
 
-# Находит последнюю запись до состояния Closed по конкретному полю: ov или ah.
-def _get_last_entry_before_closed(entries, field_name):
+def _line_status(entry: MatchSnapshot, market: MarketType) -> Optional[str]:
+    """Получить значение линии рынка из снимка матча."""
+    if market == "ov":
+        return entry.get("ov", {}).get("over")
+    return entry.get("ah", {}).get("ah")
+
+
+def _get_last_entry_before_closed(
+    entries: List[MatchSnapshot],
+    market: MarketType,
+) -> Tuple[Optional[MatchSnapshot], int]:
+    """Найти последний снимок до закрытия линии указанного рынка."""
     for idx in range(len(entries) - 2, -1, -1):
-        line_field = "over" if field_name == "ov" else field_name
-        if entries[idx].get(field_name, {}).get(line_field) != "Closed":
+        if _line_status(entries[idx], market) != "Closed":
             return entries[idx], idx
     return None, -1
 
 
-# Сравнивает счета; неизвестный счет не блокирует отправку сигнала.
-def _scores_match(closed_entry, confirming_entry):
-    # Возвращает счёт, если он задан и известен.
-    def known_score(entry):
+def _scores_match(
+    closed_entry: MatchSnapshot,
+    confirming_entry: MatchSnapshot,
+) -> bool:
+    """Сравнить известные счета; неизвестный счет не блокирует сигнал."""
+    def known_score(entry: MatchSnapshot) -> Optional[str]:
+        """Вернуть известный счёт или None."""
         score = entry.get("score")
         if score is None:
             return None
@@ -87,8 +115,8 @@ def _scores_match(closed_entry, confirming_entry):
     )
 
 
-# Проверяет, указывает ли игровое время на завершение матча.
-def _is_finished_match(entry):
+def _is_finished_match(entry: MatchSnapshot) -> bool:
+    """Проверить, указывает ли снимок на завершение матча."""
     for field in ("time", "match_time"):
         value = entry.get(field)
         if value is None:
@@ -99,13 +127,24 @@ def _is_finished_match(entry):
     return False
 
 
-# Подготавливает callback с данными успешно отправленного сигнала.
-def _notification_sent_callback(on_notification_sent, match_id, market, league):
+def _notification_sent_callback(
+    on_notification_sent: Optional[NotificationSentCallback],
+    match_id: str,
+    market: MarketType,
+    league: str,
+) -> Optional[NotificationSentRegistrar]:
+    """Связать callback уведомления с данными матча и рынка."""
     if not on_notification_sent:
         return None
 
-    # Передаёт callback-у данные об отправленном сообщении.
-    def register(message_id, message, link, prediction, channel_id):
+    def register(
+        message_id: Union[str, int],
+        message: str,
+        link: str,
+        prediction: str,
+        channel_id: Optional[str],
+    ) -> None:
+        """Передать callback-у сведения об успешно отправленном уведомлении."""
         on_notification_sent({
             'match_id': match_id,
             'market': market,
@@ -120,24 +159,24 @@ def _notification_sent_callback(on_notification_sent, match_id, market, league):
     return register
 
 
-# Отправляет Telegram-уведомление для найденного паттерна рынка.
 def _send_market_notification(
-    market,
-    match_id,
-    last_entry,
-    line,
-    odds,
-    drop_type,
-    odds_side=None,
-    on_notification_sent=None,
-):
+    market: MarketType,
+    match_id: str,
+    last_entry: MatchSnapshot,
+    line: Optional[str],
+    odds: float,
+    drop_type: str,
+    odds_side: Optional[OddsSide] = None,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> None:
+    """Отправить Telegram-уведомление о найденном паттерне рынка."""
     team1 = last_entry.get("team1", "Unknown")
     team2 = last_entry.get("team2", "Unknown")
     score = last_entry.get("score", "Unknown")
     league = last_entry.get("league", "Unknown")
     match_time = last_entry.get("match_time", "Unknown")
 
-    notification = {
+    notification: TelegramNotification = {
         "league": league,
         "team1": team1,
         "team2": team2,
@@ -151,15 +190,16 @@ def _send_market_notification(
         "strategy": "default",
     }
     if market == "ov":
-        notification.update(over=line, over_odds=odds)
+        notification["over"] = line
+        notification["over_odds"] = odds
     else:
         handicap = line
         if handicap and not handicap.startswith("-") and _ah_sign(handicap) != -1:
             handicap = f"-{handicap}"
-        notification.update(
-            over_odds=odds,
-            handicap_text=handicap,
-            handicap_team_order="Home" if odds_side == "home" else "Away",
+        notification["over_odds"] = odds
+        notification["handicap_text"] = handicap
+        notification["handicap_team_order"] = (
+            "Home" if odds_side == "home" else "Away"
         )
 
     try:
@@ -168,15 +208,15 @@ def _send_market_notification(
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
 
-# Отправляет Telegram-уведомление для найденного over-паттерна.
 def _send_over_notification(
-    match_id,
-    last_entry,
-    last_total,
-    last_over_odds,
-    drop_type,
-    on_notification_sent=None,
-):
+    match_id: str,
+    last_entry: MatchSnapshot,
+    last_total: str,
+    last_over_odds: float,
+    drop_type: str,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> None:
+    """Отправить уведомление о паттерне Over."""
     _send_market_notification(
         "ov",
         match_id,
@@ -188,16 +228,16 @@ def _send_over_notification(
     )
 
 
-# Отправляет Telegram-уведомление для найденного handicaps-паттерна.
 def _send_ah_notification(
-    match_id,
-    last_entry,
-    last_ah,
-    last_ah_odds,
-    odds_side,
-    drop_type,
-    on_notification_sent=None,
-):
+    match_id: str,
+    last_entry: MatchSnapshot,
+    last_ah: str,
+    last_ah_odds: float,
+    odds_side: OddsSide,
+    drop_type: str,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> None:
+    """Отправить уведомление о паттерне азиатской форы."""
     _send_market_notification(
         "ah",
         match_id,
@@ -210,31 +250,45 @@ def _send_ah_notification(
     )
 
 
-def _get_market_values(entry, market):
-    market_data = entry.get(market, {})
+def _get_market_values(
+    entry: MatchSnapshot,
+    market: MarketType,
+) -> Tuple[Optional[str], Optional[float], Optional[OddsSide]]:
+    """Получить линию, коэффициент и при необходимости сторону команды."""
     if market == "ov":
+        over_data: OverMarketLine = entry.get("ov", {})
         return (
-            market_data.get("over"),
-            _to_float(market_data.get("over_odds")),
+            over_data.get("over"),
+            _to_float(over_data.get("over_odds")),
             None,
         )
 
-    handicap = market_data.get("ah")
+    handicap_data: HandicapMarketLine = entry.get("ah", {})
+    handicap = handicap_data.get("ah")
     sign = _ah_sign(handicap)
     if sign in (None, 0):
         return handicap, None, None
 
-    odds_side = "home" if sign > 0 else "away"
-    odds_key = "home_ah_odds" if odds_side == "home" else "away_ah_odds"
-    return handicap, _to_float(market_data.get(odds_key)), odds_side
+    odds_side: OddsSide = "home" if sign > 0 else "away"
+    odds = (
+        handicap_data.get("home_ah_odds")
+        if odds_side == "home"
+        else handicap_data.get("away_ah_odds")
+    )
+    return handicap, _to_float(odds), odds_side
 
 
-# Проверяет общий паттерн закрытия линии с последующим подтверждающим коэффициентом.
-def _find_market_pattern(entries, match_id, market, notify, on_notification_sent):
-    line_key = "over" if market == "ov" else "ah"
+def _find_market_pattern(
+    entries: List[MatchSnapshot],
+    match_id: str,
+    market: MarketType,
+    notify: Callable[..., None],
+    on_notification_sent: Optional[NotificationSentCallback],
+) -> bool:
+    """Проверить закрытие линии после подходящего изменения коэффициента."""
     if (
         len(entries) < 2
-        or entries[-1].get(market, {}).get(line_key) != "Closed"
+        or _line_status(entries[-1], market) != "Closed"
         or _is_finished_match(entries[-1])
     ):
         return False
@@ -252,7 +306,7 @@ def _find_market_pattern(entries, match_id, market, notify, on_notification_sent
     for search_idx in range(start_search_idx, -1, -1):
         current_entry = entries[search_idx]
 
-        if current_entry.get(market, {}).get(line_key) == "Closed":
+        if _line_status(current_entry, market) == "Closed":
             continue
 
         current_line, current_odds, _ = _get_market_values(current_entry, market)
@@ -288,25 +342,33 @@ def _find_market_pattern(entries, match_id, market, notify, on_notification_sent
     return False
 
 
-# Проверяет, есть ли для total over паттерн с закрытием линии и высоким коэффициентом.
-def _find_over_pattern(entries, match_id, on_notification_sent=None):
+def _find_over_pattern(
+    entries: List[MatchSnapshot],
+    match_id: str,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> bool:
+    """Проверить паттерн закрытия линии Over."""
     return _find_market_pattern(
         entries, match_id, "ov", _send_over_notification, on_notification_sent
     )
 
 
-# Проверяет, есть ли для форы AH паттерн с закрытием и подтверждающим коэффициентом.
-def _find_ah_pattern(entries, match_id, on_notification_sent=None):
+def _find_ah_pattern(
+    entries: List[MatchSnapshot],
+    match_id: str,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> bool:
+    """Проверить паттерн закрытия линии азиатской форы."""
     return _find_market_pattern(
         entries, match_id, "ah", _send_ah_notification, on_notification_sent
     )
 
 
-# Главная функция: проходит по всем матчам и возвращает ID тех, где сработал паттерн.
 def find_pattern_matches(
-    match_history,
-    on_notification_sent=None,
-):
+    match_history: MatchHistoryMap,
+    on_notification_sent: Optional[NotificationSentCallback] = None,
+) -> List[str]:
+    """Проанализировать истории и вернуть ID матчей с найденным паттерном."""
     sent_matches = []
 
     for match_id, data in match_history.items():

@@ -8,6 +8,7 @@ from app import config
 
 
 PROJECT_MODULES = (
+    "app.alarms",
     "app.closed_ov_ah",
     "app.config",
     "app.logger",
@@ -16,7 +17,9 @@ PROJECT_MODULES = (
     "app.observer",
     "app.scripts",
     "app.storage",
+    "app.state",
     "app.tracker",
+    "app.match_types",
     "app.tools.export",
     "app.tools.monitor",
     "app.tools.stats_manual",
@@ -24,6 +27,7 @@ PROJECT_MODULES = (
 
 APP_PYTHON_FILES = {
     "__init__.py",
+    "alarms.py",
     "closed_ov_ah.py",
     "config.py",
     "logger.py",
@@ -32,7 +36,9 @@ APP_PYTHON_FILES = {
     "observer.py",
     "scripts.py",
     "storage.py",
+    "state.py",
     "tracker.py",
+    "match_types.py",
     "tools/__init__.py",
     "tools/export.py",
     "tools/monitor.py",
@@ -76,6 +82,24 @@ def test_main_file_can_be_loaded_directly_from_another_working_directory(tmp_pat
     subprocess.run(
         [sys.executable, "-c", command],
         cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+def test_app_directory_does_not_shadow_standard_library_types():
+    app_dir = config.PROJECT_DIR / "app"
+    command = (
+        "import sys; "
+        f"sys.path.insert(0, {str(app_dir)!r}); "
+        "sys.modules.pop('enum', None); "
+        "sys.modules.pop('types', None); "
+        "import enum"
+    )
+
+    subprocess.run(
+        [sys.executable, "-S", "-c", command],
         check=True,
         capture_output=True,
         text=True,

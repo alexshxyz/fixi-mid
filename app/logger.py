@@ -18,7 +18,10 @@ _SENSITIVE_ENVIRONMENT_VARIABLES = (
 
 
 class _SensitiveDataFilter(logging.Filter):
+    """Удалить секретные значения из сообщений и traceback логов."""
+
     def filter(self, record):
+        """Заменить значения секретных переменных окружения в записи."""
         secrets = sorted(
             {
                 value
@@ -51,22 +54,24 @@ class _SensitiveDataFilter(logging.Filter):
         return True
 
 
-# Убирает подробные ID матчей из сообщений для консольного вывода.
 def format_console_log_message(message):
+    """Убрать подробные ID матчей из сообщений консольного лога."""
     return _MATCH_IDS_PATTERN.sub(r"\1", message)
 
 
 class _ConsoleLogHandler(logging.StreamHandler):
-    # Форматирует сообщение для консоли, не меняя запись в файловом логе.
+    """Форматировать консольные логи, сохраняя исходные файловые записи."""
+
     def emit(self, record):
+        """Форматировать консольную копию записи, не меняя файловый лог."""
         console_record = copy(record)
         console_record.msg = format_console_log_message(record.getMessage())
         console_record.args = ()
         super().emit(console_record)
 
 
-# Создаёт именованный логгер с выводом в файл и консоль.
 def setup_logger(name, log_filename='bot.log'):
+    """Создать именованный логгер с обработчиками файла и консоли."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     if not any(isinstance(item, _SensitiveDataFilter) for item in logger.filters):

@@ -2,6 +2,8 @@ import requests
 import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
+from typing import Any, Dict, Optional, Tuple, Union
+
 from .config import (
     BOT_TOKEN,
     CHANNEL_ID,
@@ -17,6 +19,7 @@ from .storage import (
     check_duplicate_market,
 )
 from .logger import setup_logger
+from .match_types import MarketValue, NotificationSentRegistrar
 
 logger = setup_logger(__name__)
 
@@ -30,8 +33,8 @@ NORMALIZED_HANDICAP_OUTCOMES = {
 }
 
 
-# Нормализует отображение игрового времени в Telegram-сообщении.
-def _normalize_match_time_for_message(raw_time):
+def _normalize_match_time_for_message(raw_time: Optional[str]) -> str:
+    """Нормализовать игровое время для сообщения Telegram."""
     if raw_time is None:
         return 'Unknown'
 
@@ -51,8 +54,10 @@ def _normalize_match_time_for_message(raw_time):
     return value
 
 
-# Усредняет линию вида 0.5/1, сохраняя знак исходного значения.
-def _normalize_split_value(value):
+def _normalize_split_value(
+    value: MarketValue,
+) -> MarketValue:
+    """Усреднить дробную линию, сохранив знак исходного значения."""
     if value is None:
         return value
 
@@ -75,8 +80,12 @@ def _normalize_split_value(value):
     return f"{sign}{normalized}"
 
 
-# Собирает текст прогноза для тотала или форы.
-def _build_prediction(over, handicap_text, handicap_team_order):
+def _build_prediction(
+    over: MarketValue,
+    handicap_text: MarketValue,
+    handicap_team_order: Optional[str],
+) -> str:
+    """Сформировать внутреннее название прогноза."""
     if handicap_text is None:
         return f"Over {_normalize_split_value(over)}"
     return (
@@ -85,8 +94,8 @@ def _build_prediction(over, handicap_text, handicap_team_order):
     )
 
 
-# Убирает лишние нули в десятичной линии.
-def _format_decimal(value):
+def _format_decimal(value: Decimal) -> str:
+    """Убрать лишние завершающие нули из десятичного числа."""
     if value == 0:
         return "0"
     formatted = format(value.normalize(), "f")
@@ -95,22 +104,22 @@ def _format_decimal(value):
     return formatted
 
 
-# Форматирует фору с явным плюсом для положительных значений.
-def _format_handicap(value):
+def _format_handicap(value: Decimal) -> str:
+    """Форматировать фору с явным плюсом для положительного значения."""
     formatted = _format_decimal(value)
     return f"+{formatted}" if value > 0 else formatted
 
 
-# Округляет четвертной тотал вверх до целой или половинной линии.
-def _round_quarter_total(value):
+def _round_quarter_total(value: Decimal) -> Decimal:
+    """Округлить четвертной тотал вверх до целой или половинной линии."""
     fractional_part = abs(value) % 1
     if fractional_part in (Decimal("0.25"), Decimal("0.75")):
         return (value * 2).to_integral_value(rounding=ROUND_CEILING) / 2
     return value
 
 
-# Округляет четвертную фору от нуля до целой или половинной линии.
-def _round_quarter_handicap(value):
+def _round_quarter_handicap(value: Decimal) -> Decimal:
+    """Округлить четвертную фору от нуля до целой или половинной линии."""
     fractional_part = abs(value) % 1
     if fractional_part not in (Decimal("0.25"), Decimal("0.75")):
         return value
@@ -121,8 +130,8 @@ def _round_quarter_handicap(value):
     return -rounded_magnitude if value.is_signed() else rounded_magnitude
 
 
-# Разбирает счёт матча в пару голов команд.
-def _parse_score(score):
+def _parse_score(score: Optional[str]) -> Optional[Tuple[int, int]]:
+    """Разобрать счёт матча в количество голов команд."""
     if score is None:
         return None
 
@@ -132,11 +141,17 @@ def _parse_score(score):
     return int(match.group(1)), int(match.group(2))
 
 
-# Переводит прогноз в русскую линию только для отображения в Telegram.
-def _build_display_prediction(over, handicap_text, handicap_team_order, score):
+def _build_display_prediction(
+    over: MarketValue,
+    handicap_text: MarketValue,
+    handicap_team_order: Optional[str],
+    score: Optional[str],
+) -> str:
+    """Преобразовать прогноз в русское отображение для Telegram."""
     if handicap_text is None:
         total = _normalize_split_value(over)
         try:
+            display_total: MarketValue = total
             display_total = _format_decimal(
                 _round_quarter_total(Decimal(str(total)))
             )
@@ -146,13 +161,13 @@ def _build_display_prediction(over, handicap_text, handicap_team_order, score):
         return f"Тотал больше {display_total}"
 
     line = _normalize_split_value(handicap_text)
-    team_number = {"Home": "1", "Away": "2"}.get(handicap_team_order)
-    if team_number is None:
+    if handicap_team_order not in ("Home", "Away"):
         logger.warning(
             "Could not map handicap team order for Telegram: %s",
             handicap_team_order,
         )
         return f"Фора {line} {handicap_team_order}"
+    team_number = {"Home": "1", "Away": "2"}[handicap_team_order]
 
     try:
         handicap = Decimal(str(line))
@@ -186,8 +201,16 @@ def _build_display_prediction(over, handicap_text, handicap_team_order, score):
     return f"Фора {team_number} {_format_handicap(display_handicap)}"
 
 
-# Формирует HTML-текст уведомления о матче.
-def _build_message(league, team1, team2, score, match_url, prediction, match_time='Unknown'):
+def _build_message(
+    league: str,
+    team1: str,
+    team2: str,
+    score: Optional[str],
+    match_url: str,
+    prediction: str,
+    match_time: Optional[str] = 'Unknown',
+) -> str:
+    """Сформировать HTML-сообщение о матче."""
     clean_match_time = _normalize_match_time_for_message(match_time)
 
     # Make the team-name / score segment a hyperlink to the oddscomp detail page.
@@ -202,15 +225,15 @@ def _build_message(league, team1, team2, score, match_url, prediction, match_tim
     )
 
 
-# Отправляет запрос в Telegram API и возвращает разобранный ответ.
 def _send_message(
-    payload,
-    match_id=None,
-    success_message=None,
-    api_url=TELEGRAM_API_URL,
-    max_attempts=1,
-    retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
-):
+    payload: Dict[str, Any],
+    match_id: Optional[Union[str, int]] = None,
+    success_message: Optional[str] = None,
+    api_url: str = TELEGRAM_API_URL,
+    max_attempts: int = 1,
+    retry_delay: float = TELEGRAM_RETRY_DELAY_SECONDS,
+) -> Any:
+    """Отправить запрос к Telegram API и вернуть объект ответа."""
     for attempt in range(1, max_attempts + 1):
         try:
             response = requests.post(
@@ -269,8 +292,12 @@ def _send_message(
     return None
 
 
-# Редактирует ранее отправленное сообщение в Telegram.
-def edit_telegram_notification(message_id, text, channel_id=CHANNEL_ID):
+def edit_telegram_notification(
+    message_id: Union[str, int],
+    text: str,
+    channel_id: Optional[str] = CHANNEL_ID,
+) -> bool:
+    """Отредактировать ранее отправленное сообщение Telegram."""
     payload = {
         "chat_id": channel_id or CHANNEL_ID,
         "message_id": message_id,
@@ -285,19 +312,19 @@ def edit_telegram_notification(message_id, text, channel_id=CHANNEL_ID):
     ))
 
 
-# Сохраняет отправленное уведомление в хранилище.
 def _save_notification(
-    league,
-    team1,
-    team2,
-    prediction,
-    odds_value,
-    drop_type,
-    match_url,
-    match_id,
-    market,
-    strategy,
-):
+    league: str,
+    team1: str,
+    team2: str,
+    prediction: str,
+    odds_value: MarketValue,
+    drop_type: Optional[str],
+    match_url: str,
+    match_id: Optional[Union[str, int]],
+    market: str,
+    strategy: str,
+) -> None:
+    """Сохранить успешно отправленное уведомление."""
     try:
         save_match(
             league=league,
@@ -315,23 +342,23 @@ def _save_notification(
         logger.error(f"Failed to save match: {db_error}")
 
 
-# Отправляет сигнал в Telegram и сохраняет отправленное уведомление.
 def send_telegram_notification(
-    league,
-    team1,
-    team2,
-    score,
-    over=None,
-    over_odds=None,
-    match_id=None,
-    handicap_text=None,
-    handicap_team_order=None,
-    match_time='Unknown',
-    on_sent_details=None,
-    channel_id=None,
-    drop_type=None,
-    strategy=None,
-):
+    league: str,
+    team1: str,
+    team2: str,
+    score: Optional[str],
+    over: MarketValue = None,
+    over_odds: MarketValue = None,
+    match_id: Optional[Union[str, int]] = None,
+    handicap_text: MarketValue = None,
+    handicap_team_order: Optional[str] = None,
+    match_time: Optional[str] = 'Unknown',
+    on_sent_details: Optional[NotificationSentRegistrar] = None,
+    channel_id: Optional[str] = None,
+    drop_type: Optional[str] = None,
+    strategy: Optional[str] = None,
+) -> bool:
+    """Отправить сигнал в Telegram и сохранить его при успехе."""
     # Отправляет уведомление о матче в Telegram канал.
     target_channel_id = channel_id or CHANNEL_ID
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
