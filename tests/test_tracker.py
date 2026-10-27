@@ -666,7 +666,7 @@ def test_wait_for_matches_restarts_at_deadline_before_another_refresh(
 
 @pytest.mark.parametrize(
     ("reload_result", "expected_status_source"),
-    [(True, "collect"), (False, "collect"), (None, "hard")],
+    [(True, "collect"), (False, "collect")],
 )
 def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
     monkeypatch, monitor, reload_result, expected_status_source
@@ -705,6 +705,51 @@ def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
     assert calls[-1] == "write"
     assert monitor.next_reload_at == 167
     assert reload_calls == [{"shutdown_requested": monitor.shutdown_requested}]
+
+
+def test_do_periodic_reload_saves_state_and_requests_script_restart_after_live_failure(
+    monkeypatch, monitor, caplog
+):
+    saved = []
+    hard_refreshes = []
+    monkeypatch.setattr(
+        tracker,
+        "reload_page_with_retries",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda *args: saved.append(args) or True,
+    )
+    monkeypatch.setattr(
+        monitor,
+        "_do_hard_page_refresh_with_retries",
+        lambda: hard_refreshes.append(True),
+    )
+
+    with pytest.raises(tracker.PageRestartRequired, match="Live refresh failed"):
+        monitor._do_periodic_reload()
+
+    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+    assert hard_refreshes == []
+    assert "Saving state and restarting script" in caplog.text
+
+
+def test_do_periodic_reload_restarts_even_if_state_save_fails(
+    monkeypatch, monitor, caplog
+):
+    monkeypatch.setattr(
+        tracker,
+        "reload_page_with_retries",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Live refresh failed"):
+        monitor._do_periodic_reload()
+
+    assert "Could not save monitoring state before restart" in caplog.text
 
 
 def test_do_periodic_reload_waits_for_matches_when_status_is_inactive(monkeypatch, monitor):
@@ -801,6 +846,34 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     assert "Full page refresh" not in caplog.text
 
 
+def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
+    monkeypatch, monitor, caplog
+):
+    attempts = []
+    saved = []
+    sleeps = []
+
+    def refresh(page, wait_for_data):
+        attempts.append(wait_for_data)
+        raise RuntimeError("site unavailable")
+
+    monitor.page_refresh_callback = refresh
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda *args: saved.append(args) or True,
+    )
+    monkeypatch.setattr(tracker.time, "sleep", sleeps.append)
+
+    with pytest.raises(tracker.PageRestartRequired, match="after 2 attempts"):
+        monitor._do_hard_page_refresh_with_retries()
+
+    assert attempts == [False, False]
+    assert sleeps == [tracker.HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS]
+    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+    assert "Page refresh failed after 2 attempts" in caplog.text
+
+
 def test_page_refresh_rejects_non_positive_retry_count(monitor):
     with pytest.raises(ValueError, match="max_retries must be at least 1"):
         monitor._do_hard_page_refresh_with_retries(max_retries=0)
@@ -827,6 +900,29 @@ def test_page_refresh_stops_retrying_when_shutdown_is_requested(
 
     assert attempts == [False]
     assert sleeps == []
+
+
+def test_page_refresh_stops_when_shutdown_interrupts_retry_wait(
+    monkeypatch, monitor
+):
+    shutdown_requested = threading.Event()
+    attempts = []
+    monitor.shutdown_requested = shutdown_requested
+    monitor.page_refresh_callback = lambda page, wait_for_data: (
+        attempts.append(wait_for_data),
+        (_ for _ in ()).throw(RuntimeError("temporary")),
+    )[1]
+
+    def interrupt_wait(seconds):
+        shutdown_requested.set()
+        return True
+
+    monkeypatch.setattr(shutdown_requested, "wait", interrupt_wait)
+
+    with pytest.raises(tracker.PageRestartRequired, match="Shutdown requested"):
+        monitor._do_hard_page_refresh_with_retries(max_retries=3)
+
+    assert attempts == [False]
 
 
 def test_page_refresh_does_not_retry_when_page_is_closed(

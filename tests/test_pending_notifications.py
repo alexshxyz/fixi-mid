@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from app import pending_notifications as alarms
@@ -120,6 +122,70 @@ def test_process_due_notifications_ignores_items_before_deadline(monkeypatch):
     )
 
     alarms.process_due_notifications(pending, {}, [])
+
+
+def test_process_due_notifications_does_not_start_edits_after_shutdown(
+    monkeypatch,
+):
+    pending = {
+        "10": {
+            "message_id": "10",
+            "match_id": "1",
+            "market": "ov",
+            "league": "listed",
+            "message": "before 🔎 match",
+            "deadline": 1,
+        }
+    }
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    edits = []
+    monkeypatch.setattr(alarms.time, "time", lambda: 2)
+    monkeypatch.setattr(
+        alarms,
+        "edit_telegram_notification",
+        lambda *args, **kwargs: edits.append((args, kwargs)),
+    )
+
+    alarms.process_due_notifications(
+        pending, {}, [], shutdown_requested=shutdown_requested
+    )
+
+    assert edits == []
+    assert "10" in pending
+
+
+def test_process_due_notifications_stops_after_edit_is_interrupted(
+    monkeypatch,
+):
+    pending = {
+        message_id: {
+            "message_id": message_id,
+            "match_id": "1",
+            "market": "ov",
+            "league": "listed",
+            "message": "before 🔎 match",
+            "deadline": 1,
+        }
+        for message_id in ("10", "20")
+    }
+    shutdown_requested = threading.Event()
+    edits = []
+    monkeypatch.setattr(alarms.time, "time", lambda: 2)
+
+    def interrupt_edit(*args, **kwargs):
+        edits.append(args)
+        shutdown_requested.set()
+        return False
+
+    monkeypatch.setattr(alarms, "edit_telegram_notification", interrupt_edit)
+
+    alarms.process_due_notifications(
+        pending, {}, [], shutdown_requested=shutdown_requested
+    )
+
+    assert len(edits) == 1
+    assert all(notification.get("edit_attempts", 0) == 0 for notification in pending.values())
 
     assert "10" in pending
 

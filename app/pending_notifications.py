@@ -1,5 +1,6 @@
 import time
 from typing import Any
+from threading import Event
 from collections.abc import MutableMapping
 
 from .config import (
@@ -35,10 +36,13 @@ def process_due_notifications(
     pending_notifications: dict[str, dict[str, Any]],
     last_data: MutableMapping[str, Any],
     active_match_ids: list[str],
+    shutdown_requested: Event | None = None,
 ) -> None:
     """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
     now = time.time()
     for message_id, notification in list(pending_notifications.items()):
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            return
         if notification['deadline'] > now:
             continue
 
@@ -61,11 +65,18 @@ def process_due_notifications(
             )
             notification['mark'] = marker
 
-        if edit_telegram_notification(
+        edit_arguments = (
             notification['message_id'],
             notification['edited_message'],
             notification.get('channel_id'),
-        ):
+        )
+        if shutdown_requested is None:
+            edit_succeeded = edit_telegram_notification(*edit_arguments)
+        else:
+            edit_succeeded = edit_telegram_notification(
+                *edit_arguments, shutdown_requested=shutdown_requested
+            )
+        if edit_succeeded:
             if (
                 notification.get('link')
                 and notification.get('prediction')
@@ -87,6 +98,8 @@ def process_due_notifications(
                 last_data,
                 active_match_ids,
             )
+        elif shutdown_requested is not None and shutdown_requested.is_set():
+            return
         else:
             notification['edit_attempts'] = notification.get('edit_attempts', 0) + 1
             if notification['edit_attempts'] >= TELEGRAM_EDIT_MAX_ATTEMPTS:

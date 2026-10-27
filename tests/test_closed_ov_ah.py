@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from app import closed_ov_ah
@@ -680,3 +682,19 @@ def test_find_pattern_matches_passes_notification_callback(monkeypatch):
 
 def test_find_pattern_matches_empty_history_returns_empty_list():
     assert closed_ov_ah.find_pattern_matches({}) == []
+
+
+def test_find_pattern_matches_stops_before_analyzing_after_shutdown(monkeypatch):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    calls = []
+    monkeypatch.setattr(
+        closed_ov_ah,
+        "_find_over_pattern",
+        lambda *args: calls.append(args) or True,
+    )
+
+    assert closed_ov_ah.find_pattern_matches(
+        {"match-1": {}}, shutdown_requested=shutdown_requested
+    ) == []
+    assert calls == []

@@ -228,7 +228,12 @@ def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missin
 @pytest.mark.parametrize(
     ("status_error", "max_retries", "expected", "expected_sleeps"),
     [
-        (RuntimeError("status failed"), 3, None, [2, 2]),
+        (
+            RuntimeError("status failed"),
+            observer.LIVE_REFRESH_MAX_RETRIES,
+            None,
+            [2] * (observer.LIVE_REFRESH_MAX_RETRIES - 1),
+        ),
     ],
 )
 def test_reload_page_with_retries_retries_errors_then_returns_none(

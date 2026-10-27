@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from app import notifier
@@ -229,6 +231,48 @@ def test_send_message_retries_failures_and_returns_next_success(monkeypatch):
 
     assert result == {"ok": True}
     assert sleeps == [0.25]
+
+
+def test_send_message_stops_retrying_when_shutdown_interrupts_retry_wait(
+    monkeypatch,
+):
+    shutdown_requested = threading.Event()
+    calls = []
+
+    def fail_request(*args, **kwargs):
+        calls.append((args, kwargs))
+        return FakeResponse(status_code=503)
+
+    def interrupt_wait(seconds):
+        shutdown_requested.set()
+        return True
+
+    monkeypatch.setattr(notifier.requests, "post", fail_request)
+    monkeypatch.setattr(shutdown_requested, "wait", interrupt_wait)
+
+    assert notifier._send_message(
+        {},
+        max_attempts=3,
+        retry_delay=5,
+        shutdown_requested=shutdown_requested,
+    ) is None
+    assert len(calls) == 1
+
+
+def test_send_message_does_not_start_if_shutdown_is_already_requested(
+    monkeypatch,
+):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    calls = []
+    monkeypatch.setattr(
+        notifier.requests, "post", lambda *args, **kwargs: calls.append(args)
+    )
+
+    assert notifier._send_message(
+        {}, max_attempts=3, shutdown_requested=shutdown_requested
+    ) is None
+    assert calls == []
 
 
 def test_send_message_retries_rejected_telegram_response(monkeypatch):

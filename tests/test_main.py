@@ -148,6 +148,52 @@ def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
     assert "Failed to load page after 2 attempts" in caplog.text
 
 
+def test_retry_page_action_stops_when_shutdown_interrupts_retry_wait(monkeypatch):
+    shutdown_requested = main.threading.Event()
+    attempts = []
+
+    def interrupt_wait(seconds):
+        shutdown_requested.set()
+        return True
+
+    monkeypatch.setattr(shutdown_requested, "wait", interrupt_wait)
+
+    def action():
+        attempts.append(True)
+        raise RuntimeError("temporary")
+
+    with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
+        main._retry_page_action(
+            "page",
+            action,
+            "load page",
+            max_retries=2,
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert len(attempts) == 1
+
+
+def test_retry_page_action_stops_when_action_finishes_after_shutdown(monkeypatch):
+    shutdown_requested = main.threading.Event()
+    attempts = []
+
+    def action():
+        attempts.append(True)
+        shutdown_requested.set()
+        return "done"
+
+    with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
+        main._retry_page_action(
+            "page",
+            action,
+            "prepare page",
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert len(attempts) == 1
+
+
 def test_retry_page_action_logs_refresh_failure_and_retries(
     monkeypatch, caplog
 ):
@@ -223,19 +269,75 @@ def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
     assert "Failed to add site cookies: cookie error" in caplog.text
 
 
-def test_init_browser_closes_browser_when_navigation_fails(monkeypatch):
+def test_init_browser_closes_after_shutdown_during_browser_launch():
+    shutdown_requested = main.threading.Event()
+    browser = FakeBrowser()
+
+    class InterruptedPlaywright(FakePlaywright):
+        def launch(self, **kwargs):
+            shutdown_requested.set()
+            return browser
+
+    with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
+        main.init_browser(
+            InterruptedPlaywright(browser),
+            shutdown_requested=shutdown_requested,
+        )
+
+    assert browser.close_calls == 1
+    assert browser.context.page.goto_calls == []
+
+
+def test_init_browser_converts_launch_failure_after_shutdown(monkeypatch):
+    shutdown_requested = main.threading.Event()
+
+    class InterruptedPlaywright:
+        chromium = None
+
+        def __init__(self):
+            self.chromium = self
+
+        def launch(self, **kwargs):
+            shutdown_requested.set()
+            raise RuntimeError("launch interrupted")
+
+    with pytest.raises(main.PageRestartRequired, match="browser launch"):
+        main.init_browser(
+            InterruptedPlaywright(),
+            shutdown_requested=shutdown_requested,
+        )
+
+
+def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
+    attempts = []
+    sleeps = []
+    restart_calls = []
     browser = FakeBrowser()
     playwright = FakePlaywright(browser)
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
-
-    def fail_navigation(*args, **kwargs):
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
+    def fail_goto(*args, **kwargs):
+        attempts.append((args, kwargs))
         raise RuntimeError("navigation failed")
 
-    monkeypatch.setattr(main, "_retry_page_action", fail_navigation)
+    monkeypatch.setattr(FakePage, "goto", fail_goto)
 
-    with pytest.raises(RuntimeError, match="navigation failed"):
+    class RestartRequested(Exception):
+        pass
+
+    def restart(restarting_browser):
+        restart_calls.append(restarting_browser)
+        restarting_browser.close()
+        raise RestartRequested
+
+    monkeypatch.setattr(main, "_restart_script", restart)
+
+    with pytest.raises(RestartRequested):
         main.init_browser(playwright)
 
+    assert len(attempts) == 2
+    assert sleeps == [10]
+    assert restart_calls == [browser]
     assert browser.close_calls == 1
 
 
@@ -506,7 +608,7 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
     monkeypatch.setattr(main, "init_storage", lambda: True)
     monkeypatch.setattr(main, "sync_playwright", lambda: FakeSyncPlaywright(playwright))
-    monkeypatch.setattr(main, "init_browser", lambda p: (browser, page))
+    monkeypatch.setattr(main, "init_browser", lambda p, **kwargs: (browser, page))
     monkeypatch.setattr(main, "load_state_from_json", lambda: saved_state)
     monkeypatch.setattr(main, "switch_to_live", lambda page: None)
     monkeypatch.setattr(main.time, "monotonic", lambda: 100)
@@ -536,6 +638,26 @@ def test_main_fails_before_startup_when_required_configuration_is_missing(
 
     assert storage_calls == []
     assert signal_calls == []
+
+
+def test_main_restarts_after_prepare_page_failure(monkeypatch):
+    page, browser = configure_main(monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        main,
+        "switch_to_live",
+        lambda current_page: (_ for _ in ()).throw(RuntimeError("switch failed")),
+    )
+    def restart(current_browser):
+        calls.append(current_browser)
+        raise StopMain
+
+    monkeypatch.setattr(main, "_restart_script", restart)
+
+    with pytest.raises(StopMain):
+        main.main()
+
+    assert calls == [browser]
 
 
 def test_main_starts_monitor_with_saved_state(monkeypatch):
@@ -668,6 +790,55 @@ def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
     assert calls == [(page, ["match-1"])]
 
 
+def test_main_retries_no_match_page_refresh_then_restarts_without_loading_state(
+    monkeypatch,
+):
+    page, browser = configure_main(monkeypatch)
+    waits = []
+    refresh_attempts = []
+    sleeps = []
+    state_loads = []
+    restart_calls = []
+    monkeypatch.setattr(main, "collect_matches", lambda current: [])
+    monkeypatch.setattr(
+        main,
+        "_wait_for_shutdown",
+        lambda event, seconds: waits.append(seconds),
+    )
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        main,
+        "refresh_page",
+        lambda current, wait_for_data: (
+            refresh_attempts.append((current, wait_for_data)),
+            (_ for _ in ()).throw(RuntimeError("reload failed")),
+        )[1],
+    )
+    monkeypatch.setattr(
+        main,
+        "load_state_from_json",
+        lambda: state_loads.append(True),
+    )
+
+    def restart(current_browser):
+        restart_calls.append(current_browser)
+        raise StopMain
+
+    monkeypatch.setattr(main, "_restart_script", restart)
+
+    with pytest.raises(StopMain):
+        main.main()
+
+    assert waits == [
+        main.NO_MATCH_RETRY_DELAY_SECONDS,
+        main.HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    ]
+    assert refresh_attempts == [(page, False)] * 2
+    assert sleeps == []
+    assert state_loads == []
+    assert restart_calls == [browser]
+
+
 def test_main_stops_cleanly_when_shutdown_is_requested_without_matches(
     monkeypatch,
 ):
@@ -780,6 +951,54 @@ def test_main_registers_and_restores_termination_signal_handlers(monkeypatch):
     assert signal_calls[-2][1] is previous_handlers[main.signal.SIGINT]
     assert signal_calls[-1][1] is previous_handlers[main.signal.SIGTERM]
     assert browser.close_calls == 1
+
+
+def test_main_stops_if_shutdown_is_requested_during_browser_setup(
+    monkeypatch, caplog
+):
+    configure_main(monkeypatch)
+
+    def stop_during_setup(playwright, *, shutdown_requested):
+        shutdown_requested.set()
+        raise main.PageRestartRequired("Shutdown requested during load page")
+
+    monkeypatch.setattr(main, "init_browser", stop_during_setup)
+
+    main.main()
+
+    assert "Shutdown requested during browser setup" in caplog.text
+
+
+def test_main_stops_before_browser_start_if_shutdown_arrives_during_storage(
+    monkeypatch,
+):
+    page, browser = configure_main(monkeypatch)
+    registered_handlers = {}
+    storage_calls = []
+    browser_calls = []
+
+    def register_handler(signum, handler):
+        registered_handlers[signum] = handler
+        return None
+
+    def init_storage():
+        storage_calls.append(True)
+        registered_handlers[main.signal.SIGINT](main.signal.SIGINT, None)
+
+    monkeypatch.setattr(main.signal, "signal", register_handler)
+    monkeypatch.setattr(main, "init_storage", init_storage)
+    monkeypatch.setattr(
+        main,
+        "init_browser",
+        lambda *args, **kwargs: browser_calls.append(True),
+    )
+
+    main.main()
+
+    assert storage_calls == [True]
+    assert browser_calls == []
+    assert page.goto_calls == []
+    assert browser.close_calls == 0
 
 
 def test_request_shutdown_sets_event():

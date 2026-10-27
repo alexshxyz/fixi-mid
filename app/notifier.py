@@ -2,6 +2,7 @@ import requests
 import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
+from threading import Event
 from typing import Any
 
 from .config import (
@@ -232,9 +233,12 @@ def _send_message(
     api_url: str = TELEGRAM_API_URL,
     max_attempts: int = 1,
     retry_delay: float = TELEGRAM_RETRY_DELAY_SECONDS,
+    shutdown_requested: Event | None = None,
 ) -> Any:
     """Отправить запрос к Telegram API и вернуть объект ответа."""
     for attempt in range(1, max_attempts + 1):
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            return None
         try:
             response = requests.post(
                 api_url,
@@ -288,7 +292,10 @@ def _send_message(
             )
 
         if attempt < max_attempts:
-            time.sleep(retry_delay)
+            if shutdown_requested is None:
+                time.sleep(retry_delay)
+            elif shutdown_requested.wait(retry_delay):
+                return None
     return None
 
 
@@ -296,6 +303,7 @@ def edit_telegram_notification(
     message_id: str | int,
     text: str,
     channel_id: str | None = CHANNEL_ID,
+    shutdown_requested: Event | None = None,
 ) -> bool:
     """Отредактировать ранее отправленное сообщение Telegram."""
     payload = {
@@ -305,11 +313,19 @@ def edit_telegram_notification(
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
-    return bool(_send_message(
-        payload,
-        success_message=f"Telegram notification {message_id} updated",
-        api_url=TELEGRAM_EDIT_MESSAGE_URL,
-    ))
+    send_options = {
+        "success_message": f"Telegram notification {message_id} updated",
+        "api_url": TELEGRAM_EDIT_MESSAGE_URL,
+    }
+    if shutdown_requested is None:
+        return bool(_send_message(payload, **send_options))
+    return bool(
+        _send_message(
+            payload,
+            **send_options,
+            shutdown_requested=shutdown_requested,
+        )
+    )
 
 
 def _save_notification(
@@ -357,6 +373,7 @@ def send_telegram_notification(
     channel_id: str | None = None,
     drop_type: str | None = None,
     strategy: str | None = None,
+    shutdown_requested: Event | None = None,
 ) -> bool:
     """Отправить сигнал в Telegram и сохранить его при успехе."""
     # Отправляет уведомление о матче в Telegram канал.
@@ -392,12 +409,21 @@ def send_telegram_notification(
     if check_duplicate_market(match_id, market):
         return False
 
-    telegram_response = _send_message(
-        payload,
-        match_id,
-        max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
-        retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
-    )
+    if shutdown_requested is None:
+        telegram_response = _send_message(
+            payload,
+            match_id,
+            max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
+            retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
+        )
+    else:
+        telegram_response = _send_message(
+            payload,
+            match_id,
+            max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
+            retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
+            shutdown_requested=shutdown_requested,
+        )
     if not telegram_response:
         return False
 

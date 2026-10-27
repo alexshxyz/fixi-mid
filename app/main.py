@@ -30,12 +30,16 @@ from app.config import (
     CHANNEL_ID,
     DEBUGMODE,
     ERROR_SCREENSHOTS_DIR,
+    HARD_PAGE_REFRESH_MAX_RETRIES,
+    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
     NO_MATCH_RETRY_DELAY_SECONDS,
     PAGE_ACTION_MAX_RETRIES,
     PAGE_ACTION_RETRY_DELAY_SECONDS,
     PAGE_DATA_READY_TIMEOUT_SECONDS,
     PAGE_ELEMENT_WAIT_TIMEOUT_MS,
+    PAGE_LOAD_MAX_RETRIES,
     PAGE_LOAD_TIMEOUT_MS,
+    PAGE_PREPARE_MAX_RETRIES,
     PAGE_POLL_INTERVAL_MS,
     PAGE_REFRESH_TABLE_TIMEOUT_MS,
     RESTART_HOURS,
@@ -103,12 +107,28 @@ def _retry_page_action(
     max_retries: int = PAGE_ACTION_MAX_RETRIES,
     retry_delay: float = PAGE_ACTION_RETRY_DELAY_SECONDS,
     reload_before_retry: bool = False,
+    shutdown_requested: threading.Event | None = None,
 ) -> object | None:
     """Повторить действие со страницей после ошибки."""
     for attempt in range(1, max_retries + 1):
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired(
+                f"Shutdown requested during {action_name}"
+            )
         try:
-            return action()
+            result = action()
+            if shutdown_requested is not None and shutdown_requested.is_set():
+                raise PageRestartRequired(
+                    f"Shutdown requested during {action_name}"
+                )
+            return result
+        except PageRestartRequired:
+            raise
         except Exception as e:
+            if shutdown_requested is not None and shutdown_requested.is_set():
+                raise PageRestartRequired(
+                    f"Shutdown requested during {action_name}"
+                ) from e
             if attempt == max_retries:
                 logger.error(
                     f"Failed to {action_name} after {max_retries} attempts: {e}"
@@ -118,48 +138,94 @@ def _retry_page_action(
             logger.warning(
                 f"Attempt {attempt} to {action_name} failed: {e}. Retrying..."
             )
-            time.sleep(retry_delay)
+            if shutdown_requested is None:
+                time.sleep(retry_delay)
+            elif _wait_for_shutdown(shutdown_requested, retry_delay):
+                raise PageRestartRequired(
+                    f"Shutdown requested during {action_name}"
+                ) from e
+            if shutdown_requested is not None and shutdown_requested.is_set():
+                raise PageRestartRequired(
+                    f"Shutdown requested during {action_name}"
+                ) from e
             if reload_before_retry:
                 try:
                     refresh_live_table(page)
                 except Exception as reload_error:
+                    if shutdown_requested is not None and shutdown_requested.is_set():
+                        raise PageRestartRequired(
+                            f"Shutdown requested during {action_name}"
+                        ) from reload_error
                     logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
 
 
 def init_browser(
     p: Playwright,
-    max_navigation_retries: int = PAGE_ACTION_MAX_RETRIES,
+    max_navigation_retries: int = PAGE_LOAD_MAX_RETRIES,
+    shutdown_requested: threading.Event | None = None,
 ) -> tuple[Browser, Page]:
     """Инициализировать браузер и открыть страницу сайта."""
-    logger.info("Setup browser...")
-    browser = p.chromium.launch(
-        headless=BROWSER_HEADLESS,
-        proxy={"server": BROWSER_PROXY_SERVER},
-        args=[
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-infobars",
-            "--disable-notifications",
-            "--disable-background-networking",
-            "--disable-background-timer-throttling",
-            "--disable-renderer-backgrounding",
-            "--disable-extensions",
-            "--disable-sync",
-            "--metrics-recording-only",
-            "--mute-audio",
-        ],
-    )
-    context = browser.new_context()
-    page = context.new_page()
-    page.set_viewport_size({"width": 1280, "height": 720})
+    if shutdown_requested is not None and shutdown_requested.is_set():
+        raise PageRestartRequired("Shutdown requested during browser setup")
 
+    logger.info("Setup browser...")
     try:
-        context.add_cookies(SITE_COOKIES)
-        logger.info("Cookies set")
+        browser = p.chromium.launch(
+            headless=BROWSER_HEADLESS,
+            proxy={"server": BROWSER_PROXY_SERVER},
+            args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-infobars",
+                "--disable-notifications",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-extensions",
+                "--disable-sync",
+                "--metrics-recording-only",
+                "--mute-audio",
+            ],
+        )
     except Exception as e:
-        logger.warning(f"Failed to add site cookies: {e}")
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired(
+                "Shutdown requested during browser launch"
+            ) from e
+        raise
+    try:
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during browser setup")
+        context = browser.new_context()
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during browser setup")
+        page = context.new_page()
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during browser setup")
+        page.set_viewport_size({"width": 1280, "height": 720})
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during browser setup")
+        try:
+            context.add_cookies(SITE_COOKIES)
+            logger.info("Cookies set")
+        except Exception as e:
+            logger.warning(f"Failed to add site cookies: {e}")
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired("Shutdown requested during browser setup")
+    except PageRestartRequired:
+        with suppress(Exception):
+            browser.close()
+        raise
+    except Exception:
+        with suppress(Exception):
+            browser.close()
+        if shutdown_requested is not None and shutdown_requested.is_set():
+            raise PageRestartRequired(
+                "Shutdown requested during browser setup"
+            )
+        raise
 
     def open_page() -> None:
         """Открыть сайт с заданным таймаутом загрузки."""
@@ -176,9 +242,18 @@ def init_browser(
             "load page",
             max_retries=max_navigation_retries,
             reload_before_retry=False,
+            shutdown_requested=shutdown_requested,
         )
+    except PageRestartRequired:
+        with suppress(Exception):
+            browser.close()
+        raise
     except Exception:
-        browser.close()
+        logger.error(
+            "Page load failed after %s attempts. Restarting script...",
+            max_navigation_retries,
+        )
+        _restart_script(browser)
         raise
 
     logger.info("Page loaded, OK")
@@ -330,16 +405,37 @@ def main() -> None:
 
         while not shutdown_requested.is_set():
             with sync_playwright() as p:
-                browser, page = init_browser(p)
+                try:
+                    browser, page = init_browser(
+                        p, shutdown_requested=shutdown_requested
+                    )
+                except PageRestartRequired:
+                    if shutdown_requested.is_set():
+                        logger.info("Shutdown requested during browser setup")
+                        return
+                    raise
 
                 try:
                     _restart_if_due(restart_deadline, browser, shutdown_requested)
                     # Подготавливаем страницу перед запуском мониторинга.
-                    _retry_page_action(
-                        page,
-                        lambda: switch_to_live(page),
-                        "prepare page",
-                    )
+                    try:
+                        _retry_page_action(
+                            page,
+                            lambda: switch_to_live(page),
+                            "prepare page",
+                            max_retries=PAGE_PREPARE_MAX_RETRIES,
+                            shutdown_requested=shutdown_requested,
+                        )
+                    except Exception:
+                        if shutdown_requested.is_set():
+                            logger.info("Shutdown requested before Live setup finished")
+                            break
+                        logger.error(
+                            "Failed to prepare page after %s attempts. "
+                            "Restarting script...",
+                            PAGE_PREPARE_MAX_RETRIES,
+                        )
+                        _restart_script(browser)
                     if shutdown_requested.is_set():
                         break
                     _restart_if_due(restart_deadline, browser, shutdown_requested)
@@ -363,7 +459,28 @@ def main() -> None:
                         if shutdown_requested.is_set():
                             break
                         _restart_if_due(restart_deadline, browser, shutdown_requested)
-                        refresh_page(page, wait_for_data=False)
+                        try:
+                            _retry_page_action(
+                                page,
+                                lambda: refresh_page(page, wait_for_data=False),
+                                "refresh page while waiting for matches",
+                                max_retries=HARD_PAGE_REFRESH_MAX_RETRIES,
+                                retry_delay=HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+                                shutdown_requested=shutdown_requested,
+                            )
+                        except Exception:
+                            if shutdown_requested.is_set():
+                                logger.info(
+                                    "Shutdown requested while refreshing page "
+                                    "before matches appeared"
+                                )
+                                break
+                            logger.error(
+                                "Page refresh failed after %s attempts while "
+                                "waiting for matches. Restarting script...",
+                                HARD_PAGE_REFRESH_MAX_RETRIES,
+                            )
+                            _restart_script(browser)
                         matches = collect_matches(page)
 
                     if shutdown_requested.is_set():

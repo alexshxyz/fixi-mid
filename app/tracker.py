@@ -76,8 +76,12 @@ class MatchMonitor:
 
     def run(self) -> None:
         """Запустить цикл мониторинга и сохранить состояние при завершении."""
+        if self._shutdown_is_requested():
+            return
         try:
             self._init_or_restore_state()
+            if self._shutdown_is_requested():
+                return
             logger.info("Monitoring started")
             install_live_change_observer(self.page)
             try:
@@ -163,6 +167,8 @@ class MatchMonitor:
 
     def _run_analyzer(self) -> None:
         """Подготовить историю и передать её анализатору рынков."""
+        if self._shutdown_is_requested():
+            return
         if DEBUGMODE == 1:
             snapshot_path = DATA_DIR / "data_closed_ov_ah.json"
             try:
@@ -178,10 +184,17 @@ class MatchMonitor:
             except OSError:
                 logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
-        find_pattern_matches(
-            self.match_history,
-            self._register_pending_notification,
-        )
+        if self.shutdown_requested is None:
+            find_pattern_matches(
+                self.match_history,
+                self._register_pending_notification,
+            )
+        else:
+            find_pattern_matches(
+                self.match_history,
+                self._register_pending_notification,
+                shutdown_requested=self.shutdown_requested,
+            )
 
     def _register_pending_notification(
         self, notification: NotificationSentDetails
@@ -193,11 +206,19 @@ class MatchMonitor:
 
     def _process_due_notifications(self) -> None:
         """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
-        pending_notifications.process_due_notifications(
-            self.pending_notifications,
-            self.last_data,
-            self.active_match_ids,
-        )
+        if self.shutdown_requested is None:
+            pending_notifications.process_due_notifications(
+                self.pending_notifications,
+                self.last_data,
+                self.active_match_ids,
+            )
+        else:
+            pending_notifications.process_due_notifications(
+                self.pending_notifications,
+                self.last_data,
+                self.active_match_ids,
+                shutdown_requested=self.shutdown_requested,
+            )
 
     def _next_notification_timeout(self) -> float | None:
         """Вычислить время ожидания до ближайшей проверки уведомления."""
@@ -350,14 +371,22 @@ class MatchMonitor:
             self.live_refresh_callback,
             shutdown_requested=self.shutdown_requested,
         )
+        self._raise_if_shutdown()
         if live_refresh_succeeded is False:
             match_status = collect_match_status(self.page, require_crown=True)
         elif live_refresh_succeeded is None:
-            logger.warning("Live refresh failed. Escalating to a Page refresh.")
-            match_status = self._do_hard_page_refresh_with_retries()
+            logger.error(
+                "Live refresh failed after retries. Saving state and restarting script."
+            )
+            if not self._save_state_to_json(self.active_match_ids, self.last_data):
+                logger.error("Could not save monitoring state before restart")
+            raise PageRestartRequired(
+                "Live refresh failed after retries; restarting script"
+            )
         else:
             match_status = collect_match_status(self.page, require_crown=True)
 
+        self._raise_if_shutdown()
         if not any(item['active'] for item in match_status):
             match_status = self._wait_for_matches_with_hard_refresh(match_status)
 
@@ -403,10 +432,12 @@ class MatchMonitor:
         """Перезагрузить страницу и обновить данные активных матчей."""
         match_status = self._do_hard_page_refresh_with_retries()
         match_status = self._wait_for_matches_with_hard_refresh(match_status)
+        self._raise_if_shutdown()
         current_match_ids = [
             item['match_id'] for item in match_status if item['active']
         ]
         data_changed = self._synchronize_matches(current_match_ids)
+        self._raise_if_shutdown()
         write_match_count(match_status, self.active_match_ids)
         if self.active_match_ids:
             data_changed = (
@@ -495,6 +526,7 @@ class MatchMonitor:
 
     def _synchronize_matches(self, current_match_ids: list[str]) -> bool:
         """Синхронизировать текущий список активных матчей."""
+        self._raise_if_shutdown()
         current_match_ids = list(dict.fromkeys(current_match_ids))
         previous_match_ids = set(self.active_match_ids)
         current_match_id_set = set(current_match_ids)
@@ -515,6 +547,7 @@ class MatchMonitor:
             new_data = extract_all_match_data(self.page, new_match_ids)
 
             for new_id in new_match_ids:
+                self._raise_if_shutdown()
                 initial_data = new_data.get(new_id)
                 if initial_data:
                     self.match_history[new_id] = {'initial': initial_data, 'changes': []}
@@ -536,6 +569,7 @@ class MatchMonitor:
     def _poll_and_update(self, log_data_loaded: bool = False) -> bool:
         """Получить актуальные данные матчей и обновить их историю."""
         all_match_data = extract_all_match_data(self.page, self.active_match_ids)
+        self._raise_if_shutdown()
 
         if log_data_loaded:
             logger.info("Matches data reloaded")
@@ -543,6 +577,7 @@ class MatchMonitor:
         updated_match_ids = []
         analysis_data_changed = False
         for match_id in self.active_match_ids:
+            self._raise_if_shutdown()
             if match_id not in self.last_data:
                 continue
             current_data = all_match_data.get(match_id)
