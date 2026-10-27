@@ -1,8 +1,11 @@
 import json
 import time
 from datetime import datetime
+from threading import Event
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .config import (
@@ -13,6 +16,7 @@ from .config import (
     LIVE_REFRESH_RETRY_DELAY_SECONDS,
 )
 from .logger import setup_logger
+from .match_types import MatchSnapshot
 from .scripts import (
     COLLECT_MATCH_STATUS,
     EXTRACT_ALL_MATCH_DATA,
@@ -25,7 +29,7 @@ from .scripts import (
 logger = setup_logger(__name__)
 
 
-def page_is_closed(page, error=None):
+def page_is_closed(page: Page, error: Optional[Exception] = None) -> bool:
     """Проверить, закрыта ли страница браузера."""
     is_closed = getattr(page, "is_closed", None)
     page_is_closed = callable(is_closed) and is_closed()
@@ -50,12 +54,12 @@ class ScheduledRestartRequired(PageRestartRequired):
     pass
 
 
-def install_live_change_observer(page):
+def install_live_change_observer(page: Page) -> None:
     """Установить наблюдатель за изменениями Live-таблицы в DOM."""
     page.evaluate(INSTALL_LIVE_CHANGE_OBSERVER)
 
 
-def remove_live_change_observer(page):
+def remove_live_change_observer(page: Page) -> None:
     """Отключить наблюдатель и удалить его флаги из страницы."""
     if page_is_closed(page):
         return
@@ -65,7 +69,11 @@ def remove_live_change_observer(page):
         logger.warning("Could not stop live table observer.", exc_info=True)
 
 
-def wait_for_live_change(page, timeout_ms, shutdown_requested=None):
+def wait_for_live_change(
+    page: Page,
+    timeout_ms: int,
+    shutdown_requested: Optional[Event] = None,
+) -> bool:
     """Дождаться изменения Live-таблицы или истечения таймаута."""
     if shutdown_requested is None:
         try:
@@ -99,12 +107,12 @@ def wait_for_live_change(page, timeout_ms, shutdown_requested=None):
 
 
 def reload_page_with_retries(
-    page,
-    live_refresh_callback,
-    max_retries=LIVE_REFRESH_MAX_RETRIES,
-    retry_delay=LIVE_REFRESH_RETRY_DELAY_SECONDS,
-    shutdown_requested=None,
-):
+    page: Page,
+    live_refresh_callback: Callable[[Page], None],
+    max_retries: int = LIVE_REFRESH_MAX_RETRIES,
+    retry_delay: float = LIVE_REFRESH_RETRY_DELAY_SECONDS,
+    shutdown_requested: Optional[Event] = None,
+) -> Optional[bool]:
     """Обновить Live-таблицу, повторяя неудачные попытки."""
     for attempt in range(1, max_retries + 1):
         if shutdown_requested is not None and shutdown_requested.is_set():
@@ -150,18 +158,27 @@ def reload_page_with_retries(
     return None
 
 
-def collect_match_status(page, require_crown=False):
+def collect_match_status(
+    page: Page,
+    require_crown: bool = False,
+) -> List[Dict[str, Any]]:
     """Собрать статусы видимых матчей в Live-таблице."""
-    return page.evaluate(COLLECT_MATCH_STATUS, require_crown)
+    match_status: List[Dict[str, Any]] = page.evaluate(
+        COLLECT_MATCH_STATUS, require_crown
+    )
+    return match_status
 
 
-def write_match_count(match_status, active_match_ids):
+def write_match_count(
+    match_status: List[Dict[str, Any]],
+    active_match_ids: List[Union[str, int]],
+) -> None:
     """Записать диагностический список активных и исключённых матчей."""
     if DEBUGMODE != 1:
         return
 
     active_ids = {str(match_id) for match_id in active_match_ids}
-    payload = {'Active': [], 'Inactive': []}
+    payload: Dict[str, List[str]] = {'Active': [], 'Inactive': []}
     for item in match_status:
         category = 'Active' if str(item['match_id']) in active_ids else 'Inactive'
         payload[category].append(item['label'])
@@ -176,10 +193,15 @@ def write_match_count(match_status, active_match_ids):
         logger.exception("Failed to write match count snapshot to %s", snapshot_path)
 
 
-def extract_all_match_data(page, match_ids):
+def extract_all_match_data(
+    page: Page,
+    match_ids: List[str],
+) -> Dict[str, Optional[MatchSnapshot]]:
     """Извлечь данные указанных матчей одним вызовом evaluate()."""
     try:
-        match_data = page.evaluate(EXTRACT_ALL_MATCH_DATA, match_ids)
+        match_data: Dict[str, Optional[MatchSnapshot]] = page.evaluate(
+            EXTRACT_ALL_MATCH_DATA, match_ids
+        )
     except Exception as e:
         logger.error(f"Error in extract_all_match_data: {e}")
         raise

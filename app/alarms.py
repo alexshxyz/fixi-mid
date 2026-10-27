@@ -1,4 +1,5 @@
 import time
+import typing as _typing
 
 from .config import (
     LEAGUES_LIST,
@@ -13,7 +14,10 @@ from .storage import update_match_mark
 logger = setup_logger(__name__)
 
 
-def register_pending_notification(pending_notifications, notification):
+def register_pending_notification(
+    pending_notifications: _typing.Dict[str, _typing.Dict[str, _typing.Any]],
+    notification: _typing.Any,
+) -> None:
     """Запланировать отложенную проверку отправленного уведомления."""
     message_id = str(notification['message_id'])
     notification['deadline'] = time.time() + NOTIFICATION_CHECK_DELAY_SECONDS
@@ -27,10 +31,12 @@ def register_pending_notification(pending_notifications, notification):
 
 
 def process_due_notifications(
-    pending_notifications,
-    last_data,
-    active_match_ids,
-):
+    pending_notifications: _typing.Dict[
+        str, _typing.Dict[str, _typing.Any]
+    ],
+    last_data: _typing.MutableMapping[str, _typing.Any],
+    active_match_ids: _typing.List[str],
+) -> None:
     """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
     now = time.time()
     for message_id, notification in list(pending_notifications.items()):
@@ -99,11 +105,13 @@ def process_due_notifications(
 
 
 def discard_match_data_if_unused(
-    match_id,
-    pending_notifications,
-    last_data,
-    active_match_ids,
-):
+    match_id: str,
+    pending_notifications: _typing.Dict[
+        str, _typing.Dict[str, _typing.Any]
+    ],
+    last_data: _typing.MutableMapping[str, _typing.Any],
+    active_match_ids: _typing.List[str],
+) -> None:
     """Удалить последний снимок, если он больше не нужен."""
     if match_id in active_match_ids:
         return
@@ -115,11 +123,15 @@ def discard_match_data_if_unused(
     last_data.pop(match_id, None)
 
 
-def next_notification_timeout(pending_notifications):
+def next_notification_timeout(
+    pending_notifications: _typing.Dict[
+        str, _typing.Dict[str, _typing.Any]
+    ],
+) -> _typing.Optional[float]:
     """Вычислить время ожидания до ближайшей проверки уведомления."""
     if not pending_notifications:
         return None
-    return max(
-        0,
-        min(item['deadline'] for item in pending_notifications.values()) - time.time(),
+    earliest_deadline: float = min(
+        item['deadline'] for item in pending_notifications.values()
     )
+    return max(0, earliest_deadline - time.time())
