@@ -1,13 +1,16 @@
 import json
+import logging
 import os
+from typing import Any, Dict, List, Optional, Union
 
 from .config import STATE_SAVE_FILE
 from .logger import setup_logger
+from .match_types import MatchHistoryMap, MatchSnapshot
 
-logger = setup_logger(__name__)
+logger: logging.Logger = setup_logger(__name__)
 
 
-def get_last_data(match_data):
+def get_last_data(match_data: MatchSnapshot) -> MatchSnapshot:
     """Извлечь из снимка матчевые данные, нужные для сравнения."""
     return {
         'ah': match_data['ah'],
@@ -17,7 +20,7 @@ def get_last_data(match_data):
     }
 
 
-def get_analysis_history(match_history):
+def get_analysis_history(match_history: MatchHistoryMap) -> Dict[str, Any]:
     """Убрать из истории записи без изменений отслеживаемых полей."""
     analysis_history = {}
     tracked_fields = ('ah', 'ov', 'match_time', 'score')
@@ -42,7 +45,9 @@ def get_analysis_history(match_history):
     return analysis_history
 
 
-def load_state_from_json(path=STATE_SAVE_FILE):
+def load_state_from_json(
+    path: Union[str, os.PathLike[str]] = STATE_SAVE_FILE,
+) -> Any:
     """Загрузить сохранённое состояние матча из JSON-файла."""
     if not os.path.exists(path):
         return None
@@ -58,12 +63,12 @@ def load_state_from_json(path=STATE_SAVE_FILE):
 
 
 def save_state_to_json(
-    match_history,
-    last_data,
-    active_match_ids,
-    pending_notifications,
-    path=STATE_SAVE_FILE,
-):
+    match_history: MatchHistoryMap,
+    last_data: Dict[str, MatchSnapshot],
+    active_match_ids: List[str],
+    pending_notifications: Dict[str, Dict[str, Any]],
+    path: Union[str, os.PathLike[str]] = STATE_SAVE_FILE,
+) -> bool:
     """Сохранить текущее состояние матчей в JSON-файл."""
     try:
         payload = {
@@ -81,7 +86,9 @@ def save_state_to_json(
         return False
 
 
-def restore_state(saved_state):
+def restore_state(
+    saved_state: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     """Подготовить сохранённое состояние к использованию монитором."""
     if not saved_state:
         return None

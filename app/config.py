@@ -2,47 +2,48 @@ import json
 import os
 import random
 from pathlib import Path
+from typing import Dict, Optional
 from urllib.parse import quote
 from dotenv import load_dotenv
 
 # Настройки проекта
-APP_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = APP_DIR.parent
-DATA_DIR = PROJECT_DIR / 'data'
+APP_DIR: Path = Path(__file__).resolve().parent
+PROJECT_DIR: Path = APP_DIR.parent
+DATA_DIR: Path = PROJECT_DIR / 'data'
 load_dotenv(dotenv_path=PROJECT_DIR / '.env')
 
 # Настройки страницы
 SITE_URL = "https://www.goaloo.com/"
-BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-BROWSER_PROXY_SERVER = os.environ.get('BROWSER_PROXY_SERVER')
+BROWSER_HEADLESS: bool = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+BROWSER_PROXY_SERVER: Optional[str] = os.environ.get('BROWSER_PROXY_SERVER')
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 # Настройки файлов
-MATCHES_FILE = os.environ.get('MATCHES_FILE', str(DATA_DIR / 'matches.json'))
-LEAGUES_FILE = str(DATA_DIR / 'leagues.json')
-STATE_SAVE_FILE = str(DATA_DIR / 'match_state.json')
+MATCHES_FILE: str = os.environ.get('MATCHES_FILE', str(DATA_DIR / 'matches.json'))
+LEAGUES_FILE: str = str(DATA_DIR / 'leagues.json')
+STATE_SAVE_FILE: str = str(DATA_DIR / 'match_state.json')
 
 # Настройки Telegram-бота
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_ID = os.environ.get('CHANNEL_ID')
-MONITOR_TELEGRAM_TOKEN = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
-MONITOR_CHAT_ID = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
+BOT_TOKEN: Optional[str] = os.environ.get('BOT_TOKEN')
+CHANNEL_ID: Optional[str] = os.environ.get('CHANNEL_ID')
+MONITOR_TELEGRAM_TOKEN: Optional[str] = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
+MONITOR_CHAT_ID: Optional[str] = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
 
 # Настройки прокси
-TELEGRAM_PROXY_HOST = os.environ.get('TELEGRAM_PROXY_HOST')
-TELEGRAM_PROXY_PORT = os.environ.get('TELEGRAM_PROXY_PORT')
-TELEGRAM_PROXY_USERNAME = os.environ.get('TELEGRAM_PROXY_USERNAME')
-TELEGRAM_PROXY_PASSWORD = os.environ.get('TELEGRAM_PROXY_PASSWORD')
-TELEGRAM_PROXIES = None
+TELEGRAM_PROXY_HOST: Optional[str] = os.environ.get('TELEGRAM_PROXY_HOST')
+TELEGRAM_PROXY_PORT: Optional[str] = os.environ.get('TELEGRAM_PROXY_PORT')
+TELEGRAM_PROXY_USERNAME: Optional[str] = os.environ.get('TELEGRAM_PROXY_USERNAME')
+TELEGRAM_PROXY_PASSWORD: Optional[str] = os.environ.get('TELEGRAM_PROXY_PASSWORD')
+TELEGRAM_PROXIES: Optional[Dict[str, str]] = None
 if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
-    proxy_auth = ''
+    proxy_auth: str = ''
     if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
         proxy_auth = (
             f'{quote(TELEGRAM_PROXY_USERNAME, safe="")}:'
             f'{quote(TELEGRAM_PROXY_PASSWORD, safe="")}@'
         )
 
-    telegram_proxy_url = (
+    telegram_proxy_url: str = (
         f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
     )
     TELEGRAM_PROXIES = {
@@ -59,7 +60,7 @@ TABLE_LIVE_RELOAD_MIN_SECONDS = 100
 TABLE_LIVE_RELOAD_MAX_SECONDS = 120
 
 
-def get_table_live_reload_interval():
+def get_table_live_reload_interval() -> int:
     """Случайно выбрать интервал обновления Live-таблицы."""
     return random.randint(
         TABLE_LIVE_RELOAD_MIN_SECONDS,
@@ -92,8 +93,8 @@ HEARTBEAT_INTERVAL_SECONDS = 100
 PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS = 10
 
 # Настройки мониторинга логов.
-BOT_LOG_FILE = PROJECT_DIR / 'bot.log'
-ERROR_SCREENSHOTS_DIR = PROJECT_DIR / 'logs' / 'screenshots'
+BOT_LOG_FILE: Path = PROJECT_DIR / 'bot.log'
+ERROR_SCREENSHOTS_DIR: Path = PROJECT_DIR / 'logs' / 'screenshots'
 MONITOR_CHECK_INTERVAL_SECONDS = 1800
 MONITOR_STALE_LIMIT_SECONDS = 120
 MONITOR_LOG_READ_CHUNK_SIZE = 4096

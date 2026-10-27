@@ -3,6 +3,7 @@ import os
 import re
 from copy import copy
 from pathlib import Path
+from typing import TextIO, Union
 
 
 _MATCH_IDS_PATTERN = re.compile(
@@ -20,7 +21,7 @@ _SENSITIVE_ENVIRONMENT_VARIABLES = (
 class _SensitiveDataFilter(logging.Filter):
     """Удалить секретные значения из сообщений и traceback логов."""
 
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         """Заменить значения секретных переменных окружения в записи."""
         secrets = sorted(
             {
@@ -54,15 +55,15 @@ class _SensitiveDataFilter(logging.Filter):
         return True
 
 
-def format_console_log_message(message):
+def format_console_log_message(message: str) -> str:
     """Убрать подробные ID матчей из сообщений консольного лога."""
     return _MATCH_IDS_PATTERN.sub(r"\1", message)
 
 
-class _ConsoleLogHandler(logging.StreamHandler):
+class _ConsoleLogHandler(logging.StreamHandler[TextIO]):
     """Форматировать консольные логи, сохраняя исходные файловые записи."""
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         """Форматировать консольную копию записи, не меняя файловый лог."""
         console_record = copy(record)
         console_record.msg = format_console_log_message(record.getMessage())
@@ -70,7 +71,10 @@ class _ConsoleLogHandler(logging.StreamHandler):
         super().emit(console_record)
 
 
-def setup_logger(name, log_filename='bot.log'):
+def setup_logger(
+    name: str,
+    log_filename: Union[str, os.PathLike[str]] = 'bot.log',
+) -> logging.Logger:
     """Создать именованный логгер с обработчиками файла и консоли."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
