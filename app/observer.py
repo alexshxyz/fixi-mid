@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from threading import Event
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
@@ -33,14 +33,14 @@ logger = setup_logger(__name__)
 def page_is_closed(page: Page, error: Exception | None = None) -> bool:
     """Проверить, закрыта ли страница браузера."""
     is_closed = getattr(page, "is_closed", None)
-    page_is_closed = callable(is_closed) and is_closed()
-    if isinstance(error, PlaywrightError) and page_is_closed:
+    page_closed_flag = callable(is_closed) and is_closed()
+    if isinstance(error, PlaywrightError) and page_closed_flag:
         return True
 
     if error is not None and "has been closed" in str(error).lower():
         return True
 
-    return page_is_closed
+    return page_closed_flag
 
 
 class PageRestartRequired(Exception):
@@ -172,7 +172,7 @@ def collect_match_status(
 
 def write_match_count(
     match_status: list[dict[str, Any]],
-    active_match_ids: list[str | int],
+    active_match_ids: Sequence[str | int],
 ) -> None:
     """Записать диагностический список активных и исключённых матчей."""
     if DEBUGMODE != 1:

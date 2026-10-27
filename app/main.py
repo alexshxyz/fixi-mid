@@ -4,15 +4,18 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
 from functools import partial
+from types import FrameType
+from typing import NoReturn
 
 if __package__ in (None, ""):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, project_root)
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from app.tracker import (
     parse_and_monitor_match,
     PageRestartRequired,
@@ -51,17 +54,23 @@ from app.scripts import LIVE_ODDS_READINESS
 logger = setup_logger(__name__)
 
 
-def _request_shutdown(shutdown_requested, _signum, _frame):
+def _request_shutdown(
+    shutdown_requested: threading.Event,
+    _signum: int,
+    _frame: FrameType | None,
+) -> None:
     """Установить флаг завершения при получении системного сигнала."""
     shutdown_requested.set()
 
 
-def _wait_for_shutdown(shutdown_requested, seconds):
+def _wait_for_shutdown(
+    shutdown_requested: threading.Event, seconds: float
+) -> bool:
     """Ожидать завершения работы или истечения указанного времени."""
     return shutdown_requested.wait(seconds)
 
 
-def _capture_error_screenshot(page, error_label, error):
+def _capture_error_screenshot(page: Page, error_label: str, error: Exception) -> None:
     """Сохранить снимок страницы с контекстом ошибки в имени файла."""
     if page_is_closed(page, error):
         return
@@ -88,13 +97,13 @@ def _capture_error_screenshot(page, error_label, error):
 
 
 def _retry_page_action(
-    page,
-    action,
-    action_name,
-    max_retries=PAGE_ACTION_MAX_RETRIES,
-    retry_delay=PAGE_ACTION_RETRY_DELAY_SECONDS,
-    reload_before_retry=False,
-):
+    page: Page,
+    action: Callable[[], object],
+    action_name: str,
+    max_retries: int = PAGE_ACTION_MAX_RETRIES,
+    retry_delay: float = PAGE_ACTION_RETRY_DELAY_SECONDS,
+    reload_before_retry: bool = False,
+) -> object | None:
     """Повторить действие со страницей после ошибки."""
     for attempt in range(1, max_retries + 1):
         try:
@@ -117,7 +126,10 @@ def _retry_page_action(
                     logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
 
 
-def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
+def init_browser(
+    p: Playwright,
+    max_navigation_retries: int = PAGE_ACTION_MAX_RETRIES,
+) -> tuple[Browser, Page]:
     """Инициализировать браузер и открыть страницу сайта."""
     logger.info("Setup browser...")
     browser = p.chromium.launch(
@@ -149,7 +161,7 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     except Exception as e:
         logger.warning(f"Failed to add site cookies: {e}")
 
-    def open_page():
+    def open_page() -> None:
         """Открыть сайт с заданным таймаутом загрузки."""
         page.goto(
             SITE_URL,
@@ -173,7 +185,7 @@ def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     return browser, page
 
 
-def switch_to_live(page):
+def switch_to_live(page: Page) -> None:
     """Переключить страницу на фильтр Live."""
     try:
         page.locator("li#li_FilterLive").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
@@ -185,7 +197,7 @@ def switch_to_live(page):
         raise
 
 
-def refresh_live_table(page):
+def refresh_live_table(page: Page) -> None:
     """Обновить Live-таблицу кликом по фильтру."""
     logger.info("Refreshing...")
     try:
@@ -201,7 +213,7 @@ def refresh_live_table(page):
         raise
 
 
-def refresh_page(page, wait_for_data=True):
+def refresh_page(page: Page, wait_for_data: bool = True) -> None:
     """Перезагрузить страницу и при необходимости дождаться данных Live."""
     logger.info("Refreshing...")
     try:
@@ -226,7 +238,7 @@ def refresh_page(page, wait_for_data=True):
         raise
 
 
-def collect_matches(page):
+def collect_matches(page: Page) -> list[str]:
     """Собрать ID активных матчей, готовых к наблюдению."""
     matches = []
     match_status = None
@@ -244,14 +256,14 @@ def collect_matches(page):
     return matches
 
 
-def has_valid_match_data(page):
+def has_valid_match_data(page: Page) -> bool:
     """Проверить готовность данных Crown и видимых коэффициентов."""
     page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
     readiness = page.evaluate(LIVE_ODDS_READINESS)
     return readiness["hasCrownOdds"] and readiness["hasVisibleOdds"]
 
 
-def _restart_script(browser=None):
+def _restart_script(browser: Browser | None = None) -> NoReturn:
     """Закрыть браузер и перезапустить процесс."""
     if browser is not None:
         with suppress(Exception):
@@ -259,7 +271,11 @@ def _restart_script(browser=None):
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-def _restart_if_due(restart_deadline, browser, shutdown_requested=None):
+def _restart_if_due(
+    restart_deadline: float,
+    browser: Browser | None,
+    shutdown_requested: threading.Event | None = None,
+) -> None:
     """Перезапустить браузер или процесс по истечении срока."""
     if shutdown_requested is not None and shutdown_requested.is_set():
         return
@@ -276,7 +292,7 @@ def _restart_if_due(restart_deadline, browser, shutdown_requested=None):
     )
 
 
-def _validate_configuration():
+def _validate_configuration() -> None:
     """Проверить наличие обязательных настроек перед запуском."""
     required_settings = {
         "BOT_TOKEN": BOT_TOKEN,
@@ -297,7 +313,7 @@ def _validate_configuration():
         )
 
 
-def main():
+def main() -> None:
     """Проверить конфигурацию и запустить основной цикл бота."""
     _validate_configuration()
     shutdown_requested = threading.Event()

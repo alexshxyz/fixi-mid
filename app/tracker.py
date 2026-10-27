@@ -1,9 +1,9 @@
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from typing import Any, NoReturn
-from collections.abc import Callable
 
 from playwright.sync_api import Page
 
@@ -88,10 +88,16 @@ class MatchMonitor:
             raise
         except Exception as e:
             if self._shutdown_is_requested():
-                logger.warning(
-                    "Browser operation was interrupted during shutdown",
-                    exc_info=True,
-                )
+                if (
+                    page_is_closed(self.page, e)
+                    and "has been closed" in str(e).lower()
+                ):
+                    logger.info("Browser page was closed during shutdown")
+                else:
+                    logger.warning(
+                        "Browser operation was interrupted during shutdown",
+                        exc_info=True,
+                    )
                 return
             logger.exception("Error in parse_and_monitor_match")
             if not self._save_state_to_json(self.active_match_ids, self.last_data):
@@ -415,6 +421,9 @@ class MatchMonitor:
         retry_delay: float = HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ) -> list[dict[str, Any]]:
         """Повторять полную перезагрузку страницы с сохранением состояния."""
+        if max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
+
         for attempt in range(1, max_retries + 1):
             self._raise_if_shutdown()
             self._restart_if_due()
@@ -475,6 +484,7 @@ class MatchMonitor:
                 raise PageRestartRequired(
                     f"Page refresh failed after {attempt} attempts: {e}"
                 ) from e
+        raise PageRestartRequired("Page refresh retry loop ended without a result")
 
     def _wait_for_shutdown_or_timeout(self, seconds: float) -> None:
         """Подождать заданное время или сигнал завершения."""

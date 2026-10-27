@@ -4,6 +4,7 @@
 """
 import sys
 import os
+from collections.abc import Callable
 from datetime import datetime
 
 # Добавляем корень проекта в path для поддержки прямого запуска файла.
@@ -13,24 +14,26 @@ PROJECT_DIR = os.path.dirname(
 sys.path.insert(0, PROJECT_DIR)
 
 from app.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
+from app.match_types import LeagueStats
 
 
-def _calculate_win_rate(wins, losses):
+def _calculate_win_rate(wins: int, losses: int) -> int:
     """Рассчитать процент побед без учёта возвратов."""
     matches_without_void = wins + losses
     return int(wins * 100 / matches_without_void) if matches_without_void else 0
 
 
-def _result_emoji(result):
+def _result_emoji(result: str | None) -> str:
     """Вернуть эмодзи для результата матча."""
     return {
         'Won': "✅",
         'Lost': "❌",
         'Void': "🔁",
+        None: "?",
     }.get(result, "?")
 
 
-def get_full_stats():
+def get_full_stats() -> str:
     """Сформировать HTML-сводку по всем сохранённым матчам."""
     try:
         matches = get_all_matches()
@@ -57,7 +60,11 @@ def get_full_stats():
         return f"❌ Ошибка при получении статистики: {e}"
 
 
-def _get_league_summary(header, sort_key, error_label):
+def _get_league_summary(
+    header: str,
+    sort_key: Callable[[tuple[str | None, LeagueStats]], tuple[int, int]],
+    error_label: str,
+) -> str:
     """Сформировать краткую статистику по лигам с указанной сортировкой."""
     try:
         matches = get_all_matches()
@@ -86,7 +93,7 @@ def _get_league_summary(header, sort_key, error_label):
         return f"❌ Ошибка при получении статистики: {e}"
 
 
-def get_top_leagues():
+def get_top_leagues() -> str:
     """Сформировать список трёх лиг с наибольшим количеством побед."""
     return _get_league_summary(
         "🏆 TOP LEAGUES",
@@ -95,7 +102,7 @@ def get_top_leagues():
     )
 
 
-def get_worst_leagues():
+def get_worst_leagues() -> str:
     """Сформировать список трёх лиг с наименьшим количеством побед."""
     return _get_league_summary(
         "⛔️ WORST LEAGUES",
@@ -104,7 +111,7 @@ def get_worst_leagues():
     )
 
 
-def get_last_5_matches():
+def get_last_5_matches() -> list[dict[str, str | float | None]]:
     """Вернуть данные о пяти последних сохранённых матчах."""
     try:
         matches = get_all_matches()
@@ -144,7 +151,9 @@ def get_last_5_matches():
         return []
 
 
-def format_last_5_matches(matches_data):
+def format_last_5_matches(
+    matches_data: list[dict[str, str | float | None]],
+) -> str:
     """Отформатировать список последних матчей в текстовый блок."""
     if not matches_data:
         return "🕒 LAST 5 MATCHES\n\nNo recent matches available."
@@ -160,7 +169,7 @@ def format_last_5_matches(matches_data):
     return text.rstrip()
 
 
-def get_this_month_stats():
+def get_this_month_stats() -> str:
     """Сформировать сводку по матчам за текущий календарный месяц."""
     try:
         # Получаем текущий год и месяц

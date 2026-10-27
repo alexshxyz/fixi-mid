@@ -170,6 +170,47 @@ def test_run_saves_current_match_state_on_graceful_shutdown(
     assert removed == [page]
 
 
+@pytest.mark.parametrize(
+    ("error_message", "expected_level", "has_traceback"),
+    [
+        (
+            "Target page, context or browser has been closed",
+            "INFO",
+            False,
+        ),
+        ("unexpected shutdown failure", "WARNING", True),
+    ],
+)
+def test_run_logs_shutdown_errors_without_expected_close_traceback(
+    monkeypatch, monitor, caplog, error_message, expected_level, has_traceback
+):
+    shutdown_requested = threading.Event()
+    monitor.shutdown_requested = shutdown_requested
+    monkeypatch.setattr(tracker, "install_live_change_observer", lambda page: None)
+    monkeypatch.setattr(tracker, "remove_live_change_observer", lambda page: None)
+    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: True)
+
+    def interrupt_monitoring():
+        shutdown_requested.set()
+        raise RuntimeError(error_message)
+
+    monkeypatch.setattr(monitor, "_monitor_loop", interrupt_monitoring)
+
+    monitor.run()
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.message
+        in {
+            "Browser page was closed during shutdown",
+            "Browser operation was interrupted during shutdown",
+        }
+    )
+    assert record.levelname == expected_level
+    assert (record.exc_text is not None) is has_traceback
+
+
 def test_save_state_to_json_persists_all_state_and_returns_true(monitor, tmp_path):
     path = tmp_path / "state.json"
     monitor.match_history = {"1": {"initial": market_data(), "changes": []}}
@@ -758,6 +799,11 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     assert sleeps == [10]
     assert "Page refresh attempt 1/2 failed" in caplog.text
     assert "Full page refresh" not in caplog.text
+
+
+def test_page_refresh_rejects_non_positive_retry_count(monitor):
+    with pytest.raises(ValueError, match="max_retries must be at least 1"):
+        monitor._do_hard_page_refresh_with_retries(max_retries=0)
 
 
 def test_page_refresh_stops_retrying_when_shutdown_is_requested(

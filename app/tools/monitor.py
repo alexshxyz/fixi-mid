@@ -3,6 +3,7 @@ import requests
 import os
 import sys
 from datetime import datetime
+from typing import NoReturn
 
 # Определяем директорию родительского проекта
 PARENT_DIR = os.path.dirname(
@@ -20,7 +21,7 @@ from app.logger import format_console_log_message, setup_logger
 logger = setup_logger(__name__, 'monitor.log')
 
 
-def send(msg):
+def send(msg: str) -> bool:
     """Отправить сообщение о состоянии мониторинга в Telegram."""
     url = TELEGRAM_API_URL_TEMPLATE.format(token=config.MONITOR_TELEGRAM_TOKEN)
     try:
@@ -39,7 +40,7 @@ def send(msg):
         return False
 
 
-def get_last_line():
+def get_last_line() -> str | None:
     """Прочитать последнюю строку файла лога, не загружая его целиком."""
     try:
         with open(config.BOT_LOG_FILE, "rb") as log_file:
@@ -70,7 +71,7 @@ def get_last_line():
         return None
 
 
-def parse_time(line):
+def parse_time(line: str | None) -> datetime | None:
     """Извлечь дату и время из строки лога."""
     try:
         if not line:
@@ -87,7 +88,7 @@ def parse_time(line):
     return None
 
 
-def main():
+def main() -> NoReturn:
     """Периодически проверять свежесть лога и отправлять статус."""
     while True:
         last_line = get_last_line()
