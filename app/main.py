@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 import time
+from contextlib import suppress
 from datetime import datetime
 from functools import partial
 
@@ -37,6 +38,7 @@ from app.config import (
     RESTART_HOURS,
     SITE_COOKIES,
     SITE_URL,
+    validate_browser_proxy_server,
 )
 from app.logger import setup_logger
 from app.observer import (
@@ -118,9 +120,6 @@ def _retry_page_action(
 def init_browser(p, max_navigation_retries=PAGE_ACTION_MAX_RETRIES):
     """Инициализировать браузер и открыть страницу сайта."""
     logger.info("Setup browser...")
-    if not BROWSER_PROXY_SERVER:
-        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
-
     browser = p.chromium.launch(
         headless=BROWSER_HEADLESS,
         proxy={"server": BROWSER_PROXY_SERVER},
@@ -255,10 +254,8 @@ def has_valid_match_data(page):
 def _restart_script(browser=None):
     """Закрыть браузер и перезапустить процесс."""
     if browser is not None:
-        try:
+        with suppress(Exception):
             browser.close()
-        except Exception:
-            pass
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -284,13 +281,16 @@ def _validate_configuration():
     required_settings = {
         "BOT_TOKEN": BOT_TOKEN,
         "CHANNEL_ID": CHANNEL_ID,
-        "BROWSER_PROXY_SERVER": BROWSER_PROXY_SERVER,
     }
     missing_settings = [
         name
         for name, value in required_settings.items()
         if not value or not value.strip()
     ]
+    try:
+        validate_browser_proxy_server(BROWSER_PROXY_SERVER)
+    except RuntimeError:
+        missing_settings.append("BROWSER_PROXY_SERVER")
     if missing_settings:
         raise RuntimeError(
             "Missing required configuration: " + ", ".join(missing_settings)
@@ -379,10 +379,8 @@ def main():
                         )
                         return
                     logger.error(f"Unexpected error in main: {e}")
-                    try:
+                    with suppress(Exception):
                         browser.close()
-                    except Exception:
-                        pass
                     raise
                 finally:
                     if shutdown_requested.is_set():

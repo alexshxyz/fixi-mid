@@ -1,9 +1,10 @@
 import json
 import os
 import tempfile
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from .config import MATCHES_FILE
@@ -26,14 +27,14 @@ def _ensure_matches_file() -> Path:
     return path
 
 
-def _load_matches() -> List[MatchRecord]:
+def _load_matches() -> list[MatchRecord]:
     """Загрузить сохранённые записи; сбросить повреждённый JSON."""
     path = _ensure_matches_file()
     try:
         with path.open('r', encoding='utf-8') as f:
             data: Any = json.load(f)
         if isinstance(data, list):
-            return cast(List[MatchRecord], data)
+            return cast(list[MatchRecord], data)
         logger.error("Matches file does not contain a JSON list. Resetting %s.", path)
     except (json.JSONDecodeError, OSError, ValueError):
         logger.error("Matches file is empty or corrupted. Resetting %s.", path)
@@ -44,7 +45,7 @@ def _load_matches() -> List[MatchRecord]:
     return []
 
 
-def _save_matches(matches: List[MatchRecord]) -> None:
+def _save_matches(matches: list[MatchRecord]) -> None:
     """Атомарно сохранить записи матчей в JSON-файл."""
     path = _ensure_matches_file()
     temp_path = None
@@ -77,8 +78,8 @@ def init_storage() -> bool:
 
 
 def check_duplicate_match(
-    link: Optional[str],
-    prediction: Optional[str],
+    link: str | None,
+    prediction: str | None,
 ) -> bool:
     """Проверить наличие записи с такими ссылкой и прогнозом."""
     if not link or not prediction:
@@ -90,7 +91,7 @@ def check_duplicate_match(
     return False
 
 
-def _get_match_id(item: MatchRecord) -> Optional[str]:
+def _get_match_id(item: MatchRecord) -> str | None:
     """Получить ID матча из поля записи или ссылки."""
     match_id = item.get('match_id')
     if match_id is not None:
@@ -103,7 +104,7 @@ def _get_match_id(item: MatchRecord) -> Optional[str]:
     return unquote(path_parts[-1]) if path_parts else None
 
 
-def _get_market(item: MatchRecord) -> Optional[MarketType]:
+def _get_market(item: MatchRecord) -> MarketType | None:
     """Определить рынок записи, включая старые записи без поля market."""
     market = item.get('market')
     if market == 'ov':
@@ -119,9 +120,9 @@ def _get_market(item: MatchRecord) -> Optional[MarketType]:
     return None
 
 
-def get_match_notification_states() -> Dict[str, MatchNotificationState]:
+def get_match_notification_states() -> dict[str, MatchNotificationState]:
     """Вернуть отправленные рынки для всех известных матчей."""
-    states: Dict[str, MatchNotificationState] = {}
+    states: dict[str, MatchNotificationState] = {}
     for item in _load_matches():
         if not isinstance(item, dict):
             continue
@@ -138,7 +139,7 @@ def get_match_notification_states() -> Dict[str, MatchNotificationState]:
 
 
 def get_match_notification_state(
-    match_id: Optional[Union[str, int]],
+    match_id: str | int | None,
 ) -> MatchNotificationState:
     """Вернуть множество отправленных рынков для одного матча."""
     return get_match_notification_states().get(
@@ -148,7 +149,7 @@ def get_match_notification_state(
 
 
 def check_duplicate_market(
-    match_id: Optional[Union[str, int]],
+    match_id: str | int | None,
     market: str,
 ) -> bool:
     """Проверить, отправлялось ли уведомление по этому рынку матча."""
@@ -156,8 +157,8 @@ def check_duplicate_market(
 
 
 def update_match_mark(
-    link: Optional[str],
-    prediction: Optional[str],
+    link: str | None,
+    prediction: str | None,
     mark: str,
 ) -> bool:
     """Обновить отметку у сохранённого уведомления."""
@@ -178,7 +179,7 @@ def update_match_mark(
                     'mark': mark,
                     **{
                         key: value
-                        for key, value in cast(Dict[str, Any], match).items()
+                        for key, value in cast(dict[str, Any], match).items()
                         if key != 'mark'
                     },
                 },
@@ -201,21 +202,19 @@ def save_match(
     prediction: str,
     odds: object,
     link: str,
-    final_score: Optional[str] = None,
-    result: Optional[str] = None,
-    date_value: Optional[str] = None,
-    drop_type: Optional[str] = None,
-    match_id: Optional[Union[str, int]] = None,
-    market: Optional[str] = None,
-    strategy: Optional[str] = 'default',
-) -> Tuple[Optional[int], Optional[int]]:
+    final_score: str | None = None,
+    result: str | None = None,
+    date_value: str | None = None,
+    drop_type: str | None = None,
+    match_id: str | int | None = None,
+    market: str | None = None,
+    strategy: str | None = 'default',
+) -> tuple[int | None, int | None]:
     """Сохранить уведомление, если такой прогноз ещё не записан."""
-    normalized_odds: Optional[float] = None
+    normalized_odds: float | None = None
     if odds is not None:
-        try:
+        with suppress(TypeError, ValueError):
             normalized_odds = float(cast(Any, odds))
-        except (TypeError, ValueError):
-            pass
 
     if date_value is None:
         date_value = date.today().isoformat()
@@ -250,7 +249,7 @@ def save_match(
     return row_order, row_order
 
 
-def get_all_matches() -> List[MatchRecord]:
+def get_all_matches() -> list[MatchRecord]:
     """Вернуть все сохранённые записи матчей."""
     return _load_matches()
 
@@ -258,7 +257,7 @@ def get_all_matches() -> List[MatchRecord]:
 def get_matches_in_date_range(
     start_date: str,
     end_date: str,
-) -> List[MatchRecord]:
+) -> list[MatchRecord]:
     """Вернуть записи за период, включая start_date и исключая end_date."""
     matches = _load_matches()
     filtered = []
@@ -269,7 +268,7 @@ def get_matches_in_date_range(
     return filtered
 
 
-def calculate_stats(matches: List[MatchRecord]) -> Tuple[int, int, int, int]:
+def calculate_stats(matches: list[MatchRecord]) -> tuple[int, int, int, int]:
     """Подсчитать общее число матчей, побед, поражений и возвратов."""
     total = len(matches)
     wins = sum(1 for m in matches if m.get('result') == 'Won')
@@ -279,10 +278,10 @@ def calculate_stats(matches: List[MatchRecord]) -> Tuple[int, int, int, int]:
 
 
 def get_stats_by_league(
-    matches: List[MatchRecord],
-) -> Dict[Optional[str], LeagueStats]:
+    matches: list[MatchRecord],
+) -> dict[str | None, LeagueStats]:
     """Сгруппировать статистику по лигам."""
-    stats: Dict[Optional[str], LeagueStats] = {}
+    stats: dict[str | None, LeagueStats] = {}
     for match in matches:
         league = match.get('league', 'Unknown')
         if league not in stats:

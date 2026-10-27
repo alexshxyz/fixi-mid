@@ -1,5 +1,5 @@
 import re
-from typing import Callable, List, Optional, Tuple, Union
+from collections.abc import Callable
 
 from .config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
 from .notifier import send_telegram_notification
@@ -21,7 +21,7 @@ from .match_types import (
 logger = setup_logger(__name__)
 
 
-def _to_float(value: MarketValue) -> Optional[float]:
+def _to_float(value: MarketValue) -> float | None:
     """Преобразовать значение рынка в число или вернуть None."""
     if value is None:
         return None
@@ -31,7 +31,7 @@ def _to_float(value: MarketValue) -> Optional[float]:
         return None
 
 
-def _normalize_ah_text(value: MarketValue) -> Optional[str]:
+def _normalize_ah_text(value: MarketValue) -> str | None:
     """Очистить значение форы и вернуть None для пустой строки."""
     if value is None:
         return None
@@ -53,7 +53,7 @@ def _is_away_zero_split_handicap(value: MarketValue) -> bool:
     return bool(re.match(r"^\+?0\s*/\s*-[\d.,]+$", text))
 
 
-def _ah_sign(value: MarketValue) -> Optional[int]:
+def _ah_sign(value: MarketValue) -> int | None:
     """Определить сторону форы: 1, -1, 0 или None."""
     text = _normalize_ah_text(value)
     if text is None:
@@ -65,9 +65,9 @@ def _ah_sign(value: MarketValue) -> Optional[int]:
     return -1 if text.startswith("-") else 1
 
 
-def _collect_match_entries(data: MatchHistory) -> List[MatchSnapshot]:
+def _collect_match_entries(data: MatchHistory) -> list[MatchSnapshot]:
     """Собрать исходный снимок и изменения в хронологическом порядке."""
-    entries: List[MatchSnapshot] = []
+    entries: list[MatchSnapshot] = []
     initial = data.get("initial")
     if initial:
         entries.append(initial)
@@ -75,7 +75,7 @@ def _collect_match_entries(data: MatchHistory) -> List[MatchSnapshot]:
     return entries
 
 
-def _line_status(entry: MatchSnapshot, market: MarketType) -> Optional[str]:
+def _line_status(entry: MatchSnapshot, market: MarketType) -> str | None:
     """Получить значение линии рынка из снимка матча."""
     if market == "ov":
         return entry.get("ov", {}).get("over")
@@ -83,9 +83,9 @@ def _line_status(entry: MatchSnapshot, market: MarketType) -> Optional[str]:
 
 
 def _get_last_entry_before_closed(
-    entries: List[MatchSnapshot],
+    entries: list[MatchSnapshot],
     market: MarketType,
-) -> Tuple[Optional[MatchSnapshot], int]:
+) -> tuple[MatchSnapshot | None, int]:
     """Найти последний снимок до закрытия линии указанного рынка."""
     for idx in range(len(entries) - 2, -1, -1):
         if _line_status(entries[idx], market) != "Closed":
@@ -98,7 +98,7 @@ def _scores_match(
     confirming_entry: MatchSnapshot,
 ) -> bool:
     """Сравнить известные счета; неизвестный счет не блокирует сигнал."""
-    def known_score(entry: MatchSnapshot) -> Optional[str]:
+    def known_score(entry: MatchSnapshot) -> str | None:
         """Вернуть известный счёт или None."""
         score = entry.get("score")
         if score is None:
@@ -128,21 +128,21 @@ def _is_finished_match(entry: MatchSnapshot) -> bool:
 
 
 def _notification_sent_callback(
-    on_notification_sent: Optional[NotificationSentCallback],
+    on_notification_sent: NotificationSentCallback | None,
     match_id: str,
     market: MarketType,
     league: str,
-) -> Optional[NotificationSentRegistrar]:
+) -> NotificationSentRegistrar | None:
     """Связать callback уведомления с данными матча и рынка."""
     if not on_notification_sent:
         return None
 
     def register(
-        message_id: Union[str, int],
+        message_id: str | int,
         message: str,
         link: str,
         prediction: str,
-        channel_id: Optional[str],
+        channel_id: str | None,
     ) -> None:
         """Передать callback-у сведения об успешно отправленном уведомлении."""
         on_notification_sent({
@@ -163,11 +163,11 @@ def _send_market_notification(
     market: MarketType,
     match_id: str,
     last_entry: MatchSnapshot,
-    line: Optional[str],
+    line: str | None,
     odds: float,
     drop_type: str,
-    odds_side: Optional[OddsSide] = None,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
+    odds_side: OddsSide | None = None,
+    on_notification_sent: NotificationSentCallback | None = None,
 ) -> None:
     """Отправить Telegram-уведомление о найденном паттерне рынка."""
     team1 = last_entry.get("team1", "Unknown")
@@ -214,7 +214,7 @@ def _send_over_notification(
     last_total: str,
     last_over_odds: float,
     drop_type: str,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
+    on_notification_sent: NotificationSentCallback | None = None,
 ) -> None:
     """Отправить уведомление о паттерне Over."""
     _send_market_notification(
@@ -235,7 +235,7 @@ def _send_ah_notification(
     last_ah_odds: float,
     odds_side: OddsSide,
     drop_type: str,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
+    on_notification_sent: NotificationSentCallback | None = None,
 ) -> None:
     """Отправить уведомление о паттерне азиатской форы."""
     _send_market_notification(
@@ -253,7 +253,7 @@ def _send_ah_notification(
 def _get_market_values(
     entry: MatchSnapshot,
     market: MarketType,
-) -> Tuple[Optional[str], Optional[float], Optional[OddsSide]]:
+) -> tuple[str | None, float | None, OddsSide | None]:
     """Получить линию, коэффициент и при необходимости сторону команды."""
     if market == "ov":
         over_data: OverMarketLine = entry.get("ov", {})
@@ -279,11 +279,11 @@ def _get_market_values(
 
 
 def _find_market_pattern(
-    entries: List[MatchSnapshot],
+    entries: list[MatchSnapshot],
     match_id: str,
     market: MarketType,
     notify: Callable[..., None],
-    on_notification_sent: Optional[NotificationSentCallback],
+    on_notification_sent: NotificationSentCallback | None,
 ) -> bool:
     """Проверить закрытие линии после подходящего изменения коэффициента."""
     if (
@@ -343,9 +343,9 @@ def _find_market_pattern(
 
 
 def _find_over_pattern(
-    entries: List[MatchSnapshot],
+    entries: list[MatchSnapshot],
     match_id: str,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
+    on_notification_sent: NotificationSentCallback | None = None,
 ) -> bool:
     """Проверить паттерн закрытия линии Over."""
     return _find_market_pattern(
@@ -354,9 +354,9 @@ def _find_over_pattern(
 
 
 def _find_ah_pattern(
-    entries: List[MatchSnapshot],
+    entries: list[MatchSnapshot],
     match_id: str,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
+    on_notification_sent: NotificationSentCallback | None = None,
 ) -> bool:
     """Проверить паттерн закрытия линии азиатской форы."""
     return _find_market_pattern(
@@ -366,8 +366,8 @@ def _find_ah_pattern(
 
 def find_pattern_matches(
     match_history: MatchHistoryMap,
-    on_notification_sent: Optional[NotificationSentCallback] = None,
-) -> List[str]:
+    on_notification_sent: NotificationSentCallback | None = None,
+) -> list[str]:
     """Проанализировать истории и вернуть ID матчей с найденным паттерном."""
     sent_matches = []
 

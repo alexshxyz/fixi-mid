@@ -202,14 +202,13 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
     ]
 
 
-def test_init_browser_requires_configured_proxy(monkeypatch):
-    playwright = FakePlaywright(FakeBrowser())
+def test_validate_configuration_rejects_missing_browser_proxy(monkeypatch):
+    monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", None)
 
-    with pytest.raises(RuntimeError, match="BROWSER_PROXY_SERVER is not configured"):
-        main.init_browser(playwright)
-
-    assert playwright.launch_calls == []
+    with pytest.raises(RuntimeError, match="BROWSER_PROXY_SERVER"):
+        main._validate_configuration()
 
 
 def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):

@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from .config import STATE_SAVE_FILE
 from .logger import setup_logger
@@ -20,33 +20,8 @@ def get_last_data(match_data: MatchSnapshot) -> MatchSnapshot:
     }
 
 
-def get_analysis_history(match_history: MatchHistoryMap) -> Dict[str, Any]:
-    """Убрать из истории записи без изменений отслеживаемых полей."""
-    analysis_history = {}
-    tracked_fields = ('ah', 'ov', 'match_time', 'score')
-
-    for match_id, match_data in match_history.items():
-        changes = []
-        previous_entry = match_data.get('initial')
-        for entry in match_data.get('changes', []):
-            if previous_entry is None or any(
-                entry.get(field, 'Unknown') !=
-                previous_entry.get(field, 'Unknown')
-                for field in tracked_fields
-            ):
-                changes.append(entry)
-                previous_entry = entry
-
-        analysis_history[match_id] = {
-            **match_data,
-            'changes': changes,
-        }
-
-    return analysis_history
-
-
 def load_state_from_json(
-    path: Union[str, os.PathLike[str]] = STATE_SAVE_FILE,
+    path: str | os.PathLike[str] = STATE_SAVE_FILE,
 ) -> Any:
     """Загрузить сохранённое состояние матча из JSON-файла."""
     if not os.path.exists(path):
@@ -64,10 +39,10 @@ def load_state_from_json(
 
 def save_state_to_json(
     match_history: MatchHistoryMap,
-    last_data: Dict[str, MatchSnapshot],
-    active_match_ids: List[str],
-    pending_notifications: Dict[str, Dict[str, Any]],
-    path: Union[str, os.PathLike[str]] = STATE_SAVE_FILE,
+    last_data: dict[str, MatchSnapshot],
+    active_match_ids: list[str],
+    pending_notifications: dict[str, dict[str, Any]],
+    path: str | os.PathLike[str] = STATE_SAVE_FILE,
 ) -> bool:
     """Сохранить текущее состояние матчей в JSON-файл."""
     try:
@@ -87,8 +62,8 @@ def save_state_to_json(
 
 
 def restore_state(
-    saved_state: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
+    saved_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     """Подготовить сохранённое состояние к использованию монитором."""
     if not saved_state:
         return None

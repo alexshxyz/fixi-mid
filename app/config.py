@@ -2,7 +2,6 @@ import json
 import os
 import random
 from pathlib import Path
-from typing import Dict, Optional
 from urllib.parse import quote
 from dotenv import load_dotenv
 
@@ -15,8 +14,14 @@ load_dotenv(dotenv_path=PROJECT_DIR / '.env')
 # Настройки страницы
 SITE_URL = "https://www.goaloo.com/"
 BROWSER_HEADLESS: bool = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-BROWSER_PROXY_SERVER: Optional[str] = os.environ.get('BROWSER_PROXY_SERVER')
+BROWSER_PROXY_SERVER: str | None = os.environ.get('BROWSER_PROXY_SERVER')
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
+
+
+def validate_browser_proxy_server(proxy_server: str | None) -> None:
+    """Проверить, что задан обязательный адрес прокси браузера."""
+    if not proxy_server or not proxy_server.strip():
+        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
 
 # Настройки файлов
 MATCHES_FILE: str = os.environ.get('MATCHES_FILE', str(DATA_DIR / 'matches.json'))
@@ -24,17 +29,17 @@ LEAGUES_FILE: str = str(DATA_DIR / 'leagues.json')
 STATE_SAVE_FILE: str = str(DATA_DIR / 'match_state.json')
 
 # Настройки Telegram-бота
-BOT_TOKEN: Optional[str] = os.environ.get('BOT_TOKEN')
-CHANNEL_ID: Optional[str] = os.environ.get('CHANNEL_ID')
-MONITOR_TELEGRAM_TOKEN: Optional[str] = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
-MONITOR_CHAT_ID: Optional[str] = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
+BOT_TOKEN: str | None = os.environ.get('BOT_TOKEN')
+CHANNEL_ID: str | None = os.environ.get('CHANNEL_ID')
+MONITOR_TELEGRAM_TOKEN: str | None = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
+MONITOR_CHAT_ID: str | None = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
 
 # Настройки прокси
-TELEGRAM_PROXY_HOST: Optional[str] = os.environ.get('TELEGRAM_PROXY_HOST')
-TELEGRAM_PROXY_PORT: Optional[str] = os.environ.get('TELEGRAM_PROXY_PORT')
-TELEGRAM_PROXY_USERNAME: Optional[str] = os.environ.get('TELEGRAM_PROXY_USERNAME')
-TELEGRAM_PROXY_PASSWORD: Optional[str] = os.environ.get('TELEGRAM_PROXY_PASSWORD')
-TELEGRAM_PROXIES: Optional[Dict[str, str]] = None
+TELEGRAM_PROXY_HOST: str | None = os.environ.get('TELEGRAM_PROXY_HOST')
+TELEGRAM_PROXY_PORT: str | None = os.environ.get('TELEGRAM_PROXY_PORT')
+TELEGRAM_PROXY_USERNAME: str | None = os.environ.get('TELEGRAM_PROXY_USERNAME')
+TELEGRAM_PROXY_PASSWORD: str | None = os.environ.get('TELEGRAM_PROXY_PASSWORD')
+TELEGRAM_PROXIES: dict[str, str] | None = None
 if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
     proxy_auth: str = ''
     if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:

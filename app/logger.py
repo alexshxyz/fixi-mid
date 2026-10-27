@@ -3,7 +3,7 @@ import os
 import re
 from copy import copy
 from pathlib import Path
-from typing import TextIO, Union
+from typing import TextIO
 
 
 _MATCH_IDS_PATTERN = re.compile(
@@ -73,7 +73,7 @@ class _ConsoleLogHandler(logging.StreamHandler[TextIO]):
 
 def setup_logger(
     name: str,
-    log_filename: Union[str, os.PathLike[str]] = 'bot.log',
+    log_filename: str | os.PathLike[str] = 'bot.log',
 ) -> logging.Logger:
     """Создать именованный логгер с обработчиками файла и консоли."""
     logger = logging.getLogger(name)

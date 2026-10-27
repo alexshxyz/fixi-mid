@@ -298,14 +298,17 @@ def test_init_or_restore_state_initializes_matches_and_runs_analyzer(
     }
 
 
-def test_run_analyzer_filters_history_and_calls_pattern_matcher(
+def test_run_analyzer_passes_full_history_to_pattern_matcher(
     monkeypatch, monitor
 ):
     initial = market_data()
-    unchanged = {**market_data(), "date": "later"}
     changed = market_data(score="1-0")
+    changed_again = market_data(score="1-1")
     monitor.match_history = {
-        "1": {"initial": initial, "changes": [unchanged, changed]}
+        "1": {
+            "initial": initial,
+            "changes": [changed, changed_again],
+        }
     }
     calls = []
     monkeypatch.setattr(
@@ -315,7 +318,8 @@ def test_run_analyzer_filters_history_and_calls_pattern_matcher(
     monitor._run_analyzer()
 
     assert len(calls) == 1
-    assert calls[0][0]["1"]["changes"] == [changed]
+    assert calls[0][0] is monitor.match_history
+    assert calls[0][0]["1"]["changes"] == [changed, changed_again]
     assert calls[0][1].__self__ is monitor
     assert calls[0][1].__func__ is tracker.MatchMonitor._register_pending_notification
 
@@ -930,6 +934,43 @@ def test_poll_and_update_detects_market_time_and_score_changes(monkeypatch, moni
     assert monitor.match_history["1"]["changes"] == [changed]
     assert monitor.last_data["1"]["score"] == "1-0"
     assert monitor.match_history["2"]["changes"] == []
+
+
+def test_poll_history_changes_remain_unique_after_json_restore(
+    monkeypatch, monitor, tmp_path
+):
+    initial = market_data()
+    current = market_data(score="1-0")
+    monitor.active_match_ids = ["1"]
+    monitor.last_data = {"1": tracker.state.get_last_data(initial)}
+    monitor.match_history = {"1": {"initial": initial, "changes": []}}
+    monkeypatch.setattr(
+        tracker,
+        "extract_all_match_data",
+        lambda page, ids: {"1": current},
+    )
+
+    assert monitor._poll_and_update() is True
+    current = market_data(score="1-1")
+    assert monitor._poll_and_update() is True
+
+    path = tmp_path / "match_state.json"
+    assert monitor._save_state_to_json(["1"], monitor.last_data, path)
+    saved = tracker.state.load_state_from_json(path)
+    restored = tracker.state.restore_state(saved)
+
+    entries = [
+        restored["match_history"]["1"]["initial"],
+        *restored["match_history"]["1"]["changes"],
+    ]
+    tracked_values = [
+        json.dumps(
+            [entry["ah"], entry["ov"], entry["match_time"], entry["score"]],
+            sort_keys=True,
+        )
+        for entry in entries
+    ]
+    assert len(tracked_values) == len(set(tracked_values))
 
 
 def test_poll_and_update_ignores_unchanged_data_and_missing_last_state(

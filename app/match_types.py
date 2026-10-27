@@ -1,17 +1,12 @@
 """Общие типы снимков матчей и данных их рынков."""
 
 from typing import (
-    Callable,
-    Dict,
-    List,
     Literal,
-    Optional,
-    Set,
     TypedDict,
-    Union,
 )
+from collections.abc import Callable
 
-MarketValue = Optional[Union[str, int, float]]
+MarketValue = str | int | float | None
 MarketType = Literal["ov", "ah"]
 OddsSide = Literal["home", "away"]
 
@@ -19,7 +14,7 @@ OddsSide = Literal["home", "away"]
 class OverMarketLine(TypedDict, total=False):
     """Линия и коэффициенты рынка Over в одном снимке матча."""
 
-    over: Optional[str]
+    over: str | None
     over_odds: MarketValue
     under_odds: MarketValue
 
@@ -27,7 +22,7 @@ class OverMarketLine(TypedDict, total=False):
 class HandicapMarketLine(TypedDict, total=False):
     """Линия и коэффициенты азиатской форы в одном снимке матча."""
 
-    ah: Optional[str]
+    ah: str | None
     home_ah_odds: MarketValue
     away_ah_odds: MarketValue
 
@@ -35,25 +30,25 @@ class HandicapMarketLine(TypedDict, total=False):
 class MatchSnapshot(TypedDict, total=False):
     """Данные матча и рынков, зафиксированные в один момент."""
 
-    time: Optional[str]
-    match_time: Optional[str]
+    time: str | None
+    match_time: str | None
     ah: HandicapMarketLine
     ov: OverMarketLine
     team1: str
     team2: str
     score: str
     league: str
-    date: Optional[str]
+    date: str | None
 
 
 class MatchHistory(TypedDict, total=False):
     """Исходный снимок и последующие изменения одного матча."""
 
-    initial: Optional[MatchSnapshot]
-    changes: List[MatchSnapshot]
+    initial: MatchSnapshot | None
+    changes: list[MatchSnapshot]
 
 
-MatchHistoryMap = Dict[str, MatchHistory]
+MatchHistoryMap = dict[str, MatchHistory]
 
 
 class NotificationSentDetails(TypedDict):
@@ -62,16 +57,16 @@ class NotificationSentDetails(TypedDict):
     match_id: str
     market: MarketType
     league: str
-    message_id: Union[str, int]
+    message_id: str | int
     message: str
     link: str
     prediction: str
-    channel_id: Optional[str]
+    channel_id: str | None
 
 
 NotificationSentCallback = Callable[[NotificationSentDetails], None]
 NotificationSentRegistrar = Callable[
-    [Union[str, int], str, str, str, Optional[str]],
+    [str | int, str, str, str, str | None],
     None,
 ]
 
@@ -82,43 +77,43 @@ class TelegramNotification(TypedDict, total=False):
     league: str
     team1: str
     team2: str
-    score: Optional[str]
+    score: str | None
     over: MarketValue
     over_odds: MarketValue
-    match_id: Optional[Union[str, int]]
+    match_id: str | int | None
     handicap_text: MarketValue
-    handicap_team_order: Optional[str]
-    match_time: Optional[str]
-    on_sent_details: Optional[NotificationSentRegistrar]
-    channel_id: Optional[str]
-    drop_type: Optional[str]
-    strategy: Optional[str]
+    handicap_team_order: str | None
+    match_time: str | None
+    on_sent_details: NotificationSentRegistrar | None
+    channel_id: str | None
+    drop_type: str | None
+    strategy: str | None
 
 
 class MatchRecord(TypedDict, total=False):
     """Сохранённая запись об отправленном уведомлении."""
 
-    mark: Optional[str]
+    mark: str | None
     league: str
     home_team: str
     away_team: str
     prediction: str
-    drop_type: Optional[str]
-    odds: Optional[float]
-    final_score: Optional[str]
-    result: Optional[str]
-    link: Optional[str]
-    match_id: Optional[str]
-    market: Optional[str]
+    drop_type: str | None
+    odds: float | None
+    final_score: str | None
+    result: str | None
+    link: str | None
+    match_id: str | None
+    market: str | None
     strategy: str
-    date: Optional[str]
+    date: str | None
     source: str
 
 
 class MatchNotificationState(TypedDict):
     """Рынки, по которым для матча уже отправлены уведомления."""
 
-    sent_markets: Set[MarketType]
+    sent_markets: set[MarketType]
 
 
 class LeagueStats(TypedDict):

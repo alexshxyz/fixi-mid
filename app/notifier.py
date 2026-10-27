@@ -2,7 +2,7 @@ import requests
 import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 from .config import (
     BOT_TOKEN,
@@ -33,7 +33,7 @@ NORMALIZED_HANDICAP_OUTCOMES = {
 }
 
 
-def _normalize_match_time_for_message(raw_time: Optional[str]) -> str:
+def _normalize_match_time_for_message(raw_time: str | None) -> str:
     """Нормализовать игровое время для сообщения Telegram."""
     if raw_time is None:
         return 'Unknown'
@@ -83,7 +83,7 @@ def _normalize_split_value(
 def _build_prediction(
     over: MarketValue,
     handicap_text: MarketValue,
-    handicap_team_order: Optional[str],
+    handicap_team_order: str | None,
 ) -> str:
     """Сформировать внутреннее название прогноза."""
     if handicap_text is None:
@@ -130,7 +130,7 @@ def _round_quarter_handicap(value: Decimal) -> Decimal:
     return -rounded_magnitude if value.is_signed() else rounded_magnitude
 
 
-def _parse_score(score: Optional[str]) -> Optional[Tuple[int, int]]:
+def _parse_score(score: str | None) -> tuple[int, int] | None:
     """Разобрать счёт матча в количество голов команд."""
     if score is None:
         return None
@@ -144,8 +144,8 @@ def _parse_score(score: Optional[str]) -> Optional[Tuple[int, int]]:
 def _build_display_prediction(
     over: MarketValue,
     handicap_text: MarketValue,
-    handicap_team_order: Optional[str],
-    score: Optional[str],
+    handicap_team_order: str | None,
+    score: str | None,
 ) -> str:
     """Преобразовать прогноз в русское отображение для Telegram."""
     if handicap_text is None:
@@ -205,10 +205,10 @@ def _build_message(
     league: str,
     team1: str,
     team2: str,
-    score: Optional[str],
+    score: str | None,
     match_url: str,
     prediction: str,
-    match_time: Optional[str] = 'Unknown',
+    match_time: str | None = 'Unknown',
 ) -> str:
     """Сформировать HTML-сообщение о матче."""
     clean_match_time = _normalize_match_time_for_message(match_time)
@@ -226,9 +226,9 @@ def _build_message(
 
 
 def _send_message(
-    payload: Dict[str, Any],
-    match_id: Optional[Union[str, int]] = None,
-    success_message: Optional[str] = None,
+    payload: dict[str, Any],
+    match_id: str | int | None = None,
+    success_message: str | None = None,
     api_url: str = TELEGRAM_API_URL,
     max_attempts: int = 1,
     retry_delay: float = TELEGRAM_RETRY_DELAY_SECONDS,
@@ -293,9 +293,9 @@ def _send_message(
 
 
 def edit_telegram_notification(
-    message_id: Union[str, int],
+    message_id: str | int,
     text: str,
-    channel_id: Optional[str] = CHANNEL_ID,
+    channel_id: str | None = CHANNEL_ID,
 ) -> bool:
     """Отредактировать ранее отправленное сообщение Telegram."""
     payload = {
@@ -318,9 +318,9 @@ def _save_notification(
     team2: str,
     prediction: str,
     odds_value: MarketValue,
-    drop_type: Optional[str],
+    drop_type: str | None,
     match_url: str,
-    match_id: Optional[Union[str, int]],
+    match_id: str | int | None,
     market: str,
     strategy: str,
 ) -> None:
@@ -346,17 +346,17 @@ def send_telegram_notification(
     league: str,
     team1: str,
     team2: str,
-    score: Optional[str],
+    score: str | None,
     over: MarketValue = None,
     over_odds: MarketValue = None,
-    match_id: Optional[Union[str, int]] = None,
+    match_id: str | int | None = None,
     handicap_text: MarketValue = None,
-    handicap_team_order: Optional[str] = None,
-    match_time: Optional[str] = 'Unknown',
-    on_sent_details: Optional[NotificationSentRegistrar] = None,
-    channel_id: Optional[str] = None,
-    drop_type: Optional[str] = None,
-    strategy: Optional[str] = None,
+    handicap_team_order: str | None = None,
+    match_time: str | None = 'Unknown',
+    on_sent_details: NotificationSentRegistrar | None = None,
+    channel_id: str | None = None,
+    drop_type: str | None = None,
+    strategy: str | None = None,
 ) -> bool:
     """Отправить сигнал в Telegram и сохранить его при успехе."""
     # Отправляет уведомление о матче в Telegram канал.

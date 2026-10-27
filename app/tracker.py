@@ -2,11 +2,12 @@ import json
 import time
 from pathlib import Path
 from threading import Event
-from typing import Any, Callable, Dict, List, NoReturn, Optional, Union
+from typing import Any, NoReturn
+from collections.abc import Callable
 
 from playwright.sync_api import Page
 
-from . import alarms, state
+from . import pending_notifications, state
 from .closed_ov_ah import find_pattern_matches
 from .config import (
     DATA_DIR,
@@ -23,7 +24,6 @@ from .config import (
 )
 from .logger import setup_logger
 from .match_types import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
-from .state import load_state_from_json
 from .observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
@@ -46,25 +46,25 @@ class MatchMonitor:
     def __init__(
         self,
         page: Page,
-        match_ids: Optional[List[str]] = None,
-        saved_state: Optional[Dict[str, Any]] = None,
+        match_ids: list[str] | None = None,
+        saved_state: dict[str, Any] | None = None,
         *,
         live_refresh_callback: Callable[[Page], None],
-        page_refresh_callback: Optional[Callable[..., None]] = None,
-        restart_deadline: Optional[float] = None,
-        shutdown_requested: Optional[Event] = None,
+        page_refresh_callback: Callable[..., None] | None = None,
+        restart_deadline: float | None = None,
+        shutdown_requested: Event | None = None,
     ) -> None:
         """Инициализировать монитор, его состояние и расписание проверок."""
         self.page: Page = page
-        self.match_ids: Optional[List[str]] = match_ids
-        self.saved_state: Optional[Dict[str, Any]] = saved_state
+        self.match_ids: list[str] | None = match_ids
+        self.saved_state: dict[str, Any] | None = saved_state
         self.live_refresh_callback: Callable[[Page], None] = live_refresh_callback
-        self.page_refresh_callback: Optional[Callable[..., None]] = page_refresh_callback
-        self.shutdown_requested: Optional[Event] = shutdown_requested
+        self.page_refresh_callback: Callable[..., None] | None = page_refresh_callback
+        self.shutdown_requested: Event | None = shutdown_requested
         self.match_history: MatchHistoryMap = {}
-        self.last_data: Dict[str, MatchSnapshot] = {}
-        self.pending_notifications: Dict[str, Dict[str, Any]] = {}
-        self.active_match_ids: List[str] = []
+        self.last_data: dict[str, MatchSnapshot] = {}
+        self.pending_notifications: dict[str, dict[str, Any]] = {}
+        self.active_match_ids: list[str] = []
         self.next_reload_at: float = time.monotonic() + get_table_live_reload_interval()
         self.next_page_refresh_at: float = time.monotonic() + PAGE_LIVE_RELOAD
         self.next_heartbeat_at: float = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
@@ -112,11 +112,21 @@ class MatchMonitor:
             and self.shutdown_requested.is_set()
         )
 
+    def _raise_if_shutdown(self, cause: Exception | None = None) -> None:
+        """Прервать обновление страницы, если запрошено завершение."""
+        if self._shutdown_is_requested():
+            error = PageRestartRequired(
+                "Shutdown requested during page refresh"
+            )
+            if cause is not None:
+                raise error from cause
+            raise error
+
     def _save_state_to_json(
         self,
-        active_match_ids: List[str],
-        last_data: Dict[str, MatchSnapshot],
-        path: Union[str, Path] = STATE_SAVE_FILE,
+        active_match_ids: list[str],
+        last_data: dict[str, MatchSnapshot],
+        path: str | Path = STATE_SAVE_FILE,
     ) -> bool:
         """Сохранить текущее состояние матчей в JSON-файл."""
         return state.save_state_to_json(
@@ -147,14 +157,13 @@ class MatchMonitor:
 
     def _run_analyzer(self) -> None:
         """Подготовить историю и передать её анализатору рынков."""
-        analysis_history = state.get_analysis_history(self.match_history)
         if DEBUGMODE == 1:
             snapshot_path = DATA_DIR / "data_closed_ov_ah.json"
             try:
                 snapshot_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
                     json.dump(
-                        analysis_history,
+                        self.match_history,
                         snapshot_file,
                         ensure_ascii=False,
                         indent=2,
@@ -164,7 +173,7 @@ class MatchMonitor:
                 logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
         find_pattern_matches(
-            analysis_history,
+            self.match_history,
             self._register_pending_notification,
         )
 
@@ -172,21 +181,23 @@ class MatchMonitor:
         self, notification: NotificationSentDetails
     ) -> None:
         """Запланировать отложенную проверку отправленного уведомления."""
-        alarms.register_pending_notification(
+        pending_notifications.register_pending_notification(
             self.pending_notifications, notification
         )
 
     def _process_due_notifications(self) -> None:
         """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
-        alarms.process_due_notifications(
+        pending_notifications.process_due_notifications(
             self.pending_notifications,
             self.last_data,
             self.active_match_ids,
         )
 
-    def _next_notification_timeout(self) -> Optional[float]:
+    def _next_notification_timeout(self) -> float | None:
         """Вычислить время ожидания до ближайшей проверки уведомления."""
-        return alarms.next_notification_timeout(self.pending_notifications)
+        return pending_notifications.next_notification_timeout(
+            self.pending_notifications
+        )
 
     def _load_initial_data(self) -> None:
         """Загрузить исходный снимок каждого активного матча."""
@@ -354,8 +365,8 @@ class MatchMonitor:
 
     def _wait_for_matches_with_hard_refresh(
         self,
-        match_status: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
+        match_status: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Ожидать появления матчей, периодически перезагружая страницу."""
         if match_status is None:
             match_status = collect_match_status(self.page, require_crown=True)
@@ -402,27 +413,20 @@ class MatchMonitor:
         self,
         max_retries: int = HARD_PAGE_REFRESH_MAX_RETRIES,
         retry_delay: float = HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Повторять полную перезагрузку страницы с сохранением состояния."""
         for attempt in range(1, max_retries + 1):
-            if self._shutdown_is_requested():
-                raise PageRestartRequired("Shutdown requested during page refresh")
+            self._raise_if_shutdown()
             self._restart_if_due()
             try:
                 if self.page_refresh_callback is None:
                     raise RuntimeError("Page refresh callback is not configured")
                 self.page_refresh_callback(self.page, wait_for_data=False)
-                if self._shutdown_is_requested():
-                    raise PageRestartRequired(
-                        "Shutdown requested during page refresh"
-                    )
+                self._raise_if_shutdown()
                 self._restart_if_due()
                 install_live_change_observer(self.page)
                 match_status = collect_match_status(self.page, require_crown=True)
-                if self._shutdown_is_requested():
-                    raise PageRestartRequired(
-                        "Shutdown requested during page refresh"
-                    )
+                self._raise_if_shutdown()
                 self._restart_if_due()
                 return match_status
             except PageRestartRequired:
@@ -430,9 +434,7 @@ class MatchMonitor:
             except Exception as e:
                 if self._shutdown_is_requested():
                     logger.info("Shutdown requested during page refresh")
-                    raise PageRestartRequired(
-                        "Shutdown requested during page refresh"
-                    ) from e
+                    self._raise_if_shutdown(e)
 
                 page_closed = page_is_closed(self.page, e)
                 if attempt < max_retries and not page_closed:
@@ -453,10 +455,7 @@ class MatchMonitor:
                             ),
                         )
                     )
-                    if self._shutdown_is_requested():
-                        raise PageRestartRequired(
-                            "Shutdown requested during page refresh"
-                        ) from e
+                    self._raise_if_shutdown(e)
                     self._restart_if_due()
                     continue
 
@@ -484,7 +483,7 @@ class MatchMonitor:
         else:
             time.sleep(seconds)
 
-    def _synchronize_matches(self, current_match_ids: List[str]) -> bool:
+    def _synchronize_matches(self, current_match_ids: list[str]) -> bool:
         """Синхронизировать текущий список активных матчей."""
         current_match_ids = list(dict.fromkeys(current_match_ids))
         previous_match_ids = set(self.active_match_ids)
@@ -500,7 +499,6 @@ class MatchMonitor:
                 if str(notification['match_id']) == str(removed_id):
                     del self.pending_notifications[message_id]
             self.last_data.pop(removed_id, None)
-            self.last_data.pop(str(removed_id), None)
 
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]
         if new_match_ids:
@@ -569,13 +567,13 @@ class MatchMonitor:
 
 def parse_and_monitor_match(
     page: Page,
-    match_ids: Optional[List[str]] = None,
-    saved_state: Optional[Dict[str, Any]] = None,
+    match_ids: list[str] | None = None,
+    saved_state: dict[str, Any] | None = None,
     *,
     live_refresh_callback: Callable[[Page], None],
-    page_refresh_callback: Optional[Callable[..., None]] = None,
-    restart_deadline: Optional[float] = None,
-    shutdown_requested: Optional[Event] = None,
+    page_refresh_callback: Callable[..., None] | None = None,
+    restart_deadline: float | None = None,
+    shutdown_requested: Event | None = None,
 ) -> None:
     """Запустить мониторинг матчей с новым или восстановленным состоянием."""
     MatchMonitor(

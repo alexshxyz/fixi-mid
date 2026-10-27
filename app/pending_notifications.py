@@ -1,5 +1,6 @@
 import time
-import typing as _typing
+from typing import Any
+from collections.abc import MutableMapping
 
 from .config import (
     LEAGUES_LIST,
@@ -15,8 +16,8 @@ logger = setup_logger(__name__)
 
 
 def register_pending_notification(
-    pending_notifications: _typing.Dict[str, _typing.Dict[str, _typing.Any]],
-    notification: _typing.Any,
+    pending_notifications: dict[str, dict[str, Any]],
+    notification: Any,
 ) -> None:
     """Запланировать отложенную проверку отправленного уведомления."""
     message_id = str(notification['message_id'])
@@ -31,11 +32,9 @@ def register_pending_notification(
 
 
 def process_due_notifications(
-    pending_notifications: _typing.Dict[
-        str, _typing.Dict[str, _typing.Any]
-    ],
-    last_data: _typing.MutableMapping[str, _typing.Any],
-    active_match_ids: _typing.List[str],
+    pending_notifications: dict[str, dict[str, Any]],
+    last_data: MutableMapping[str, Any],
+    active_match_ids: list[str],
 ) -> None:
     """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
     now = time.time()
@@ -67,28 +66,36 @@ def process_due_notifications(
             notification['edited_message'],
             notification.get('channel_id'),
         ):
-            if notification.get('link') and notification.get('prediction') and notification.get('mark'):
-                if not update_match_mark(
+            if (
+                notification.get('link')
+                and notification.get('prediction')
+                and notification.get('mark')
+                and not update_match_mark(
                     notification['link'],
                     notification['prediction'],
                     notification['mark'],
-                ):
-                    logger.error(
-                        "Failed to persist Telegram mark for message %s",
-                        message_id,
-                    )
-            del pending_notifications[message_id]
-            match_id = str(notification['match_id'])
-            discard_match_data_if_unused(
-                match_id, pending_notifications, last_data, active_match_ids
+                )
+            ):
+                logger.error(
+                    "Failed to persist Telegram mark for message %s",
+                    message_id,
+                )
+            _remove_pending_notification(
+                message_id,
+                notification,
+                pending_notifications,
+                last_data,
+                active_match_ids,
             )
         else:
             notification['edit_attempts'] = notification.get('edit_attempts', 0) + 1
             if notification['edit_attempts'] >= TELEGRAM_EDIT_MAX_ATTEMPTS:
-                del pending_notifications[message_id]
-                match_id = str(notification['match_id'])
-                discard_match_data_if_unused(
-                    match_id, pending_notifications, last_data, active_match_ids
+                _remove_pending_notification(
+                    message_id,
+                    notification,
+                    pending_notifications,
+                    last_data,
+                    active_match_ids,
                 )
                 logger.error(
                     "Giving up Telegram status edit for message %s after %s attempts",
@@ -104,13 +111,28 @@ def process_due_notifications(
                 )
 
 
+def _remove_pending_notification(
+    message_id: str,
+    notification: dict[str, Any],
+    pending_notifications: dict[str, dict[str, Any]],
+    last_data: MutableMapping[str, Any],
+    active_match_ids: list[str],
+) -> None:
+    """Удалить обработанное уведомление и ненужные данные матча."""
+    del pending_notifications[message_id]
+    discard_match_data_if_unused(
+        str(notification['match_id']),
+        pending_notifications,
+        last_data,
+        active_match_ids,
+    )
+
+
 def discard_match_data_if_unused(
     match_id: str,
-    pending_notifications: _typing.Dict[
-        str, _typing.Dict[str, _typing.Any]
-    ],
-    last_data: _typing.MutableMapping[str, _typing.Any],
-    active_match_ids: _typing.List[str],
+    pending_notifications: dict[str, dict[str, Any]],
+    last_data: MutableMapping[str, Any],
+    active_match_ids: list[str],
 ) -> None:
     """Удалить последний снимок, если он больше не нужен."""
     if match_id in active_match_ids:
@@ -124,10 +146,8 @@ def discard_match_data_if_unused(
 
 
 def next_notification_timeout(
-    pending_notifications: _typing.Dict[
-        str, _typing.Dict[str, _typing.Any]
-    ],
-) -> _typing.Optional[float]:
+    pending_notifications: dict[str, dict[str, Any]],
+) -> float | None:
     """Вычислить время ожидания до ближайшей проверки уведомления."""
     if not pending_notifications:
         return None

@@ -13,42 +13,6 @@ def market_data(*, score="0-0", date="now"):
     }
 
 
-def test_get_analysis_history_filters_unchanged_entries_without_mutating_source():
-    initial = market_data(date="initial")
-    unchanged = market_data(date="later")
-    score_change = market_data(score="1-0")
-    history = {
-        "1": {
-            "initial": initial,
-            "changes": [unchanged, score_change],
-            "extra": True,
-        }
-    }
-
-    result = state.get_analysis_history(history)
-
-    assert result == {
-        "1": {
-            "initial": initial,
-            "changes": [score_change],
-            "extra": True,
-        }
-    }
-    assert history["1"]["changes"] == [unchanged, score_change]
-
-
-def test_get_analysis_history_keeps_first_entry_when_initial_is_missing():
-    first = market_data()
-    duplicate = first.copy()
-    second = market_data(score="1-0")
-
-    result = state.get_analysis_history(
-        {"1": {"changes": [first, duplicate, second]}}
-    )
-
-    assert result["1"]["changes"] == [first, second]
-
-
 def test_get_last_data_extracts_tracked_match_values():
     source = market_data()
 

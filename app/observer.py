@@ -2,7 +2,8 @@ import json
 import time
 from datetime import datetime
 from threading import Event
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
@@ -29,7 +30,7 @@ from .scripts import (
 logger = setup_logger(__name__)
 
 
-def page_is_closed(page: Page, error: Optional[Exception] = None) -> bool:
+def page_is_closed(page: Page, error: Exception | None = None) -> bool:
     """Проверить, закрыта ли страница браузера."""
     is_closed = getattr(page, "is_closed", None)
     page_is_closed = callable(is_closed) and is_closed()
@@ -72,7 +73,7 @@ def remove_live_change_observer(page: Page) -> None:
 def wait_for_live_change(
     page: Page,
     timeout_ms: int,
-    shutdown_requested: Optional[Event] = None,
+    shutdown_requested: Event | None = None,
 ) -> bool:
     """Дождаться изменения Live-таблицы или истечения таймаута."""
     if shutdown_requested is None:
@@ -111,8 +112,8 @@ def reload_page_with_retries(
     live_refresh_callback: Callable[[Page], None],
     max_retries: int = LIVE_REFRESH_MAX_RETRIES,
     retry_delay: float = LIVE_REFRESH_RETRY_DELAY_SECONDS,
-    shutdown_requested: Optional[Event] = None,
-) -> Optional[bool]:
+    shutdown_requested: Event | None = None,
+) -> bool | None:
     """Обновить Live-таблицу, повторяя неудачные попытки."""
     for attempt in range(1, max_retries + 1):
         if shutdown_requested is not None and shutdown_requested.is_set():
@@ -161,24 +162,24 @@ def reload_page_with_retries(
 def collect_match_status(
     page: Page,
     require_crown: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Собрать статусы видимых матчей в Live-таблице."""
-    match_status: List[Dict[str, Any]] = page.evaluate(
+    match_status: list[dict[str, Any]] = page.evaluate(
         COLLECT_MATCH_STATUS, require_crown
     )
     return match_status
 
 
 def write_match_count(
-    match_status: List[Dict[str, Any]],
-    active_match_ids: List[Union[str, int]],
+    match_status: list[dict[str, Any]],
+    active_match_ids: list[str | int],
 ) -> None:
     """Записать диагностический список активных и исключённых матчей."""
     if DEBUGMODE != 1:
         return
 
     active_ids = {str(match_id) for match_id in active_match_ids}
-    payload: Dict[str, List[str]] = {'Active': [], 'Inactive': []}
+    payload: dict[str, list[str]] = {'Active': [], 'Inactive': []}
     for item in match_status:
         category = 'Active' if str(item['match_id']) in active_ids else 'Inactive'
         payload[category].append(item['label'])
@@ -195,11 +196,11 @@ def write_match_count(
 
 def extract_all_match_data(
     page: Page,
-    match_ids: List[str],
-) -> Dict[str, Optional[MatchSnapshot]]:
+    match_ids: list[str],
+) -> dict[str, MatchSnapshot | None]:
     """Извлечь данные указанных матчей одним вызовом evaluate()."""
     try:
-        match_data: Dict[str, Optional[MatchSnapshot]] = page.evaluate(
+        match_data: dict[str, MatchSnapshot | None] = page.evaluate(
             EXTRACT_ALL_MATCH_DATA, match_ids
         )
     except Exception as e:

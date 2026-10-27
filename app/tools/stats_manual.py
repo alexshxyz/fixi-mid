@@ -42,10 +42,7 @@ def get_full_stats():
             # Рассчитываем Profit и ROI
             # Won = +0.8, Lost = -1, Void = 0
             profit = wins * 0.8 - losses * 1
-            if total_matches > 0:
-                roi = int(profit * 100 / total_matches)
-            else:
-                roi = 0
+            roi = int(profit * 100 / total_matches) if total_matches > 0 else 0
 
             stats_text = (
                 f"📚 SUMMARY\n\n"
