@@ -53,6 +53,7 @@ class MatchMonitor:
         page_refresh_callback: Callable[..., None] | None = None,
         restart_deadline: float | None = None,
         shutdown_requested: Event | None = None,
+        saved_state_path: str | Path | None = None,
     ) -> None:
         """Инициализировать монитор, его состояние и расписание проверок."""
         self.page: Page = page
@@ -61,6 +62,7 @@ class MatchMonitor:
         self.live_refresh_callback: Callable[[Page], None] = live_refresh_callback
         self.page_refresh_callback: Callable[..., None] | None = page_refresh_callback
         self.shutdown_requested: Event | None = shutdown_requested
+        self.saved_state_path = saved_state_path
         self.match_history: MatchHistoryMap = {}
         self.last_data: dict[str, MatchSnapshot] = {}
         self.pending_notifications: dict[str, dict[str, Any]] = {}
@@ -92,10 +94,7 @@ class MatchMonitor:
             raise
         except Exception as e:
             if self._shutdown_is_requested():
-                if (
-                    page_is_closed(self.page, e)
-                    and "has been closed" in str(e).lower()
-                ):
+                if page_is_closed(self.page, e):
                     logger.info("Browser page was closed during shutdown")
                 else:
                     logger.warning(
@@ -125,9 +124,7 @@ class MatchMonitor:
     def _raise_if_shutdown(self, cause: Exception | None = None) -> None:
         """Прервать обновление страницы, если запрошено завершение."""
         if self._shutdown_is_requested():
-            error = PageRestartRequired(
-                "Shutdown requested during page refresh"
-            )
+            error = PageRestartRequired("Shutdown requested")
             if cause is not None:
                 raise error from cause
             raise error
@@ -157,6 +154,8 @@ class MatchMonitor:
             self.active_match_ids = restored_state["active_match_ids"]
             if self.match_ids is not None:
                 self._synchronize_matches(self.match_ids)
+            if self.saved_state_path is not None:
+                state.remove_state_file(self.saved_state_path)
             return
 
         self.active_match_ids = list(self.match_ids or [])
@@ -619,6 +618,7 @@ def parse_and_monitor_match(
     page_refresh_callback: Callable[..., None] | None = None,
     restart_deadline: float | None = None,
     shutdown_requested: Event | None = None,
+    saved_state_path: str | Path | None = None,
 ) -> None:
     """Запустить мониторинг матчей с новым или восстановленным состоянием."""
     MatchMonitor(
@@ -629,6 +629,7 @@ def parse_and_monitor_match(
         page_refresh_callback=page_refresh_callback,
         restart_deadline=restart_deadline,
         shutdown_requested=shutdown_requested,
+        saved_state_path=saved_state_path,
     ).run()
 
 

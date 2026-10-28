@@ -148,6 +148,27 @@ def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
     assert "Failed to load page after 2 attempts" in caplog.text
 
 
+def test_retry_page_action_allows_one_attempt_at_retry_boundary(monkeypatch):
+    attempts = []
+    sleeps = []
+    monkeypatch.setattr(main.time, "sleep", sleeps.append)
+
+    def fail_once():
+        attempts.append(True)
+        raise RuntimeError("single attempt failed")
+
+    with pytest.raises(RuntimeError, match="single attempt failed"):
+        main._retry_page_action(
+            "page",
+            fail_once,
+            "load page",
+            max_retries=1,
+        )
+
+    assert len(attempts) == 1
+    assert sleeps == []
+
+
 def test_retry_page_action_stops_when_shutdown_interrupts_retry_wait(monkeypatch):
     shutdown_requested = main.threading.Event()
     attempts = []
@@ -306,6 +327,33 @@ def test_init_browser_converts_launch_failure_after_shutdown(monkeypatch):
             InterruptedPlaywright(),
             shutdown_requested=shutdown_requested,
         )
+
+
+def test_init_browser_propagates_launch_failure_without_shutdown():
+    class BrokenPlaywright(FakePlaywright):
+        def launch(self, **kwargs):
+            raise RuntimeError("launch failed")
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        main.init_browser(BrokenPlaywright(FakeBrowser()))
+
+
+def test_init_browser_closes_after_setup_failure_even_if_close_fails(monkeypatch):
+    class BrokenBrowser(FakeBrowser):
+        def new_context(self):
+            raise RuntimeError("context creation failed")
+
+        def close(self):
+            self.close_calls += 1
+            raise RuntimeError("close failed")
+
+    browser = BrokenBrowser()
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+
+    with pytest.raises(RuntimeError, match="context creation failed"):
+        main.init_browser(FakePlaywright(browser))
+
+    assert browser.close_calls == 1
 
 
 def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
@@ -495,6 +543,25 @@ def test_refresh_page_skips_screenshot_when_page_is_closed(
     assert not screenshots_dir.exists()
 
 
+def test_capture_error_screenshot_sanitizes_and_limits_filename(
+    monkeypatch, tmp_path
+):
+    page = FakePage()
+    screenshots_dir = tmp_path / "screenshots"
+    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+
+    main._capture_error_screenshot(
+        page,
+        "bad/name",
+        RuntimeError("first line\n" + "detail" * 100),
+    )
+
+    [screenshot] = screenshots_dir.glob("*.png")
+    assert len(screenshot.name) <= 204
+    assert "/" not in screenshot.name
+    assert screenshot.read_bytes() == b"fake screenshot"
+
+
 def test_screenshot_failure_does_not_hide_refresh_error(
     monkeypatch, tmp_path, caplog
 ):
@@ -553,6 +620,24 @@ def test_collect_matches_logs_collection_error_and_skips_debug_write(
     assert writes == []
     assert "Failed to collect matches" in caplog.text
     assert "collection failed" in caplog.text
+
+
+def test_collect_matches_does_not_write_snapshot_when_debug_is_disabled(
+    monkeypatch,
+):
+    page = FakePage()
+    writes = []
+    status = [{"match_id": "inactive", "active": False}]
+    monkeypatch.setattr(main, "DEBUGMODE", 0)
+    monkeypatch.setattr(
+        main, "collect_match_status", lambda *args, **kwargs: status
+    )
+    monkeypatch.setattr(
+        main, "write_match_count", lambda *args: writes.append(args)
+    )
+
+    assert main.collect_matches(page) == []
+    assert writes == []
 
 
 def test_has_valid_match_data_waits_and_returns_page_evaluation():
@@ -687,6 +772,7 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][2]["shutdown_requested"],
+                "saved_state_path": main.STATE_SAVE_FILE,
             },
         )
     ]
@@ -729,6 +815,7 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][1]["shutdown_requested"],
+                "saved_state_path": main.STATE_SAVE_FILE,
             },
         )
     ]
@@ -756,6 +843,7 @@ def test_main_starts_monitor_with_collected_matches(monkeypatch):
                 "live_refresh_callback": main.refresh_live_table,
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][1]["shutdown_requested"],
+                "saved_state_path": None,
             },
         )
     ]
@@ -870,6 +958,48 @@ def test_main_stops_cleanly_when_shutdown_is_requested_without_matches(
     assert page.reload_calls == []
 
 
+def test_main_stops_if_page_preparation_fails_during_shutdown(monkeypatch):
+    _, browser = configure_main(monkeypatch)
+    collected = []
+
+    def interrupt_prepare(*args, **kwargs):
+        kwargs["shutdown_requested"].set()
+        raise RuntimeError("prepare interrupted")
+
+    monkeypatch.setattr(main, "_retry_page_action", interrupt_prepare)
+    monkeypatch.setattr(
+        main, "collect_matches", lambda page: collected.append(page) or ["1"]
+    )
+
+    main.main()
+
+    assert collected == []
+    assert browser.close_calls == 1
+
+
+def test_main_stops_if_refresh_fails_during_shutdown_before_matches(
+    monkeypatch, caplog
+):
+    _, browser = configure_main(monkeypatch)
+    monkeypatch.setattr(main, "collect_matches", lambda page: [])
+    monkeypatch.setattr(
+        main, "_wait_for_shutdown", lambda event, seconds: False
+    )
+
+    def interrupt_refresh(page, action, action_name, **kwargs):
+        if action_name == "prepare page":
+            return None
+        kwargs["shutdown_requested"].set()
+        raise RuntimeError("refresh interrupted")
+
+    monkeypatch.setattr(main, "_retry_page_action", interrupt_refresh)
+
+    main.main()
+
+    assert browser.close_calls == 1
+    assert "Shutdown requested while refreshing page" in caplog.text
+
+
 def test_main_does_not_log_browser_close_failure_as_error_during_shutdown(
     monkeypatch, caplog
 ):
@@ -969,6 +1099,67 @@ def test_main_stops_if_shutdown_is_requested_during_browser_setup(
     assert "Shutdown requested during browser setup" in caplog.text
 
 
+def test_main_reraises_browser_restart_without_shutdown_and_restores_signals(
+    monkeypatch,
+):
+    configure_main(monkeypatch)
+    handlers = []
+    monkeypatch.setattr(
+        main.signal,
+        "signal",
+        lambda signum, handler: handlers.append((signum, handler)) or None,
+    )
+    monkeypatch.setattr(
+        main,
+        "init_browser",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            PageRestartRequired("browser setup failed")
+        ),
+    )
+
+    with pytest.raises(PageRestartRequired, match="browser setup failed"):
+        main.main()
+
+    assert [signum for signum, _ in handlers] == [
+        main.signal.SIGINT,
+        main.signal.SIGTERM,
+        main.signal.SIGINT,
+        main.signal.SIGTERM,
+    ]
+
+
+def test_main_returns_after_monitor_failure_during_shutdown(monkeypatch, caplog):
+    _, browser = configure_main(monkeypatch)
+    monkeypatch.setattr(main, "collect_matches", lambda page: ["1"])
+
+    def fail_monitor(*args, **kwargs):
+        kwargs["shutdown_requested"].set()
+        raise RuntimeError("monitor interrupted")
+
+    monkeypatch.setattr(main, "parse_and_monitor_match", fail_monitor)
+
+    main.main()
+
+    assert browser.close_calls == 1
+    assert "Browser operation was interrupted during shutdown" in caplog.text
+
+
+def test_main_returns_after_page_restart_during_shutdown(monkeypatch, caplog):
+    _, browser = configure_main(monkeypatch)
+    monkeypatch.setattr(main, "collect_matches", lambda page: ["1"])
+
+    def restart_monitor(*args, **kwargs):
+        kwargs["shutdown_requested"].set()
+        raise PageRestartRequired("shutdown restart")
+
+    monkeypatch.setattr(main, "parse_and_monitor_match", restart_monitor)
+
+    main.main()
+
+    assert browser.close_calls == 1
+    assert "Shutdown requested" in caplog.text
+
+
 def test_main_stops_before_browser_start_if_shutdown_arrives_during_storage(
     monkeypatch,
 ):
@@ -1007,6 +1198,34 @@ def test_request_shutdown_sets_event():
     main._request_shutdown(event, main.signal.SIGINT, None)
 
     assert event.is_set()
+
+
+def test_raise_if_shutdown_only_raises_when_event_is_set():
+    event = main.threading.Event()
+    main._raise_if_shutdown(None, "operation")
+    main._raise_if_shutdown(event, "operation")
+
+    cause = RuntimeError("interrupted")
+    event.set()
+    with pytest.raises(main.PageRestartRequired, match="operation") as error:
+        main._raise_if_shutdown(event, "operation", cause)
+
+    assert error.value.__cause__ is cause
+
+
+def test_restart_if_due_restarts_at_exact_deadline(monkeypatch):
+    monkeypatch.setattr(main.time, "monotonic", lambda: 100)
+
+    with pytest.raises(main.ScheduledRestartRequired, match="Scheduled restart"):
+        main._restart_if_due(100, FakeBrowser())
+
+
+def test_restart_if_due_does_not_restart_when_shutdown_is_set(monkeypatch):
+    shutdown_requested = main.threading.Event()
+    shutdown_requested.set()
+    monkeypatch.setattr(main.time, "monotonic", lambda: 100)
+
+    main._restart_if_due(99, None, shutdown_requested)
 
 
 def test_main_restarts_after_24_hours_even_without_matches(monkeypatch):

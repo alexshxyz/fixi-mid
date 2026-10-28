@@ -123,6 +123,18 @@ def test_remove_live_change_observer_logs_and_swallows_page_error(caplog):
     assert "Could not stop live table observer" in caplog.text
 
 
+def test_remove_live_change_observer_skips_closed_page():
+    class ClosedPage(FakePage):
+        def is_closed(self):
+            return True
+
+    page = ClosedPage()
+
+    observer.remove_live_change_observer(page)
+
+    assert page.evaluate_calls == []
+
+
 def test_wait_for_live_change_resets_flag_and_returns_true():
     page = FakePage()
 
@@ -162,6 +174,57 @@ def test_wait_for_live_change_stops_when_shutdown_is_requested():
     assert len(page.function_calls) == 1
     assert page.function_calls[0][1]["timeout"] <= 1000
     assert page.evaluate_calls == []
+
+
+def test_wait_for_live_change_returns_false_at_shutdown_timeout_boundary(
+    monkeypatch,
+):
+    shutdown_requested = threading.Event()
+    page = FakePage()
+    ticks = iter([0.0, 0.002])
+    monkeypatch.setattr(observer.time, "monotonic", lambda: next(ticks))
+
+    assert not observer.wait_for_live_change(
+        page, -1, shutdown_requested=shutdown_requested
+    )
+    assert page.function_calls == []
+    assert page.evaluate_calls == []
+
+
+def test_wait_for_live_change_stops_if_shutdown_arrives_after_wait_succeeds():
+    shutdown_requested = threading.Event()
+
+    class ShutdownAfterWaitPage(FakePage):
+        def wait_for_function(self, *args, **kwargs):
+            super().wait_for_function(*args, **kwargs)
+            shutdown_requested.set()
+
+    page = ShutdownAfterWaitPage()
+
+    assert not observer.wait_for_live_change(
+        page, 1000, shutdown_requested=shutdown_requested
+    )
+    assert len(page.function_calls) == 1
+    assert page.evaluate_calls == []
+
+
+def test_wait_for_live_change_retries_timed_out_poll_until_change(monkeypatch):
+    class TimeoutThenSuccessPage(FakePage):
+        def wait_for_function(self, *args, **kwargs):
+            self.function_calls.append((args, kwargs))
+            if len(self.function_calls) == 1:
+                raise PlaywrightTimeoutError("poll timed out")
+
+    shutdown_requested = threading.Event()
+    page = TimeoutThenSuccessPage()
+    ticks = iter([1.0, 1.1, 1.2])
+    monkeypatch.setattr(observer.time, "monotonic", lambda: next(ticks))
+
+    assert observer.wait_for_live_change(
+        page, 1000, shutdown_requested=shutdown_requested
+    )
+    assert len(page.function_calls) == 2
+    assert page.evaluate_calls == [("window.__fixi_live_table_changed = false", ())]
 
 
 def test_wait_for_live_change_propagates_non_timeout_errors():

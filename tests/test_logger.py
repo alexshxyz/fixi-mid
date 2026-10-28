@@ -144,3 +144,39 @@ def test_sensitive_telegram_values_are_redacted_from_logs_and_tracebacks(
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
             handler.close()
+
+
+def test_sensitive_filter_preserves_record_when_no_secrets_are_configured(
+    monkeypatch,
+):
+    for name in (
+        "BOT_TOKEN",
+        "MONITOR_TELEGRAM_TOKEN",
+        "CHANNEL_ID",
+        "MONITOR_CHAT_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    record = logging.LogRecord(
+        "test",
+        logging.INFO,
+        __file__,
+        1,
+        "ordinary message %s",
+        ("value",),
+        None,
+    )
+
+    assert logger_module._SensitiveDataFilter().filter(record)
+    assert record.msg == "ordinary message %s"
+    assert record.args == ("value",)
+
+
+def test_sensitive_filter_redacts_existing_exception_text(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "private-token")
+    record = logging.LogRecord(
+        "test", logging.ERROR, __file__, 1, "request failed", (), None
+    )
+    record.exc_text = "RuntimeError: private-token"
+
+    assert logger_module._SensitiveDataFilter().filter(record)
+    assert record.exc_text == "RuntimeError: [REDACTED]"

@@ -1,7 +1,9 @@
+import runpy
 from datetime import date, datetime
 
 import pytest
 
+from app import storage
 from app.tools import stats_manual
 
 
@@ -278,6 +280,33 @@ def test_get_this_month_stats_handles_void_only_empty_and_error_cases(
     assert stats_manual.get_this_month_stats() == (
         "📅 JANUARY\n\nNo data available."
     )
+
+
+@pytest.mark.parametrize(
+    ("choice", "expected_output"),
+    [
+        ("1", "📚 SUMMARY\n\nNo data available."),
+        ("2", "🕒 LAST 5 MATCHES\n\nNo recent matches available."),
+        ("3", "No data available."),
+        ("4", "🏆 TOP LEAGUES\n\nNo data available."),
+        ("5", "⛔️ WORST LEAGUES\n\nNo data available."),
+        ("6", "Неверный выбор."),
+    ],
+)
+def test_stats_manual_cli_routes_each_menu_choice(
+    monkeypatch, capsys, choice, expected_output
+):
+    monkeypatch.setattr("builtins.input", lambda prompt="": choice)
+    monkeypatch.setattr(storage, "get_all_matches", lambda: [])
+    monkeypatch.setattr(
+        storage, "get_matches_in_date_range", lambda start, end: []
+    )
+    monkeypatch.setattr(storage, "calculate_stats", lambda matches: (0, 0, 0, 0))
+    monkeypatch.setattr(storage, "get_stats_by_league", lambda matches: {})
+
+    runpy.run_path(stats_manual.__file__, run_name="__main__")
+
+    assert expected_output in capsys.readouterr().out
 
     monkeypatch.setattr(
         stats_manual,

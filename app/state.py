@@ -29,12 +29,24 @@ def load_state_from_json(
     try:
         with open(path, "r", encoding="utf-8") as f:
             saved_state = json.load(f)
-        os.remove(path)
-        logger.info(f"Loaded and removed saved state file {path}")
+        logger.info(f"Loaded saved state file {path}")
         return saved_state
     except Exception as e:
         logger.error(f"Failed to load state from {path}: {e}")
         return None
+
+
+def remove_state_file(
+    path: str | os.PathLike[str] = STATE_SAVE_FILE,
+) -> bool:
+    """Удалить файл состояния после его успешного восстановления."""
+    try:
+        os.remove(path)
+        logger.info(f"Removed saved state file {path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to remove saved state file {path}: {e}")
+        return False
 
 
 def save_state_to_json(

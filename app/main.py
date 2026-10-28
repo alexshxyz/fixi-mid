@@ -45,6 +45,7 @@ from app.config import (
     RESTART_HOURS,
     SITE_COOKIES,
     SITE_URL,
+    STATE_SAVE_FILE,
     validate_browser_proxy_server,
 )
 from app.logger import setup_logger
@@ -72,6 +73,19 @@ def _wait_for_shutdown(
 ) -> bool:
     """Ожидать завершения работы или истечения указанного времени."""
     return shutdown_requested.wait(seconds)
+
+
+def _raise_if_shutdown(
+    shutdown_requested: threading.Event | None,
+    where: str,
+    cause: Exception | None = None,
+) -> None:
+    """Прервать операцию, если запрошено завершение."""
+    if shutdown_requested is not None and shutdown_requested.is_set():
+        error = PageRestartRequired(f"Shutdown requested during {where}")
+        if cause is not None:
+            raise error from cause
+        raise error
 
 
 def _capture_error_screenshot(page: Page, error_label: str, error: Exception) -> None:
@@ -111,24 +125,15 @@ def _retry_page_action(
 ) -> object | None:
     """Повторить действие со страницей после ошибки."""
     for attempt in range(1, max_retries + 1):
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired(
-                f"Shutdown requested during {action_name}"
-            )
+        _raise_if_shutdown(shutdown_requested, action_name)
         try:
             result = action()
-            if shutdown_requested is not None and shutdown_requested.is_set():
-                raise PageRestartRequired(
-                    f"Shutdown requested during {action_name}"
-                )
+            _raise_if_shutdown(shutdown_requested, action_name)
             return result
         except PageRestartRequired:
             raise
         except Exception as e:
-            if shutdown_requested is not None and shutdown_requested.is_set():
-                raise PageRestartRequired(
-                    f"Shutdown requested during {action_name}"
-                ) from e
+            _raise_if_shutdown(shutdown_requested, action_name, e)
             if attempt == max_retries:
                 logger.error(
                     f"Failed to {action_name} after {max_retries} attempts: {e}"
@@ -141,21 +146,15 @@ def _retry_page_action(
             if shutdown_requested is None:
                 time.sleep(retry_delay)
             elif _wait_for_shutdown(shutdown_requested, retry_delay):
-                raise PageRestartRequired(
-                    f"Shutdown requested during {action_name}"
-                ) from e
-            if shutdown_requested is not None and shutdown_requested.is_set():
-                raise PageRestartRequired(
-                    f"Shutdown requested during {action_name}"
-                ) from e
+                _raise_if_shutdown(shutdown_requested, action_name, e)
+            _raise_if_shutdown(shutdown_requested, action_name, e)
             if reload_before_retry:
                 try:
                     refresh_live_table(page)
                 except Exception as reload_error:
-                    if shutdown_requested is not None and shutdown_requested.is_set():
-                        raise PageRestartRequired(
-                            f"Shutdown requested during {action_name}"
-                        ) from reload_error
+                    _raise_if_shutdown(
+                        shutdown_requested, action_name, reload_error
+                    )
                     logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
 
 
@@ -165,8 +164,7 @@ def init_browser(
     shutdown_requested: threading.Event | None = None,
 ) -> tuple[Browser, Page]:
     """Инициализировать браузер и открыть страницу сайта."""
-    if shutdown_requested is not None and shutdown_requested.is_set():
-        raise PageRestartRequired("Shutdown requested during browser setup")
+    _raise_if_shutdown(shutdown_requested, "browser setup")
 
     logger.info("Setup browser...")
     try:
@@ -190,30 +188,22 @@ def init_browser(
             ],
         )
     except Exception as e:
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired(
-                "Shutdown requested during browser launch"
-            ) from e
+        _raise_if_shutdown(shutdown_requested, "browser launch", e)
         raise
     try:
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired("Shutdown requested during browser setup")
+        _raise_if_shutdown(shutdown_requested, "browser setup")
         context = browser.new_context()
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired("Shutdown requested during browser setup")
+        _raise_if_shutdown(shutdown_requested, "browser setup")
         page = context.new_page()
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired("Shutdown requested during browser setup")
+        _raise_if_shutdown(shutdown_requested, "browser setup")
         page.set_viewport_size({"width": 1280, "height": 720})
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired("Shutdown requested during browser setup")
+        _raise_if_shutdown(shutdown_requested, "browser setup")
         try:
             context.add_cookies(SITE_COOKIES)
             logger.info("Cookies set")
         except Exception as e:
             logger.warning(f"Failed to add site cookies: {e}")
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired("Shutdown requested during browser setup")
+        _raise_if_shutdown(shutdown_requested, "browser setup")
     except PageRestartRequired:
         with suppress(Exception):
             browser.close()
@@ -221,10 +211,7 @@ def init_browser(
     except Exception:
         with suppress(Exception):
             browser.close()
-        if shutdown_requested is not None and shutdown_requested.is_set():
-            raise PageRestartRequired(
-                "Shutdown requested during browser setup"
-            )
+        _raise_if_shutdown(shutdown_requested, "browser setup")
         raise
 
     def open_page() -> None:
@@ -496,6 +483,9 @@ def main() -> None:
                         live_refresh_callback=refresh_live_table,
                         page_refresh_callback=refresh_page,
                         shutdown_requested=shutdown_requested,
+                        saved_state_path=(
+                            STATE_SAVE_FILE if saved_state is not None else None
+                        ),
                     )
                 except PageRestartRequired as e:
                     if shutdown_requested.is_set():

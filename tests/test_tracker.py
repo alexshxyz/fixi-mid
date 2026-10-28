@@ -170,6 +170,117 @@ def test_run_saves_current_match_state_on_graceful_shutdown(
     assert removed == [page]
 
 
+def test_run_preserves_saved_state_file_if_shutdown_precedes_initialization(
+    tmp_path,
+):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    state_path = tmp_path / "match_state.json"
+    saved_state = {"match_history": {}, "active_match_ids": ["1"]}
+    state_path.write_text(json.dumps(saved_state), encoding="utf-8")
+    monitor = tracker.MatchMonitor(
+        FakePage(),
+        saved_state=saved_state,
+        live_refresh_callback=lambda page: None,
+        shutdown_requested=shutdown_requested,
+        saved_state_path=state_path,
+    )
+
+    monitor.run()
+
+    assert json.loads(state_path.read_text(encoding="utf-8")) == saved_state
+
+
+def test_run_returns_without_initializing_when_shutdown_is_already_set(
+    monkeypatch, monitor,
+):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    monitor.shutdown_requested = shutdown_requested
+    calls = []
+    monkeypatch.setattr(
+        monitor,
+        "_init_or_restore_state",
+        lambda: calls.append("init"),
+    )
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda *args: calls.append("save") or True,
+    )
+
+    monitor.run()
+
+    assert calls == []
+
+
+def test_run_saves_state_when_shutdown_arrives_during_initialization(
+    monkeypatch, monitor,
+):
+    shutdown_requested = threading.Event()
+    monitor.shutdown_requested = shutdown_requested
+    calls = []
+
+    def initialize():
+        calls.append("init")
+        shutdown_requested.set()
+
+    monkeypatch.setattr(monitor, "_init_or_restore_state", initialize)
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda active, data: calls.append(("save", active, data)) or True,
+    )
+    monkeypatch.setattr(
+        tracker, "install_live_change_observer", lambda page: calls.append("install")
+    )
+
+    monitor.run()
+
+    assert calls == ["init", ("save", [], {})]
+
+
+def test_run_logs_failure_to_save_state_on_shutdown(monkeypatch, monitor, caplog):
+    shutdown_requested = threading.Event()
+    monitor.shutdown_requested = shutdown_requested
+    monkeypatch.setattr(monitor, "_init_or_restore_state", lambda: None)
+    monkeypatch.setattr(tracker, "install_live_change_observer", lambda page: None)
+    monkeypatch.setattr(tracker, "remove_live_change_observer", lambda page: None)
+    monkeypatch.setattr(
+        monitor,
+        "_monitor_loop",
+        lambda: shutdown_requested.set(),
+    )
+    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
+
+    monitor.run()
+
+    assert "Could not save monitoring state before shutdown" in caplog.text
+
+
+def test_raise_if_shutdown_preserves_interruption_cause(monitor):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    monitor.shutdown_requested = shutdown_requested
+    cause = RuntimeError("operation interrupted")
+
+    with pytest.raises(
+        tracker.PageRestartRequired, match="Shutdown requested"
+    ) as error:
+        monitor._raise_if_shutdown(cause)
+
+    assert error.value.__cause__ is cause
+
+
+def test_raise_if_shutdown_without_cause_raises_restart_required(monitor):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    monitor.shutdown_requested = shutdown_requested
+
+    with pytest.raises(tracker.PageRestartRequired, match="Shutdown requested"):
+        monitor._raise_if_shutdown()
+
+
 @pytest.mark.parametrize(
     ("error_message", "expected_level", "has_traceback"),
     [
@@ -259,6 +370,50 @@ def test_init_or_restore_state_restores_state_and_backfills_dates(monitor):
     assert changed["date"] is None
     assert monitor.last_data["1"]["score"] == "0-0"
     assert monitor.pending_notifications == {"5": {"match_id": "1"}}
+
+
+def test_init_or_restore_state_removes_file_after_accepting_saved_state(
+    monitor, tmp_path
+):
+    saved_state = {
+        "active_match_ids": ["1"],
+        "match_history": {"1": {"initial": market_data(), "changes": []}},
+        "last_data": {"1": market_data()},
+    }
+    state_path = tmp_path / "match_state.json"
+    state_path.write_text(json.dumps(saved_state), encoding="utf-8")
+    monitor.saved_state = tracker.state.load_state_from_json(state_path)
+    monitor.saved_state_path = state_path
+
+    monitor._init_or_restore_state()
+
+    assert monitor.active_match_ids == ["1"]
+    assert not state_path.exists()
+
+
+def test_init_or_restore_state_keeps_file_if_match_sync_fails(
+    monkeypatch, monitor, tmp_path
+):
+    saved_state = {
+        "active_match_ids": ["1"],
+        "match_history": {"1": {"initial": market_data(), "changes": []}},
+        "last_data": {"1": market_data()},
+    }
+    state_path = tmp_path / "match_state.json"
+    state_path.write_text(json.dumps(saved_state), encoding="utf-8")
+    monitor.saved_state = tracker.state.load_state_from_json(state_path)
+    monitor.saved_state_path = state_path
+    monitor.match_ids = ["1"]
+    monkeypatch.setattr(
+        monitor,
+        "_synchronize_matches",
+        lambda match_ids: (_ for _ in ()).throw(RuntimeError("sync failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="sync failed"):
+        monitor._init_or_restore_state()
+
+    assert state_path.exists()
 
 
 def test_init_or_restore_state_backfills_score_from_latest_change(monitor):
@@ -377,6 +532,73 @@ def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
         (tmp_path / "data" / "data_closed_ov_ah.json").read_text(encoding="utf-8")
     )
     assert snapshot["1"]["initial"] == monitor.match_history["1"]["initial"]
+
+
+def test_run_analyzer_returns_without_running_when_shutdown_is_set(
+    monkeypatch, monitor,
+):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    monitor.shutdown_requested = shutdown_requested
+    calls = []
+    monkeypatch.setattr(
+        tracker, "find_pattern_matches", lambda *args, **kwargs: calls.append(args)
+    )
+
+    monitor._run_analyzer()
+
+    assert calls == []
+
+
+def test_load_initial_data_logs_matches_without_available_data(
+    monkeypatch, monitor, caplog
+):
+    monitor.active_match_ids = ["missing"]
+    monkeypatch.setattr(
+        tracker, "extract_all_match_data", lambda page, ids: {"missing": None}
+    )
+
+    monitor._load_initial_data()
+
+    assert monitor.match_history == {}
+    assert monitor.last_data == {}
+    assert "No initial data for match missing" in caplog.text
+
+
+def test_register_pending_notification_delegates_to_pending_store(
+    monkeypatch, monitor
+):
+    notification = {"match_id": "1", "market": "ov"}
+    calls = []
+    monkeypatch.setattr(
+        tracker.pending_notifications,
+        "register_pending_notification",
+        lambda pending, details: calls.append((pending, details)),
+    )
+
+    monitor._register_pending_notification(notification)
+
+    assert calls == [(monitor.pending_notifications, notification)]
+
+
+def test_process_due_notifications_uses_no_shutdown_argument(
+    monkeypatch, monitor
+):
+    calls = []
+    monkeypatch.setattr(
+        tracker.pending_notifications,
+        "process_due_notifications",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    monitor._process_due_notifications()
+
+    assert calls == [
+        (
+            (monitor.pending_notifications, monitor.last_data, monitor.active_match_ids),
+            {},
+        )
+    ]
 
 
 def test_run_analyzer_logs_debug_snapshot_write_error(
@@ -1163,6 +1385,7 @@ def test_parse_and_monitor_match_constructs_and_runs_monitor(monkeypatch):
                 "page_refresh_callback": None,
                 "restart_deadline": 123,
                 "shutdown_requested": None,
+                "saved_state_path": None,
             },
         ),
         "run",

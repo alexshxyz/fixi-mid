@@ -34,13 +34,13 @@ def test_load_state_from_json_returns_none_when_file_is_missing(tmp_path):
     assert state.load_state_from_json(tmp_path / "missing.json") is None
 
 
-def test_load_state_from_json_loads_and_removes_file(tmp_path):
+def test_load_state_from_json_loads_without_removing_file(tmp_path):
     path = tmp_path / "state.json"
     saved = {"active_match_ids": ["1"]}
     path.write_text(json.dumps(saved), encoding="utf-8")
 
     assert state.load_state_from_json(path) == saved
-    assert not path.exists()
+    assert path.exists()
 
 
 def test_load_state_from_json_logs_invalid_json_and_leaves_file(tmp_path, caplog):
@@ -52,18 +52,24 @@ def test_load_state_from_json_logs_invalid_json_and_leaves_file(tmp_path, caplog
     assert "Failed to load state" in caplog.text
 
 
-def test_load_state_from_json_logs_remove_error(tmp_path, monkeypatch, caplog):
+def test_remove_state_file_removes_file(tmp_path):
     path = tmp_path / "state.json"
     path.write_text('{"valid": true}', encoding="utf-8")
+
+    assert state.remove_state_file(path)
+    assert not path.exists()
+
+
+def test_remove_state_file_logs_error(tmp_path, monkeypatch, caplog):
+    path = tmp_path / "state.json"
     monkeypatch.setattr(
         state.os,
         "remove",
         lambda path: (_ for _ in ()).throw(OSError("denied")),
     )
 
-    assert state.load_state_from_json(path) is None
-    assert path.exists()
-    assert "Failed to load state" in caplog.text
+    assert not state.remove_state_file(path)
+    assert "Failed to remove saved state file" in caplog.text
 
 
 def test_save_state_to_json_persists_all_monitor_state(tmp_path):

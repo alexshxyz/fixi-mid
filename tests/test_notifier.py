@@ -342,6 +342,21 @@ def test_edit_telegram_notification_uses_explicit_channel_and_failure(monkeypatc
     assert calls[0]["chat_id"] == "custom-channel"
 
 
+def test_edit_telegram_notification_forwards_shutdown_event(monkeypatch):
+    shutdown_requested = threading.Event()
+    calls = []
+    monkeypatch.setattr(
+        notifier,
+        "_send_message",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or {"ok": True},
+    )
+
+    assert notifier.edit_telegram_notification(
+        44, "updated", shutdown_requested=shutdown_requested
+    )
+    assert calls[0][1]["shutdown_requested"] is shutdown_requested
+
+
 def test_save_notification_forwards_fields_to_storage(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -480,6 +495,15 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
     assert details_callback == [
         (123, message, match_url, "Over 2.5", "custom-channel")
     ]
+
+
+def test_send_telegram_notification_forwards_shutdown_event(
+    notification_dependencies,
+):
+    shutdown_requested = threading.Event()
+
+    assert send_over(shutdown_requested=shutdown_requested) is True
+    assert notification_dependencies["sent"][0][1]["shutdown_requested"] is shutdown_requested
 
 
 def test_send_telegram_notification_builds_handicap_signal(notification_dependencies):

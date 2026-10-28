@@ -250,6 +250,29 @@ def test_send_over_notification_uses_defaults_and_swallows_send_error(monkeypatc
     assert "Failed to send notification" in caplog.text
 
 
+def test_send_market_notification_does_not_send_after_shutdown(monkeypatch):
+    shutdown_requested = threading.Event()
+    shutdown_requested.set()
+    sends = []
+    monkeypatch.setattr(
+        closed_ov_ah,
+        "send_telegram_notification",
+        lambda **kwargs: sends.append(kwargs),
+    )
+
+    closed_ov_ah._send_market_notification(
+        "ov",
+        "match-1",
+        entry(),
+        "2.5",
+        1.5,
+        "drop",
+        shutdown_requested=shutdown_requested,
+    )
+
+    assert sends == []
+
+
 def over_history(confirming_odds=START_ODD, closed_odds=THRESHOLD):
     return [
         entry(over="2.5", over_odds=confirming_odds),
@@ -698,3 +721,44 @@ def test_find_pattern_matches_stops_before_analyzing_after_shutdown(monkeypatch)
         {"match-1": {}}, shutdown_requested=shutdown_requested
     ) == []
     assert calls == []
+
+
+def test_find_market_pattern_stops_when_shutdown_arrives_during_search(
+    monkeypatch,
+):
+    shutdown_requested = threading.Event()
+    entries = [
+        *over_history()[:-1],
+        entry(over="2.5", over_odds=1.5),
+        closed_entry("ov"),
+    ]
+    status_calls = []
+
+    def line_status(current_entry, market):
+        status_calls.append(current_entry)
+        if current_entry is entries[-1]:
+            return "Closed"
+        shutdown_requested.set()
+        return "Open"
+
+    monkeypatch.setattr(closed_ov_ah, "_line_status", line_status)
+    monkeypatch.setattr(
+        closed_ov_ah,
+        "_get_last_entry_before_closed",
+        lambda history, market: (history[-2], len(history) - 2),
+    )
+    monkeypatch.setattr(
+        closed_ov_ah, "_get_market_values", lambda current, market: ("2.5", 1.5, None)
+    )
+    notifications = []
+
+    assert not closed_ov_ah._find_market_pattern(
+        entries,
+        "match-1",
+        "ov",
+        lambda *args: notifications.append(args),
+        None,
+        shutdown_requested=shutdown_requested,
+    )
+    assert len(status_calls) == 2
+    assert notifications == []
