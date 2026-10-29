@@ -193,7 +193,7 @@ def write_match_count(
     active_match_ids: Sequence[str | int],
 ) -> None:
     """Записать диагностический список активных и исключённых матчей."""
-    if DEBUGMODE != 1:
+    if not DEBUGMODE:
         return
 
     active_ids = {str(match_id) for match_id in active_match_ids}

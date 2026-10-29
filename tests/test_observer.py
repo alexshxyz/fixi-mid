@@ -426,7 +426,7 @@ def test_collect_match_status_passes_require_crown_and_returns_page_result(
 
 @pytest.mark.parametrize(
     ("debug_mode", "expected_file"),
-    [(0, False), (1, True), (2, False)],
+    [(False, False), (True, True)],
 )
 def test_write_match_count_respects_debug_mode(
     tmp_path, monkeypatch, debug_mode, expected_file
@@ -451,7 +451,7 @@ def test_write_match_count_respects_debug_mode(
 
 
 def test_write_match_count_logs_snapshot_write_failure(monkeypatch, tmp_path, caplog):
-    monkeypatch.setattr(observer, "DEBUGMODE", 1)
+    monkeypatch.setattr(observer, "DEBUGMODE", True)
     monkeypatch.setattr(observer, "DATA_DIR", tmp_path / "data")
 
     def fail_open(*args, **kwargs):

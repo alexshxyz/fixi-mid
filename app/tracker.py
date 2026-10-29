@@ -165,7 +165,7 @@ class MatchMonitor:
         """Подготовить историю и передать её анализатору рынков."""
         if self._shutdown_is_requested():
             return
-        if DEBUGMODE == 1:
+        if DEBUGMODE:
             snapshot_path = DATA_DIR / "data_closed_ov_ah.json"
             try:
                 snapshot_path.parent.mkdir(parents=True, exist_ok=True)

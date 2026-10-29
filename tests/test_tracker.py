@@ -524,7 +524,7 @@ def test_run_analyzer_passes_full_history_to_pattern_matcher(
 
 
 def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
-    monkeypatch.setattr(tracker, "DEBUGMODE", 1)
+    monkeypatch.setattr(tracker, "DEBUGMODE", True)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(
         tracker, "find_pattern_matches", lambda *args, **kwargs: None
@@ -609,7 +609,7 @@ def test_process_due_notifications_passes_shutdown_argument(
 def test_run_analyzer_logs_debug_snapshot_write_error(
     monkeypatch, monitor, tmp_path, caplog
 ):
-    monkeypatch.setattr(tracker, "DEBUGMODE", 1)
+    monkeypatch.setattr(tracker, "DEBUGMODE", True)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(
         tracker, "find_pattern_matches", lambda *args, **kwargs: None

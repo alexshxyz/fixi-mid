@@ -16,11 +16,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, project_root)
 
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
-from app.tracker import (
-    parse_and_monitor_match,
-    PageRestartRequired,
-    ScheduledRestartRequired,
-)
+from app.tracker import parse_and_monitor_match
 from app.state import load_state_from_json
 from app.storage import init_storage
 from app.config import (
@@ -50,7 +46,6 @@ from app.config import (
 )
 from app.logger import setup_logger
 from app.observer import (
-    _raise_if_shutdown,
     collect_match_status,
     page_is_closed,
     write_match_count,
@@ -144,6 +139,7 @@ def _retry_page_action(
                         shutdown_requested, action_name, reload_error
                     )
                     logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
+    return None
 
 
 def init_browser(
@@ -155,10 +151,11 @@ def init_browser(
     _raise_if_shutdown(shutdown_requested, "browser setup")
 
     logger.info("Setup browser...")
+    proxy_server = validate_browser_proxy_server(BROWSER_PROXY_SERVER)
     try:
         browser = p.chromium.launch(
             headless=BROWSER_HEADLESS,
-            proxy={"server": BROWSER_PROXY_SERVER},
+            proxy={"server": proxy_server},
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -301,7 +298,7 @@ def collect_matches(page: Page) -> list[str]:
         logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
     except Exception:
         logger.exception("Failed to collect matches")
-    if DEBUGMODE == 1 and match_status is not None:
+    if DEBUGMODE and match_status is not None:
         write_match_count(match_status, matches)
     return matches
 
@@ -310,7 +307,7 @@ def has_valid_match_data(page: Page) -> bool:
     """Проверить готовность данных Crown и видимых коэффициентов."""
     page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
     readiness = page.evaluate(LIVE_ODDS_READINESS)
-    return readiness["hasCrownOdds"] and readiness["hasVisibleOdds"]
+    return bool(readiness["hasCrownOdds"] and readiness["hasVisibleOdds"])
 
 
 def _restart_script(browser: Browser | None = None) -> NoReturn:

@@ -593,7 +593,7 @@ def test_collect_matches_deduplicates_active_ids_and_writes_debug_snapshot(
     ]
     writes = []
     monkeypatch.setattr(main, "collect_match_status", lambda *args, **kwargs: status)
-    monkeypatch.setattr(main, "DEBUGMODE", 1)
+    monkeypatch.setattr(main, "DEBUGMODE", True)
     monkeypatch.setattr(
         main, "write_match_count", lambda *args: writes.append(args)
     )
@@ -613,7 +613,7 @@ def test_collect_matches_logs_collection_error_and_skips_debug_write(
         "collect_match_status",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("collection failed")),
     )
-    monkeypatch.setattr(main, "DEBUGMODE", 1)
+    monkeypatch.setattr(main, "DEBUGMODE", True)
     monkeypatch.setattr(main, "write_match_count", lambda *args: writes.append(args))
 
     assert main.collect_matches(page) == []
@@ -628,7 +628,7 @@ def test_collect_matches_does_not_write_snapshot_when_debug_is_disabled(
     page = FakePage()
     writes = []
     status = [{"match_id": "inactive", "active": False}]
-    monkeypatch.setattr(main, "DEBUGMODE", 0)
+    monkeypatch.setattr(main, "DEBUGMODE", False)
     monkeypatch.setattr(
         main, "collect_match_status", lambda *args, **kwargs: status
     )

@@ -1,5 +1,3 @@
-"""Общие типы снимков матчей и данных их рынков."""
-
 from typing import (
     Literal,
     TypedDict,
