@@ -46,6 +46,9 @@ from app.config import (
 )
 from app.logger import setup_logger
 from app.observer import (
+    PageRestartRequired,
+    ScheduledRestartRequired,
+    _raise_if_shutdown,
     collect_match_status,
     page_is_closed,
     write_match_count,
