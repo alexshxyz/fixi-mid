@@ -34,7 +34,7 @@ def process(
     monkeypatch.setattr(
         alarms,
         "edit_telegram_notification",
-        lambda *args: edits.append(args) or edit_result,
+        lambda *args, **kwargs: edits.append(args) or edit_result,
     )
     monkeypatch.setattr(
         alarms,
@@ -118,7 +118,7 @@ def test_process_due_notifications_ignores_items_before_deadline(monkeypatch):
     monkeypatch.setattr(
         alarms,
         "edit_telegram_notification",
-        lambda *args: pytest.fail("should not edit before deadline"),
+        lambda *args, **kwargs: pytest.fail("should not edit before deadline"),
     )
 
     alarms.process_due_notifications(pending, {}, [])
@@ -205,7 +205,9 @@ def test_process_due_notifications_retries_then_gives_up(monkeypatch, caplog):
     pending = {"10": item}
     last_data = {"1": market_data()}
     monkeypatch.setattr(alarms.time, "time", lambda: 100)
-    monkeypatch.setattr(alarms, "edit_telegram_notification", lambda *args: False)
+    monkeypatch.setattr(
+        alarms, "edit_telegram_notification", lambda *args, **kwargs: False
+    )
 
     alarms.process_due_notifications(pending, last_data, [])
 

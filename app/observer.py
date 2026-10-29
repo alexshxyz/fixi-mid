@@ -55,6 +55,24 @@ class ScheduledRestartRequired(PageRestartRequired):
     pass
 
 
+def _raise_if_shutdown(
+    shutdown_requested: Event | None,
+    where: str | None = None,
+    cause: Exception | None = None,
+) -> None:
+    """Прервать операцию, если запрошено завершение."""
+    if shutdown_requested is not None and shutdown_requested.is_set():
+        message = (
+            f"Shutdown requested during {where}"
+            if where is not None
+            else "Shutdown requested"
+        )
+        error = PageRestartRequired(message)
+        if cause is not None:
+            raise error from cause
+        raise error
+
+
 def install_live_change_observer(page: Page) -> None:
     """Установить наблюдатель за изменениями Live-таблицы в DOM."""
     page.evaluate(INSTALL_LIVE_CHANGE_OBSERVER)

@@ -70,12 +70,9 @@ def process_due_notifications(
             notification['edited_message'],
             notification.get('channel_id'),
         )
-        if shutdown_requested is None:
-            edit_succeeded = edit_telegram_notification(*edit_arguments)
-        else:
-            edit_succeeded = edit_telegram_notification(
-                *edit_arguments, shutdown_requested=shutdown_requested
-            )
+        edit_succeeded = edit_telegram_notification(
+            *edit_arguments, shutdown_requested=shutdown_requested
+        )
         if edit_succeeded:
             if (
                 notification.get('link')

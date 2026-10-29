@@ -50,6 +50,7 @@ from app.config import (
 )
 from app.logger import setup_logger
 from app.observer import (
+    _raise_if_shutdown,
     collect_match_status,
     page_is_closed,
     write_match_count,
@@ -73,19 +74,6 @@ def _wait_for_shutdown(
 ) -> bool:
     """Ожидать завершения работы или истечения указанного времени."""
     return shutdown_requested.wait(seconds)
-
-
-def _raise_if_shutdown(
-    shutdown_requested: threading.Event | None,
-    where: str,
-    cause: Exception | None = None,
-) -> None:
-    """Прервать операцию, если запрошено завершение."""
-    if shutdown_requested is not None and shutdown_requested.is_set():
-        error = PageRestartRequired(f"Shutdown requested during {where}")
-        if cause is not None:
-            raise error from cause
-        raise error
 
 
 def _capture_error_screenshot(page: Page, error_label: str, error: Exception) -> None:
@@ -145,8 +133,8 @@ def _retry_page_action(
             )
             if shutdown_requested is None:
                 time.sleep(retry_delay)
-            elif _wait_for_shutdown(shutdown_requested, retry_delay):
-                _raise_if_shutdown(shutdown_requested, action_name, e)
+            else:
+                _wait_for_shutdown(shutdown_requested, retry_delay)
             _raise_if_shutdown(shutdown_requested, action_name, e)
             if reload_before_retry:
                 try:

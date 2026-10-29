@@ -313,16 +313,11 @@ def edit_telegram_notification(
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
-    send_options = {
-        "success_message": f"Telegram notification {message_id} updated",
-        "api_url": TELEGRAM_EDIT_MESSAGE_URL,
-    }
-    if shutdown_requested is None:
-        return bool(_send_message(payload, **send_options))
     return bool(
         _send_message(
             payload,
-            **send_options,
+            success_message=f"Telegram notification {message_id} updated",
+            api_url=TELEGRAM_EDIT_MESSAGE_URL,
             shutdown_requested=shutdown_requested,
         )
     )
@@ -409,21 +404,13 @@ def send_telegram_notification(
     if check_duplicate_market(match_id, market):
         return False
 
-    if shutdown_requested is None:
-        telegram_response = _send_message(
-            payload,
-            match_id,
-            max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
-            retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
-        )
-    else:
-        telegram_response = _send_message(
-            payload,
-            match_id,
-            max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
-            retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
-            shutdown_requested=shutdown_requested,
-        )
+    telegram_response = _send_message(
+        payload,
+        match_id,
+        max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
+        retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
+        shutdown_requested=shutdown_requested,
+    )
     if not telegram_response:
         return False
 

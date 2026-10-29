@@ -508,7 +508,9 @@ def test_run_analyzer_passes_full_history_to_pattern_matcher(
     }
     calls = []
     monkeypatch.setattr(
-        tracker, "find_pattern_matches", lambda history, callback: calls.append((history, callback))
+        tracker,
+        "find_pattern_matches",
+        lambda history, callback, **kwargs: calls.append((history, callback, kwargs)),
     )
 
     monitor._run_analyzer()
@@ -518,12 +520,15 @@ def test_run_analyzer_passes_full_history_to_pattern_matcher(
     assert calls[0][0]["1"]["changes"] == [changed, changed_again]
     assert calls[0][1].__self__ is monitor
     assert calls[0][1].__func__ is tracker.MatchMonitor._register_pending_notification
+    assert calls[0][2] == {"shutdown_requested": None}
 
 
 def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
     monkeypatch.setattr(tracker, "DEBUGMODE", 1)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
-    monkeypatch.setattr(tracker, "find_pattern_matches", lambda *args: None)
+    monkeypatch.setattr(
+        tracker, "find_pattern_matches", lambda *args, **kwargs: None
+    )
     monitor.match_history = {"1": {"initial": market_data(), "changes": []}}
 
     monitor._run_analyzer()
@@ -581,7 +586,7 @@ def test_register_pending_notification_delegates_to_pending_store(
     assert calls == [(monitor.pending_notifications, notification)]
 
 
-def test_process_due_notifications_uses_no_shutdown_argument(
+def test_process_due_notifications_passes_shutdown_argument(
     monkeypatch, monitor
 ):
     calls = []
@@ -596,7 +601,7 @@ def test_process_due_notifications_uses_no_shutdown_argument(
     assert calls == [
         (
             (monitor.pending_notifications, monitor.last_data, monitor.active_match_ids),
-            {},
+            {"shutdown_requested": None},
         )
     ]
 
@@ -606,7 +611,9 @@ def test_run_analyzer_logs_debug_snapshot_write_error(
 ):
     monkeypatch.setattr(tracker, "DEBUGMODE", 1)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
-    monkeypatch.setattr(tracker, "find_pattern_matches", lambda *args: None)
+    monkeypatch.setattr(
+        tracker, "find_pattern_matches", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         "builtins.open",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("permission denied")),
@@ -1402,7 +1409,7 @@ def test_monitor_loop_waits_once_then_propagates_wait_signal(monkeypatch, monito
     monitor.restart_deadline = tracker.time.monotonic() + 30
     monkeypatch.setattr(monitor, "_process_due_notifications", lambda: observed.append("process"))
 
-    def wait(page, timeout_ms):
+    def wait(page, timeout_ms, shutdown_requested=None):
         observed.append((page, timeout_ms))
         raise StopLoop
 

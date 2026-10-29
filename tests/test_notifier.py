@@ -323,6 +323,7 @@ def test_edit_telegram_notification_uses_edit_endpoint_and_fallback_channel(monk
             {
                 "success_message": "Telegram notification 44 updated",
                 "api_url": notifier.TELEGRAM_EDIT_MESSAGE_URL,
+                "shutdown_requested": None,
             },
         )
     ]
@@ -475,7 +476,11 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
                 },
                 "match-1",
             ),
-            {"max_attempts": 3, "retry_delay": 5},
+            {
+                "max_attempts": 3,
+                "retry_delay": 5,
+                "shutdown_requested": None,
+            },
         )
     ]
     assert calls["saved"] == [

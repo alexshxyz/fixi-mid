@@ -234,6 +234,7 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
         "match_time": "30",
         "on_sent_details": sent[0]["on_sent_details"],
         "strategy": "default",
+        "shutdown_requested": None,
     }
     assert registered[0]["market"] == "ov"
     assert registered[0]["match_id"] == "match-1"
@@ -655,12 +656,14 @@ def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
     monkeypatch.setattr(
         closed_ov_ah,
         "_find_over_pattern",
-        lambda entries, match_id, callback: match_id == "over-match",
+        lambda entries, match_id, callback, shutdown_requested=None: match_id
+        == "over-match",
     )
     monkeypatch.setattr(
         closed_ov_ah,
         "_find_ah_pattern",
-        lambda entries, match_id, callback: match_id == "handicap-match",
+        lambda entries, match_id, callback, shutdown_requested=None: match_id
+        == "handicap-match",
     )
 
     assert closed_ov_ah.find_pattern_matches(history) == [
@@ -670,8 +673,12 @@ def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
 
 
 def test_find_pattern_matches_returns_both_markets_in_order(monkeypatch):
-    monkeypatch.setattr(closed_ov_ah, "_find_over_pattern", lambda *args: True)
-    monkeypatch.setattr(closed_ov_ah, "_find_ah_pattern", lambda *args: True)
+    monkeypatch.setattr(
+        closed_ov_ah, "_find_over_pattern", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        closed_ov_ah, "_find_ah_pattern", lambda *args, **kwargs: True
+    )
 
     assert closed_ov_ah.find_pattern_matches({"match-1": {}}) == [
         "match-1",
@@ -685,12 +692,14 @@ def test_find_pattern_matches_passes_notification_callback(monkeypatch):
     monkeypatch.setattr(
         closed_ov_ah,
         "_find_over_pattern",
-        lambda entries, match_id, on_notification_sent: observed.append(
+        lambda entries, match_id, on_notification_sent, shutdown_requested=None: observed.append(
             (entries, match_id, on_notification_sent)
         )
         or False,
     )
-    monkeypatch.setattr(closed_ov_ah, "_find_ah_pattern", lambda *args: False)
+    monkeypatch.setattr(
+        closed_ov_ah, "_find_ah_pattern", lambda *args, **kwargs: False
+    )
 
     result = closed_ov_ah.find_pattern_matches(
         {"match-1": {"initial": {"value": 1}, "changes": [{"value": 2}]}},

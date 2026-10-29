@@ -27,6 +27,7 @@ from .match_types import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
 from .observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
+    _raise_if_shutdown,
     collect_match_status,
     extract_all_match_data,
     install_live_change_observer,
@@ -123,11 +124,7 @@ class MatchMonitor:
 
     def _raise_if_shutdown(self, cause: Exception | None = None) -> None:
         """Прервать обновление страницы, если запрошено завершение."""
-        if self._shutdown_is_requested():
-            error = PageRestartRequired("Shutdown requested")
-            if cause is not None:
-                raise error from cause
-            raise error
+        _raise_if_shutdown(self.shutdown_requested, cause=cause)
 
     def _save_state_to_json(
         self,
@@ -183,17 +180,11 @@ class MatchMonitor:
             except OSError:
                 logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
-        if self.shutdown_requested is None:
-            find_pattern_matches(
-                self.match_history,
-                self._register_pending_notification,
-            )
-        else:
-            find_pattern_matches(
-                self.match_history,
-                self._register_pending_notification,
-                shutdown_requested=self.shutdown_requested,
-            )
+        find_pattern_matches(
+            self.match_history,
+            self._register_pending_notification,
+            shutdown_requested=self.shutdown_requested,
+        )
 
     def _register_pending_notification(
         self, notification: NotificationSentDetails
@@ -205,19 +196,12 @@ class MatchMonitor:
 
     def _process_due_notifications(self) -> None:
         """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
-        if self.shutdown_requested is None:
-            pending_notifications.process_due_notifications(
-                self.pending_notifications,
-                self.last_data,
-                self.active_match_ids,
-            )
-        else:
-            pending_notifications.process_due_notifications(
-                self.pending_notifications,
-                self.last_data,
-                self.active_match_ids,
-                shutdown_requested=self.shutdown_requested,
-            )
+        pending_notifications.process_due_notifications(
+            self.pending_notifications,
+            self.last_data,
+            self.active_match_ids,
+            shutdown_requested=self.shutdown_requested,
+        )
 
     def _next_notification_timeout(self) -> float | None:
         """Вычислить время ожидания до ближайшей проверки уведомления."""
@@ -319,17 +303,11 @@ class MatchMonitor:
         notification_timeout = self._next_notification_timeout()
         if notification_timeout is not None:
             wait_seconds = min(wait_seconds, notification_timeout)
-        if self.shutdown_requested is None:
-            changed = wait_for_live_change(
-                self.page,
-                timeout_ms=max(1, int(wait_seconds * 1000)),
-            )
-        else:
-            changed = wait_for_live_change(
-                self.page,
-                timeout_ms=max(1, int(wait_seconds * 1000)),
-                shutdown_requested=self.shutdown_requested,
-            )
+        changed = wait_for_live_change(
+            self.page,
+            timeout_ms=max(1, int(wait_seconds * 1000)),
+            shutdown_requested=self.shutdown_requested,
+        )
         if self._shutdown_is_requested():
             return
 

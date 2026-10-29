@@ -207,12 +207,9 @@ def _send_market_notification(
         )
 
     try:
-        if shutdown_requested is None:
-            send_telegram_notification(**notification)
-        else:
-            send_telegram_notification(
-                **notification, shutdown_requested=shutdown_requested
-            )
+        send_telegram_notification(
+            **notification, shutdown_requested=shutdown_requested
+        )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
@@ -409,25 +406,21 @@ def find_pattern_matches(
             break
         entries = _collect_match_entries(data)
 
-        if shutdown_requested is None:
-            over_matched = _find_over_pattern(
-                entries, match_id, on_notification_sent
-            )
-        else:
-            over_matched = _find_over_pattern(
-                entries, match_id, on_notification_sent, shutdown_requested
-            )
+        over_matched = _find_over_pattern(
+            entries,
+            match_id,
+            on_notification_sent,
+            shutdown_requested=shutdown_requested,
+        )
         if over_matched:
             sent_matches.append(match_id)
 
-        if shutdown_requested is None:
-            ah_matched = _find_ah_pattern(
-                entries, match_id, on_notification_sent
-            )
-        else:
-            ah_matched = _find_ah_pattern(
-                entries, match_id, on_notification_sent, shutdown_requested
-            )
+        ah_matched = _find_ah_pattern(
+            entries,
+            match_id,
+            on_notification_sent,
+            shutdown_requested=shutdown_requested,
+        )
         if ah_matched:
             sent_matches.append(match_id)
 
