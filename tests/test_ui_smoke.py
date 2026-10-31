@@ -27,7 +27,7 @@ def test_real_site_loads_and_live_table_is_active():
             )
             print(f"Site cookies loaded: {len(main.SITE_COOKIES)}")
 
-            main.switch_to_live(page)
+            main.switch_to_live_table(page)
 
             page.locator("li#li_FilterLive.on").wait_for(
                 state="visible",

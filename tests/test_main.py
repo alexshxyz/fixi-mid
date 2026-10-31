@@ -116,9 +116,10 @@ def test_run_actions_with_retries_returns_result_after_retries(
         action,
         "action",
         max_attempts=max_attempts,
+        retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
     ) == "done"
     assert len(attempts) == expected_calls
-    assert sleeps == [5] * failures
+    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS] * failures
 
 
 def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog):
@@ -135,10 +136,11 @@ def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog
             action,
             "load page",
             max_attempts=2,
+            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
         )
 
     assert len(attempts) == 2
-    assert sleeps == [5]
+    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
     assert "Failed to load page after 2 attempts" in caplog.text
 
 
@@ -156,6 +158,7 @@ def test_run_actions_with_retries_allows_one_attempt_at_retry_boundary(monkeypat
             fail_once,
             "load page",
             max_attempts=1,
+            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
         )
 
     assert len(attempts) == 1
@@ -181,6 +184,7 @@ def test_run_actions_with_retries_stops_when_shutdown_interrupts_retry_wait(monk
             action,
             "load page",
             max_attempts=2,
+            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
             shutdown_requested=shutdown_requested,
         )
 
@@ -201,6 +205,7 @@ def test_run_actions_with_retries_stops_when_action_finishes_after_shutdown(monk
             action,
             "prepare page",
             max_attempts=2,
+            retry_delay=main.LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
             shutdown_requested=shutdown_requested,
         )
 
@@ -244,7 +249,7 @@ def test_validate_configuration_rejects_missing_browser_proxy(monkeypatch):
         main._validate_configuration()
 
 
-def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
+def test_init_browser_stops_if_cookie_setup_fails(monkeypatch, caplog):
     page = FakePage()
     context = FakeContext(page=page, cookies_error=RuntimeError("cookie error"))
     browser = FakeBrowser(context=context)
@@ -252,8 +257,45 @@ def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
     monkeypatch.setattr(main, "_run_actions_with_retries", lambda *args, **kwargs: None)
 
-    assert main.init_browser(playwright) == (browser, page)
-    assert "Failed to add site cookies: cookie error" in caplog.text
+    with pytest.raises(
+        main.CookieSetupError, match="Failed to add required site cookies"
+    ) as error:
+        main.init_browser(playwright)
+
+    assert str(error.value.__cause__) == "cookie error"
+    assert browser.close_calls == 1
+    assert page.goto_calls == []
+    assert not any(
+        "Failed to add required site cookies" in record.message
+        for record in caplog.records
+    )
+
+
+def test_main_does_not_restart_after_cookie_setup_failure(monkeypatch, caplog):
+    init_browser = main.init_browser
+    page, browser = configure_main(monkeypatch)
+    context = browser.context
+    context.cookies_error = RuntimeError("cookie error")
+    monkeypatch.setattr(main, "SITE_COOKIES", [{"name": "cookie"}])
+    monkeypatch.setattr(main, "init_browser", init_browser)
+    restart_calls = []
+    monkeypatch.setattr(
+        main, "_restart_script", lambda *args: restart_calls.append(args)
+    )
+
+    with pytest.raises(SystemExit) as error:
+        main.main()
+
+    assert error.value.code == 1
+    assert browser.close_calls == 1
+    assert page.goto_calls == []
+    assert restart_calls == []
+    cookie_errors = [
+        record for record in caplog.records
+        if record.message == "Failed to add required site cookies: cookie error"
+    ]
+    assert len(cookie_errors) == 1
+    assert cookie_errors[0].levelname == "ERROR"
 
 
 def test_init_browser_closes_after_shutdown_during_browser_launch():
@@ -350,25 +392,26 @@ def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
         main.init_browser(playwright)
 
     assert len(attempts) == 2
-    assert sleeps == [5]
+    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
     assert restart_calls == [browser]
     assert browser.close_calls == 1
 
 
-def test_switch_to_live_waits_clicks_and_propagates_failure():
+def test_switch_to_live_table_waits_clicks_delays_and_propagates_failure():
     page = FakePage()
 
-    main.switch_to_live(page)
+    main.switch_to_live_table(page)
 
     assert page.locators["li#li_FilterLive"].click_calls == 1
     assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
+    assert page.wait_timeout_calls == [main.HARDCODE_DELAY_MS]
 
     failing_page = FakePage()
     failing_page.locators["table#table_live"] = FakeLocator(
         wait_error=RuntimeError("table missing")
     )
     with pytest.raises(RuntimeError, match="table missing"):
-        main.switch_to_live(failing_page)
+        main.switch_to_live_table(failing_page)
 
 
 def test_refresh_live_table_clicks_waits_and_delays():
@@ -378,7 +421,7 @@ def test_refresh_live_table_clicks_waits_and_delays():
 
     assert page.locators["li#li_FilterLive"].click_calls == 1
     assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
-    assert page.wait_timeout_calls == [1000]
+    assert page.wait_timeout_calls == [main.HARDCODE_DELAY_MS]
 
 
 def test_refresh_live_table_logs_and_reraises_failure(
@@ -417,7 +460,7 @@ def test_refresh_live_table_saves_screenshot_after_failure(
     assert len(screenshots) == 1
     assert "ERROR - Failed to refresh Live table" in screenshots[0].name
     assert screenshots[0].read_bytes() == b"fake screenshot"
-    assert "Saved error screenshot" in caplog.text
+    assert "Saved error screenshot to" in caplog.text
 
 
 def test_refresh_page_without_data_wait_reloads_and_returns():
@@ -661,7 +704,7 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     monkeypatch.setattr(main, "sync_playwright", lambda: FakeSyncPlaywright(playwright))
     monkeypatch.setattr(main, "init_browser", lambda p, **kwargs: (browser, page))
     monkeypatch.setattr(main, "load_state_from_json", lambda: saved_state)
-    monkeypatch.setattr(main, "switch_to_live", lambda page: None)
+    monkeypatch.setattr(main, "switch_to_live_table", lambda page: None)
     monkeypatch.setattr(main.time, "monotonic", lambda: 100)
     return page, browser
 
@@ -696,7 +739,7 @@ def test_main_restarts_after_prepare_page_failure(monkeypatch):
     calls = []
     monkeypatch.setattr(
         main,
-        "switch_to_live",
+        "switch_to_live_table",
         lambda current_page: (_ for _ in ()).throw(RuntimeError("switch failed")),
     )
     def restart(current_browser):

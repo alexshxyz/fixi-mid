@@ -26,7 +26,8 @@ from app.config import (
     CHANNEL_ID,
     DEBUGMODE,
     ERROR_SCREENSHOTS_DIR,
-    ACTION_RETRY_DELAY_SECONDS,
+    FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
+    LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
     NO_MATCHES_RETRY_DELAY_SECONDS,
     PAGE_DATA_READY_TIMEOUT_SECONDS,
     PAGE_ELEMENT_WAIT_TIMEOUT_MS,
@@ -35,7 +36,7 @@ from app.config import (
     PAGE_REFRESH_MAX_ATTEMPTS,
     PAGE_REFRESH_RETRY_DELAY_SECONDS,
     PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
-    PAGE_POLL_INTERVAL_MS,
+    HARDCODE_DELAY_MS,
     PAGE_REFRESH_TABLE_TIMEOUT_MS,
     RESTART_HOURS,
     SITE_COOKIES,
@@ -55,6 +56,16 @@ from app.observer import (
 from app.scripts import LIVE_ODDS_READINESS
 
 logger = setup_logger(__name__)
+
+
+class CookieSetupError(RuntimeError):
+    """Сообщить о невозможности установить обязательные cookies."""
+
+
+def _close_browser_quietly(browser: Browser) -> None:
+    """Закрыть браузер, не скрывая исходную ошибку ошибкой закрытия."""
+    with suppress(Exception):
+        browser.close()
 
 
 def _request_shutdown(
@@ -90,7 +101,7 @@ def _capture_error_screenshot(page: Page, error_label: str, error: Exception) ->
             ERROR_SCREENSHOTS_DIR, f"{filename[:200]}.png"
         )
         page.screenshot(path=screenshot_path)
-        logger.info("Saved error screenshot: %s", screenshot_path)
+        logger.info("Saved error screenshot to %s", screenshot_path)
     except Exception:
         logger.warning(
             "Failed to capture screenshot for %s",
@@ -103,10 +114,10 @@ def _run_actions_with_retries(
     action: Callable[[], object],
     action_name: str,
     max_attempts: int,
-    retry_delay: float = ACTION_RETRY_DELAY_SECONDS,
+    retry_delay: float,
     shutdown_requested: threading.Event | None = None,
 ) -> object | None:
-    """Повторить действие со страницей после ошибки."""
+    """Повторяет действия при: первоначальной загрузке сайта, переключении на live-фильтр и обновлении страницы при отсутствии матчей."""
     for attempt in range(1, max_attempts + 1):
         raise_if_shutdown(shutdown_requested, action_name)
         try:
@@ -179,15 +190,15 @@ def init_browser(
             context.add_cookies(SITE_COOKIES)
             logger.info("Cookies set")
         except Exception as e:
-            logger.warning(f"Failed to add site cookies: {e}")
+            raise CookieSetupError(
+                f"Failed to add required site cookies: {e}"
+            ) from e
         raise_if_shutdown(shutdown_requested, "browser setup")
     except PageRestartRequired:
-        with suppress(Exception):
-            browser.close()
+        _close_browser_quietly(browser)
         raise
     except Exception:
-        with suppress(Exception):
-            browser.close()
+        _close_browser_quietly(browser)
         raise_if_shutdown(shutdown_requested, "browser setup")
         raise
 
@@ -198,17 +209,16 @@ def init_browser(
             wait_until="domcontentloaded",
             timeout=PAGE_LOAD_TIMEOUT_MS,
         )
-    # Загрузка страницы.
     try:
         _run_actions_with_retries(
             open_page,
             "load page",
             max_attempts=max_navigation_attempts,
+            retry_delay=FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
             shutdown_requested=shutdown_requested,
         )
     except PageRestartRequired:
-        with suppress(Exception):
-            browser.close()
+        _close_browser_quietly(browser)
         raise
     except Exception:
         logger.error(
@@ -222,12 +232,15 @@ def init_browser(
     return browser, page
 
 
-def switch_to_live(page: Page) -> None:
+def switch_to_live_table(page: Page) -> None:
     """Переключить страницу на фильтр Live."""
     try:
-        page.locator("li#li_FilterLive").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
-        page.locator("li#li_FilterLive").click()
-        page.locator("table#table_live").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+        live_filter = page.locator("li#li_FilterLive")
+        live_table = page.locator("table#table_live")
+        live_filter.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+        live_filter.click()
+        live_table.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+        page.wait_for_timeout(HARDCODE_DELAY_MS)
         logger.info("Switched to Live")
     except Exception as e:
         logger.error(f"Failed to switch to Live: {e}")
@@ -239,10 +252,11 @@ def refresh_live_table(page: Page) -> None:
     logger.info("Refreshing...")
     try:
         live_filter = page.locator("li#li_FilterLive")
+        live_table = page.locator("table#table_live")
         live_filter.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
         live_filter.click()
-        page.locator("table#table_live").wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
-        page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
+        live_table.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+        page.wait_for_timeout(HARDCODE_DELAY_MS)
         logger.info("Live table refreshed")
     except Exception as e:
         logger.error("Failed to refresh Live table: %s", e)
@@ -266,7 +280,7 @@ def refresh_page(page: Page, wait_for_data: bool = True) -> None:
             if has_valid_match_data(page):
                 logger.info("Page refreshed")
                 return
-            page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
+            page.wait_for_timeout(HARDCODE_DELAY_MS)
 
         raise TimeoutError("Live table data did not become ready after page refresh")
     except Exception as e:
@@ -280,7 +294,7 @@ def collect_matches(page: Page) -> list[str]:
     matches = []
     match_status = None
     try:
-        page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
+        page.wait_for_timeout(HARDCODE_DELAY_MS)
         match_status = collect_match_status(page, require_crown=True)
         matches = list(dict.fromkeys(
             item['match_id'] for item in match_status if item['active']
@@ -295,7 +309,7 @@ def collect_matches(page: Page) -> list[str]:
 
 def has_valid_match_data(page: Page) -> bool:
     """Проверить готовность данных Crown и видимых коэффициентов."""
-    page.wait_for_timeout(PAGE_POLL_INTERVAL_MS)
+    page.wait_for_timeout(HARDCODE_DELAY_MS)
     readiness = page.evaluate(LIVE_ODDS_READINESS)
     return bool(readiness["hasCrownOdds"] and readiness["hasVisibleOdds"])
 
@@ -303,8 +317,7 @@ def has_valid_match_data(page: Page) -> bool:
 def _restart_script(browser: Browser | None = None) -> NoReturn:
     """Закрыть браузер и перезапустить процесс."""
     if browser is not None:
-        with suppress(Exception):
-            browser.close()
+        _close_browser_quietly(browser)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -371,6 +384,9 @@ def main() -> None:
                     browser, page = init_browser(
                         p, shutdown_requested=shutdown_requested
                     )
+                except CookieSetupError as e:
+                    logger.error("%s", e)
+                    raise SystemExit(1) from None
                 except PageRestartRequired:
                     if shutdown_requested.is_set():
                         logger.info("Shutdown requested during browser setup")
@@ -382,9 +398,10 @@ def main() -> None:
                     # Переключаемся на live-фильтр.
                     try:
                         _run_actions_with_retries(
-                            lambda: switch_to_live(page),
+                            lambda: switch_to_live_table(page),
                             "prepare page",
                             max_attempts=PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
+                            retry_delay=LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
                             shutdown_requested=shutdown_requested,
                         )
                     except Exception:
@@ -476,8 +493,7 @@ def main() -> None:
                         )
                         return
                     logger.error(f"Unexpected error in main: {e}")
-                    with suppress(Exception):
-                        browser.close()
+                    _close_browser_quietly(browser)
                     raise
                 finally:
                     if shutdown_requested.is_set():
