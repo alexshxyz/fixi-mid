@@ -1,9 +1,4 @@
-(requireCrown) => {
-    __LIVE_ODDS_READINESS_HELPER__
-    const oddsReadiness = getLiveOddsReadiness();
-    const globalReady = !requireCrown || (
-        oddsReadiness.hasCrownOdds && oddsReadiness.hasVisibleOdds
-    );
+() => {
     const rows = Array.from(document.querySelectorAll('table#table_live tbody tr.tds'));
     const result = [];
 
@@ -20,7 +15,7 @@
         result.push({
             match_id: matchId,
             label: `${homeTeam} - ${awayTeam}`,
-            active: Boolean(matchId && hasOdds && globalReady)
+            active: Boolean(matchId && hasOdds)
         });
     }
 

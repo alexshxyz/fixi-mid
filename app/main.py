@@ -47,7 +47,7 @@ from app.observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
     raise_if_shutdown,
-    collect_match_status,
+    collect_crown_matches_status,
     page_is_closed,
     write_match_count,
 )
@@ -222,7 +222,7 @@ def init_browser(
             "Page load failed after %s attempts. Restarting script...",
             max_navigation_attempts,
         )
-        _restart_script(browser)
+        _restart_bot(browser)
         raise
 
     logger.info("Page loaded, OK")
@@ -277,37 +277,37 @@ def refresh_page(page: Page) -> None:
         raise
 
 
-def collect_matches(page: Page) -> list[str]:
+def collect_crown_matches(page: Page) -> list[str]:
     """Собрать ID активных матчей, готовых к наблюдению."""
-    matches = []
-    match_status = None
     try:
         page.wait_for_timeout(HARDCODE_DELAY_MS)
-        match_status = collect_match_status(page, require_crown=True)
+        match_status = collect_crown_matches_status(page)
         matches = list(dict.fromkeys(
             item['match_id'] for item in match_status if item['active']
         ))
-        logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
     except Exception:
         logger.exception("Failed to collect matches")
-    if DEBUGMODE and match_status is not None:
+        raise
+
+    logger.info(f"Matches found: {len(matches)} ({', '.join(matches)})")
+    if DEBUGMODE:
         write_match_count(match_status, matches)
     return matches
 
 
-def _restart_script(browser: Browser | None = None) -> NoReturn:
+def _restart_bot(browser: Browser | None) -> NoReturn:
     """Закрыть браузер и перезапустить процесс."""
     if browser is not None:
         _close_browser_quietly(browser)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-def _restart_if_due(
+def _check_for_restart(
     restart_deadline: float,
     browser: Browser | None,
     shutdown_requested: threading.Event | None = None,
 ) -> None:
-    """Перезапустить браузер или процесс по истечении срока."""
+    """Проверить, наступил ли срок планового перезапуска."""
     if shutdown_requested is not None and shutdown_requested.is_set():
         return
     if time.monotonic() < restart_deadline:
@@ -317,7 +317,7 @@ def _restart_if_due(
         RESTART_HOURS,
     )
     if browser is None:
-        _restart_script()
+        _restart_bot(browser)
     raise ScheduledRestartRequired(
         f"Scheduled restart after {RESTART_HOURS} hours"
     )
@@ -329,11 +329,10 @@ def _validate_configuration() -> None:
         "BOT_TOKEN": BOT_TOKEN,
         "CHANNEL_ID": CHANNEL_ID,
     }
-    missing_settings = [
-        name
-        for name, value in required_settings.items()
-        if not value or not value.strip()
-    ]
+    missing_settings: list[str] = []
+    for name, value in required_settings.items():
+        if not value or not value.strip():
+            missing_settings.append(name)
     try:
         validate_browser_proxy_server(BROWSER_PROXY_SERVER)
     except RuntimeError:
@@ -357,7 +356,7 @@ def main() -> None:
     try:
         restart_deadline = time.monotonic() + RESTART_HOURS * 3600
         init_storage()
-        _restart_if_due(restart_deadline, None, shutdown_requested)
+        _check_for_restart(restart_deadline, None, shutdown_requested)
 
         while not shutdown_requested.is_set():
             with sync_playwright() as p:
@@ -375,7 +374,7 @@ def main() -> None:
                     raise
 
                 try:
-                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    _check_for_restart(restart_deadline, browser, shutdown_requested)
                     # Переключаемся на live-фильтр.
                     try:
                         _run_actions_with_retries(
@@ -394,15 +393,15 @@ def main() -> None:
                             "Restarting script...",
                             PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
                         )
-                        _restart_script(browser)
+                        _restart_bot(browser)
                     if shutdown_requested.is_set():
                         break
-                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    _check_for_restart(restart_deadline, browser, shutdown_requested)
                     # Всегда получаем актуальные матчи; состояние загружается после ожидания,
                     # чтобы оно оставалось на диске, если перезапуск наступит без матчей.
-                    matches = collect_matches(page)
+                    matches = collect_crown_matches(page)
                     while not matches and not shutdown_requested.is_set():
-                        _restart_if_due(restart_deadline, browser, shutdown_requested)
+                        _check_for_restart(restart_deadline, browser, shutdown_requested)
                         remaining_seconds = restart_deadline - time.monotonic()
                         logger.info(
                             "No matches found. Retrying in %s seconds...",
@@ -417,7 +416,7 @@ def main() -> None:
                         )
                         if shutdown_requested.is_set():
                             break
-                        _restart_if_due(restart_deadline, browser, shutdown_requested)
+                        _check_for_restart(restart_deadline, browser, shutdown_requested)
                         # Обновляем страницу при отсутствии матчей.
                         try:
                             _run_actions_with_retries(
@@ -439,13 +438,13 @@ def main() -> None:
                                 "waiting for matches. Restarting script...",
                                 PAGE_REFRESH_MAX_ATTEMPTS,
                             )
-                            _restart_script(browser)
-                        matches = collect_matches(page)
+                            _restart_bot(browser)
+                        matches = collect_crown_matches(page)
 
                     if shutdown_requested.is_set():
                         break
 
-                    _restart_if_due(restart_deadline, browser, shutdown_requested)
+                    _check_for_restart(restart_deadline, browser, shutdown_requested)
                     saved_state = load_state_from_json()
                     parse_and_monitor_match(
                         page,
@@ -465,7 +464,7 @@ def main() -> None:
                         return
                     if not isinstance(e, ScheduledRestartRequired):
                         logger.info(f"{e}. Restarting script...")
-                    _restart_script(browser)
+                    _restart_bot(browser)
                 except Exception as e:
                     if shutdown_requested.is_set():
                         logger.warning(

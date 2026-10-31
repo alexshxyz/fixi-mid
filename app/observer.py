@@ -139,7 +139,7 @@ def reload_page_with_retries(
 
         try:
             live_refresh_callback(page)
-            match_status = collect_match_status(page, require_crown=True)
+            match_status = collect_crown_matches_status(page)
             if shutdown_requested is not None and shutdown_requested.is_set():
                 raise PageRestartRequired(
                     "Shutdown requested during Live refresh"
@@ -177,14 +177,9 @@ def reload_page_with_retries(
     return None
 
 
-def collect_match_status(
-    page: Page,
-    require_crown: bool = False,
-) -> list[dict[str, Any]]:
+def collect_crown_matches_status(page: Page) -> list[dict[str, Any]]:
     """Собрать статусы видимых матчей в Live-таблице."""
-    match_status: list[dict[str, Any]] = page.evaluate(
-        COLLECT_MATCH_STATUS, require_crown
-    )
+    match_status: list[dict[str, Any]] = page.evaluate(COLLECT_MATCH_STATUS)
     return match_status
 
 
@@ -192,15 +187,15 @@ def write_match_count(
     match_status: list[dict[str, Any]],
     active_match_ids: Sequence[str | int],
 ) -> None:
-    """Записать диагностический список активных и исключённых матчей."""
+    """Записать диагностический список активных матчей."""
     if not DEBUGMODE:
         return
 
     active_ids = {str(match_id) for match_id in active_match_ids}
     payload: dict[str, list[str]] = {'Active': [], 'Inactive': []}
     for item in match_status:
-        category = 'Active' if str(item['match_id']) in active_ids else 'Inactive'
-        payload[category].append(item['label'])
+        if str(item['match_id']) in active_ids:
+            payload['Active'].append(item['label'])
 
     snapshot_path = DATA_DIR / 'count.json'
     try:
@@ -241,7 +236,7 @@ __all__ = [
     "remove_live_change_observer",
     "wait_for_live_change",
     "reload_page_with_retries",
-    "collect_match_status",
+    "collect_crown_matches_status",
     "write_match_count",
     "extract_all_match_data",
 ]

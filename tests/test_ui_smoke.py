@@ -37,7 +37,7 @@ def test_real_site_loads_and_live_table_is_active():
             live_table.wait_for(state="visible", timeout=10_000)
             assert live_table.is_visible()
 
-            match_status = main.collect_match_status(page, require_crown=True)
+            match_status = main.collect_crown_matches_status(page)
             matches = list(dict.fromkeys(
                 item["match_id"]
                 for item in match_status

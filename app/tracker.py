@@ -27,7 +27,7 @@ from .observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
     raise_if_shutdown,
-    collect_match_status,
+    collect_crown_matches_status,
     extract_all_match_data,
     install_live_change_observer,
     page_is_closed,
@@ -351,7 +351,7 @@ class MatchMonitor:
         )
         self._raise_if_shutdown()
         if live_refresh_succeeded is False:
-            match_status = collect_match_status(self.page, require_crown=True)
+            match_status = collect_crown_matches_status(self.page)
         elif live_refresh_succeeded is None:
             logger.error(
                 "Live refresh failed after retries. Saving state and restarting script."
@@ -362,7 +362,7 @@ class MatchMonitor:
                 "Live refresh failed after retries; restarting script"
             )
         else:
-            match_status = collect_match_status(self.page, require_crown=True)
+            match_status = collect_crown_matches_status(self.page)
 
         self._raise_if_shutdown()
         if not any(item['active'] for item in match_status):
@@ -382,7 +382,7 @@ class MatchMonitor:
     ) -> list[dict[str, Any]]:
         """Ожидать появления матчей, периодически перезагружая страницу."""
         if match_status is None:
-            match_status = collect_match_status(self.page, require_crown=True)
+            match_status = collect_crown_matches_status(self.page)
 
         while not any(item['active'] for item in match_status):
             self._restart_if_due()
@@ -443,7 +443,7 @@ class MatchMonitor:
                 self._raise_if_shutdown()
                 self._restart_if_due()
                 install_live_change_observer(self.page)
-                match_status = collect_match_status(self.page, require_crown=True)
+                match_status = collect_crown_matches_status(self.page)
                 self._raise_if_shutdown()
                 self._restart_if_due()
                 return match_status

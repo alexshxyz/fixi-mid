@@ -18,7 +18,7 @@ def test_observer_exports_shared_page_operations():
         "remove_live_change_observer",
         "wait_for_live_change",
         "reload_page_with_retries",
-        "collect_match_status",
+        "collect_crown_matches_status",
         "write_match_count",
         "extract_all_match_data",
     ]
@@ -249,7 +249,7 @@ def test_reload_page_with_retries_handles_active_and_readiness_states(
     page = FakePage()
     refreshes = []
     sleeps = []
-    monkeypatch.setattr(observer, "collect_match_status", lambda *args, **kwargs: active)
+    monkeypatch.setattr(observer, "collect_crown_matches_status", lambda *args, **kwargs: active)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
     result = observer.reload_page_with_retries(
@@ -274,7 +274,7 @@ def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missin
     page = FakePage()
     refreshes = []
     sleeps = []
-    monkeypatch.setattr(observer, "collect_match_status", lambda *args, **kwargs: active)
+    monkeypatch.setattr(observer, "collect_crown_matches_status", lambda *args, **kwargs: active)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
     result = observer.reload_page_with_retries(
@@ -316,7 +316,7 @@ def test_reload_page_with_retries_retries_errors_then_returns_none(
             raise status_error
         return [{"active": True}]
 
-    monkeypatch.setattr(observer, "collect_match_status", collect)
+    monkeypatch.setattr(observer, "collect_crown_matches_status", collect)
     monkeypatch.setattr(observer.time, "sleep", sleeps.append)
 
     result = observer.reload_page_with_retries(
@@ -406,22 +406,14 @@ def test_reload_page_with_retries_stops_when_shutdown_interrupts_retry_wait(
     assert page.evaluate_calls == []
 
 
-@pytest.mark.parametrize(
-    ("require_crown", "expected"),
-    [
-        (False, [{"match_id": "1", "label": "A - B", "active": True}]),
-        (True, []),
-    ],
-)
-def test_collect_match_status_passes_require_crown_and_returns_page_result(
-    require_crown, expected
-):
+def test_collect_crown_matches_status_returns_page_result_without_optional_flags():
+    expected = [{"match_id": "1", "label": "A - B", "active": True}]
     page = FakePage(evaluate_result=expected)
 
-    assert observer.collect_match_status(page, require_crown) == expected
+    assert observer.collect_crown_matches_status(page) == expected
     script, args = page.evaluate_calls[0]
     assert "table#table_live tbody tr.tds" in script
-    assert args == (require_crown,)
+    assert args == ()
 
 
 @pytest.mark.parametrize(
@@ -446,7 +438,7 @@ def test_write_match_count_respects_debug_mode(
     if expected_file:
         assert json.loads(snapshot.read_text(encoding="utf-8")) == {
             "Active": ["Home - Away"],
-            "Inactive": ["One - Two", "Unknown - Unknown"],
+            "Inactive": [],
         }
 
 

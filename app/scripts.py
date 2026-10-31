@@ -9,8 +9,6 @@ def _read_script(name: str) -> str:
     return (_SCRIPT_DIR / name).read_text(encoding="utf-8").removesuffix("\n")
 
 
-_LIVE_ODDS_READINESS_HELPER: str = _read_script("live_odds_readiness_helper.js")
-
 # Устанавливает наблюдатель за изменениями Live-таблицы.
 INSTALL_LIVE_CHANGE_OBSERVER: str = _read_script("install_live_change_observer.js")
 
@@ -24,10 +22,7 @@ LIVE_CHANGE_PREDICATE: str = _read_script("live_change_predicate.js")
 RESET_LIVE_CHANGE_FLAG: str = _read_script("reset_live_change_flag.js")
 
 # Собирает видимые матчи и отмечает их готовность к наблюдению.
-COLLECT_MATCH_STATUS: str = _read_script("collect_match_status.js").replace(
-    "__LIVE_ODDS_READINESS_HELPER__",
-    _LIVE_ODDS_READINESS_HELPER,
-)
+COLLECT_MATCH_STATUS: str = _read_script("collect_match_status.js")
 
 # Извлекает коэффициенты и сведения по переданным ID матчей.
 EXTRACT_ALL_MATCH_DATA: str = _read_script("extract_all_match_data.js")

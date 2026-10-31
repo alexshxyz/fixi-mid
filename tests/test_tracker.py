@@ -915,7 +915,7 @@ def test_do_periodic_reload_selects_refresh_path_and_synchronizes(
     )
     monkeypatch.setattr(
         tracker,
-        "collect_match_status",
+        "collect_crown_matches_status",
         lambda *args, **kwargs: calls.append("collect") or statuses,
     )
     monkeypatch.setattr(
@@ -991,7 +991,7 @@ def test_do_periodic_reload_waits_for_matches_when_status_is_inactive(monkeypatc
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(
-        tracker, "collect_match_status", lambda *args, **kwargs: inactive
+        tracker, "collect_crown_matches_status", lambda *args, **kwargs: inactive
     )
     monkeypatch.setattr(
         monitor, "_wait_for_matches_with_hard_refresh", lambda status: calls.append(status) or active
@@ -1009,11 +1009,11 @@ def test_wait_for_matches_collects_status_when_not_provided(monkeypatch, monitor
     status = [{"match_id": "1", "active": True}]
     calls = []
     monkeypatch.setattr(
-        tracker, "collect_match_status", lambda *args, **kwargs: calls.append(kwargs) or status
+        tracker, "collect_crown_matches_status", lambda *args, **kwargs: calls.append(kwargs) or status
     )
 
     assert monitor._wait_for_matches_with_hard_refresh() == status
-    assert calls == [{"require_crown": True}]
+    assert calls == [{}]
 
 
 def test_wait_for_matches_refreshes_until_active_match(monkeypatch, monitor):
@@ -1062,7 +1062,7 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     monkeypatch.setattr(monitor, "page_refresh_callback", refresh)
     monkeypatch.setattr(tracker, "install_live_change_observer", lambda page: None)
     monkeypatch.setattr(
-        tracker, "collect_match_status", lambda *args, **kwargs: status
+        tracker, "collect_crown_matches_status", lambda *args, **kwargs: status
     )
     monkeypatch.setattr(tracker.time, "sleep", sleeps.append)
 
