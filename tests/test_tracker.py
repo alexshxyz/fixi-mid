@@ -30,7 +30,7 @@ def market_data(*, ah=None, over=None, match_time="12", score="0-0"):
 def test_match_monitor_initializes_runtime_state_and_callbacks():
     page = FakePage()
     live_callback = lambda current_page: None
-    page_callback = lambda current_page, wait_for_data=True: None
+    page_callback = lambda current_page: None
 
     result = tracker.MatchMonitor(
         page,
@@ -1054,8 +1054,8 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     sleeps = []
     status = [{"match_id": "1", "active": True}]
 
-    def refresh(page, wait_for_data):
-        attempts.append(wait_for_data)
+    def refresh(page):
+        attempts.append(page)
         if len(attempts) == 1:
             raise RuntimeError("temporary")
 
@@ -1069,7 +1069,7 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     assert monitor._do_hard_page_refresh_with_retries(
         max_retries=2
     ) == status
-    assert attempts == [False, False]
+    assert attempts == [monitor.page, monitor.page]
     assert sleeps == [10]
     assert "Page refresh attempt 1/2 failed" in caplog.text
     assert "Full page refresh" not in caplog.text
@@ -1082,8 +1082,8 @@ def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
     saved = []
     sleeps = []
 
-    def refresh(page, wait_for_data):
-        attempts.append(wait_for_data)
+    def refresh(page):
+        attempts.append(page)
         raise RuntimeError("site unavailable")
 
     monitor.page_refresh_callback = refresh
@@ -1097,7 +1097,7 @@ def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
     with pytest.raises(tracker.PageRestartRequired, match="after 2 attempts"):
         monitor._do_hard_page_refresh_with_retries()
 
-    assert attempts == [False, False]
+    assert attempts == [monitor.page, monitor.page]
     assert sleeps == [tracker.PAGE_REFRESH_RETRY_DELAY_SECONDS]
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
     assert "Page refresh failed after 2 attempts" in caplog.text
@@ -1116,8 +1116,8 @@ def test_page_refresh_stops_retrying_when_shutdown_is_requested(
     sleeps = []
     monitor.shutdown_requested = shutdown_requested
 
-    def refresh(page, wait_for_data):
-        attempts.append(wait_for_data)
+    def refresh(page):
+        attempts.append(page)
         shutdown_requested.set()
         raise RuntimeError("Target page, context or browser has been closed")
 
@@ -1127,7 +1127,7 @@ def test_page_refresh_stops_retrying_when_shutdown_is_requested(
     with pytest.raises(tracker.PageRestartRequired, match="Shutdown requested"):
         monitor._do_hard_page_refresh_with_retries(max_retries=3)
 
-    assert attempts == [False]
+    assert attempts == [monitor.page]
     assert sleeps == []
 
 
@@ -1137,8 +1137,8 @@ def test_page_refresh_stops_when_shutdown_interrupts_retry_wait(
     shutdown_requested = threading.Event()
     attempts = []
     monitor.shutdown_requested = shutdown_requested
-    monitor.page_refresh_callback = lambda page, wait_for_data: (
-        attempts.append(wait_for_data),
+    monitor.page_refresh_callback = lambda page: (
+        attempts.append(page),
         (_ for _ in ()).throw(RuntimeError("temporary")),
     )[1]
 
@@ -1151,7 +1151,7 @@ def test_page_refresh_stops_when_shutdown_interrupts_retry_wait(
     with pytest.raises(tracker.PageRestartRequired, match="Shutdown requested"):
         monitor._do_hard_page_refresh_with_retries(max_retries=3)
 
-    assert attempts == [False]
+    assert attempts == [monitor.page]
 
 
 def test_page_refresh_does_not_retry_when_page_is_closed(
@@ -1160,8 +1160,8 @@ def test_page_refresh_does_not_retry_when_page_is_closed(
     attempts = []
     saved = []
 
-    def refresh(page, wait_for_data):
-        attempts.append(wait_for_data)
+    def refresh(page):
+        attempts.append(page)
         raise RuntimeError("Target page, context or browser has been closed")
 
     monitor.page_refresh_callback = refresh
@@ -1172,7 +1172,7 @@ def test_page_refresh_does_not_retry_when_page_is_closed(
     with pytest.raises(tracker.PageRestartRequired, match="after 1 attempts"):
         monitor._do_hard_page_refresh_with_retries(max_retries=3)
 
-    assert attempts == [False]
+    assert attempts == [monitor.page]
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
 
 

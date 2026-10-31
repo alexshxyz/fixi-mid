@@ -50,7 +50,7 @@ class MatchMonitor:
         saved_state: dict[str, Any] | None = None,
         *,
         live_refresh_callback: Callable[[Page], None],
-        page_refresh_callback: Callable[..., None] | None = None,
+        page_refresh_callback: Callable[[Page], None] | None = None,
         restart_deadline: float | None = None,
         shutdown_requested: Event | None = None,
         saved_state_path: str | Path | None = None,
@@ -60,7 +60,9 @@ class MatchMonitor:
         self.match_ids: list[str] | None = match_ids
         self.saved_state: dict[str, Any] | None = saved_state
         self.live_refresh_callback: Callable[[Page], None] = live_refresh_callback
-        self.page_refresh_callback: Callable[..., None] | None = page_refresh_callback
+        self.page_refresh_callback: Callable[[Page], None] | None = (
+            page_refresh_callback
+        )
         self.shutdown_requested: Event | None = shutdown_requested
         self.saved_state_path = saved_state_path
         self.match_history: MatchHistoryMap = {}
@@ -437,7 +439,7 @@ class MatchMonitor:
             try:
                 if self.page_refresh_callback is None:
                     raise RuntimeError("Page refresh callback is not configured")
-                self.page_refresh_callback(self.page, wait_for_data=False)
+                self.page_refresh_callback(self.page)
                 self._raise_if_shutdown()
                 self._restart_if_due()
                 install_live_change_observer(self.page)
@@ -592,7 +594,7 @@ def parse_and_monitor_match(
     saved_state: dict[str, Any] | None = None,
     *,
     live_refresh_callback: Callable[[Page], None],
-    page_refresh_callback: Callable[..., None] | None = None,
+    page_refresh_callback: Callable[[Page], None] | None = None,
     restart_deadline: float | None = None,
     shutdown_requested: Event | None = None,
     saved_state_path: str | Path | None = None,

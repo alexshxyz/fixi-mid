@@ -29,15 +29,13 @@ from app.config import (
     FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
     LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
     NO_MATCHES_RETRY_DELAY_SECONDS,
-    PAGE_DATA_READY_TIMEOUT_SECONDS,
     PAGE_ELEMENT_WAIT_TIMEOUT_MS,
     PAGE_DOM_LOAD_MAX_ATTEMPTS,
-    PAGE_LOAD_TIMEOUT_MS,
+    PAGE_DOM_LOAD_TIMEOUT_MS,
     PAGE_REFRESH_MAX_ATTEMPTS,
     PAGE_REFRESH_RETRY_DELAY_SECONDS,
     PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
     HARDCODE_DELAY_MS,
-    PAGE_REFRESH_TABLE_TIMEOUT_MS,
     RESTART_HOURS,
     SITE_COOKIES,
     SITE_URL,
@@ -53,7 +51,6 @@ from app.observer import (
     page_is_closed,
     write_match_count,
 )
-from app.scripts import LIVE_ODDS_READINESS
 
 logger = setup_logger(__name__)
 
@@ -207,7 +204,7 @@ def init_browser(
         page.goto(
             SITE_URL,
             wait_until="domcontentloaded",
-            timeout=PAGE_LOAD_TIMEOUT_MS,
+            timeout=PAGE_DOM_LOAD_TIMEOUT_MS,
         )
     try:
         _run_actions_with_retries(
@@ -264,25 +261,16 @@ def refresh_live_table(page: Page) -> None:
         raise
 
 
-def refresh_page(page: Page, wait_for_data: bool = True) -> None:
-    """Перезагрузить страницу и при необходимости дождаться данных Live."""
+def refresh_page(page: Page) -> None:
+    """Перезагрузить страницу и дождаться появления Live-таблицы."""
     logger.info("Refreshing...")
     try:
-        page.reload(wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
-        page.locator("table#table_live").wait_for(timeout=PAGE_REFRESH_TABLE_TIMEOUT_MS)
+        page.reload(wait_until="domcontentloaded", timeout=PAGE_DOM_LOAD_TIMEOUT_MS)
+        page.locator("table#table_live").wait_for(
+            timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS
+        )
 
-        if not wait_for_data:
-            logger.info("Page refreshed")
-            return
-
-        deadline = time.monotonic() + PAGE_DATA_READY_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
-            if has_valid_match_data(page):
-                logger.info("Page refreshed")
-                return
-            page.wait_for_timeout(HARDCODE_DELAY_MS)
-
-        raise TimeoutError("Live table data did not become ready after page refresh")
+        logger.info("Page refreshed")
     except Exception as e:
         logger.error(f"Failed to refresh page: {e}")
         _capture_error_screenshot(page, "Failed to refresh page", e)
@@ -305,13 +293,6 @@ def collect_matches(page: Page) -> list[str]:
     if DEBUGMODE and match_status is not None:
         write_match_count(match_status, matches)
     return matches
-
-
-def has_valid_match_data(page: Page) -> bool:
-    """Проверить готовность данных Crown и видимых коэффициентов."""
-    page.wait_for_timeout(HARDCODE_DELAY_MS)
-    readiness = page.evaluate(LIVE_ODDS_READINESS)
-    return bool(readiness["hasCrownOdds"] and readiness["hasVisibleOdds"])
 
 
 def _restart_script(browser: Browser | None = None) -> NoReturn:
@@ -440,7 +421,7 @@ def main() -> None:
                         # Обновляем страницу при отсутствии матчей.
                         try:
                             _run_actions_with_retries(
-                                lambda: refresh_page(page, wait_for_data=False),
+                                lambda: refresh_page(page),
                                 "refresh page while waiting for matches",
                                 max_attempts=PAGE_REFRESH_MAX_ATTEMPTS,
                                 retry_delay=PAGE_REFRESH_RETRY_DELAY_SECONDS,

@@ -23,12 +23,6 @@ LIVE_CHANGE_PREDICATE: str = _read_script("live_change_predicate.js")
 # Сбрасывает флаг изменения Live-таблицы.
 RESET_LIVE_CHANGE_FLAG: str = _read_script("reset_live_change_flag.js")
 
-# Проверяет наличие Crown и видимых коэффициентов после обновления.
-LIVE_ODDS_READINESS: str = _read_script("live_odds_readiness.js").replace(
-    "__LIVE_ODDS_READINESS_HELPER__",
-    _LIVE_ODDS_READINESS_HELPER,
-)
-
 # Собирает видимые матчи и отмечает их готовность к наблюдению.
 COLLECT_MATCH_STATUS: str = _read_script("collect_match_status.js").replace(
     "__LIVE_ODDS_READINESS_HELPER__",

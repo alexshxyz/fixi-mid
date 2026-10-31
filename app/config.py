@@ -81,10 +81,8 @@ RESTART_HOURS: int = 24 # Плановая перезагрузка скрипт
 NOTIFICATION_CHECK_DELAY_SECONDS: int = 180 # Задержка проверки статуса Telegram-сигнала
 
 # Таймауты и интервалы ожидания страницы.
-PAGE_LOAD_TIMEOUT_MS: int = 30_000
+PAGE_DOM_LOAD_TIMEOUT_MS: int = 30_000
 PAGE_ELEMENT_WAIT_TIMEOUT_MS: int = 10_000
-PAGE_REFRESH_TABLE_TIMEOUT_MS: int = 20_000
-PAGE_DATA_READY_TIMEOUT_SECONDS: int = 60
 HARDCODE_DELAY_MS: int = 1_000
 LIVE_CHANGE_POLL_INTERVAL_MS: int = 100
 

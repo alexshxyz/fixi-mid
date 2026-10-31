@@ -463,42 +463,14 @@ def test_refresh_live_table_saves_screenshot_after_failure(
     assert "Saved error screenshot to" in caplog.text
 
 
-def test_refresh_page_without_data_wait_reloads_and_returns():
+def test_refresh_page_reloads_and_waits_for_live_table():
     page = FakePage()
 
-    assert main.refresh_page(page, wait_for_data=False) is None
+    assert main.refresh_page(page) is None
     assert page.reload_calls == [
         {"wait_until": "domcontentloaded", "timeout": 30000}
     ]
-    assert page.locators["table#table_live"].wait_calls == [{"timeout": 20000}]
-    assert page.wait_timeout_calls == []
-
-
-def test_refresh_page_waits_until_data_is_valid(monkeypatch):
-    page = FakePage()
-    outcomes = iter([False, True])
-    monkeypatch.setattr(main, "has_valid_match_data", lambda current: next(outcomes))
-
-    assert main.refresh_page(page) is None
-    assert page.wait_timeout_calls == [1000]
-
-
-def test_refresh_page_raises_timeout_when_data_never_becomes_ready(
-    monkeypatch, tmp_path
-):
-    page = FakePage()
-    ticks = iter([0, 61])
-    monkeypatch.setattr(main.time, "monotonic", lambda: next(ticks))
-    monkeypatch.setattr(main, "has_valid_match_data", lambda current: False)
-    monkeypatch.setattr(
-        main,
-        "ERROR_SCREENSHOTS_DIR",
-        str(tmp_path / "logs" / "screenshots"),
-    )
-
-    with pytest.raises(TimeoutError, match="Live table data did not become ready"):
-        main.refresh_page(page)
-
+    assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
     assert page.wait_timeout_calls == []
 
 
@@ -649,35 +621,6 @@ def test_collect_matches_does_not_write_snapshot_when_debug_is_disabled(
     assert writes == []
 
 
-def test_has_valid_match_data_waits_and_returns_page_evaluation():
-    page = FakePage()
-    page.evaluate_result = {
-        "hasCrownOdds": True,
-        "hasVisibleOdds": True,
-    }
-
-    assert main.has_valid_match_data(page) is True
-    assert page.wait_timeout_calls == [1000]
-    assert "hasCrownOdds" in page.evaluate_calls[0]
-    assert "hasVisibleOdds" in page.evaluate_calls[0]
-
-
-@pytest.mark.parametrize(
-    ("has_crown_odds", "has_visible_odds"),
-    [(False, True), (True, False), (False, False)],
-)
-def test_has_valid_match_data_requires_both_readiness_checks(
-    has_crown_odds, has_visible_odds
-):
-    page = FakePage()
-    page.evaluate_result = {
-        "hasCrownOdds": has_crown_odds,
-        "hasVisibleOdds": has_visible_odds,
-    }
-
-    assert main.has_valid_match_data(page) is False
-
-
 class FakeSyncPlaywright:
     def __init__(self, playwright):
         self.playwright = playwright
@@ -814,7 +757,7 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
         main.main()
 
     assert sleeps == [60]
-    assert refreshes == [((page,), {"wait_for_data": False})]
+    assert refreshes == [((page,), {})]
     assert calls == [
         (
             (page, ["2"]),
@@ -883,7 +826,7 @@ def test_main_waits_and_refreshes_until_matches_appear(monkeypatch):
         main.main()
 
     assert sleeps == [60]
-    assert refreshes == [((page,), {"wait_for_data": False})]
+    assert refreshes == [((page,), {})]
     assert calls == [(page, ["match-1"])]
 
 
@@ -906,8 +849,8 @@ def test_main_retries_no_match_page_refresh_then_restarts_without_loading_state(
     monkeypatch.setattr(
         main,
         "refresh_page",
-        lambda current, wait_for_data: (
-            refresh_attempts.append((current, wait_for_data)),
+        lambda current: (
+            refresh_attempts.append(current),
             (_ for _ in ()).throw(RuntimeError("reload failed")),
         )[1],
     )
@@ -930,7 +873,7 @@ def test_main_retries_no_match_page_refresh_then_restarts_without_loading_state(
         main.NO_MATCHES_RETRY_DELAY_SECONDS,
         main.PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ]
-    assert refresh_attempts == [(page, False)] * 2
+    assert refresh_attempts == [page, page]
     assert sleeps == []
     assert state_loads == []
     assert restart_calls == [browser]
