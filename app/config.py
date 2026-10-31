@@ -61,7 +61,7 @@ if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
 THRESHOLD: float = 1.61 # Максимальный коэффициент перед Closed (1.61)
 START_ODD: float = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
 
-DEBUGMODE: bool = False # Запись истории анализа в data_closed_ov_ah.json и count.json
+DEBUGMODE: bool = True # Запись истории анализа в data_closed_ov_ah.json и count.json
 
 TABLE_LIVE_RELOAD_MIN_SECONDS: int = 100
 TABLE_LIVE_RELOAD_MAX_SECONDS: int = 120
@@ -88,18 +88,16 @@ PAGE_DATA_READY_TIMEOUT_SECONDS: int = 60
 PAGE_POLL_INTERVAL_MS: int = 1_000
 LIVE_CHANGE_POLL_INTERVAL_MS: int = 100
 
-# Повторные попытки и периодические проверки.
-PAGE_LOAD_MAX_RETRIES: int = 2
-PAGE_PREPARE_MAX_RETRIES: int = 2
-PAGE_ACTION_MAX_RETRIES: int = 3
-PAGE_ACTION_RETRY_DELAY_SECONDS: int = 10
-LIVE_REFRESH_MAX_RETRIES: int = 2
-LIVE_REFRESH_RETRY_DELAY_SECONDS: int = 5
-HARD_PAGE_REFRESH_MAX_RETRIES: int = 2
-HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS: int = 10
-NO_MATCH_RETRY_DELAY_SECONDS: int = 60
+# Количество попыток и периодические проверки.
+PAGE_DOM_LOAD_MAX_ATTEMPTS: int = 2
+PREPARE_LIVE_TABLE_MAX_ATTEMPTS: int = 2
+ACTION_RETRY_DELAY_SECONDS: int = 5
+LIVE_TABLE_REFRESH_MAX_ATTEMPTS: int = 2
+LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS: int = 5
+PAGE_REFRESH_MAX_ATTEMPTS: int = 2
+PAGE_REFRESH_RETRY_DELAY_SECONDS: int = 10
+NO_MATCHES_RETRY_DELAY_SECONDS: int = 60
 HEARTBEAT_INTERVAL_SECONDS: int = 100
-PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS: int = 10
 
 # Настройки мониторинга логов.
 BOT_LOG_FILE: Path = PROJECT_DIR / 'bot.log'

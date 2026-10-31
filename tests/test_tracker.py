@@ -727,7 +727,7 @@ def test_monitor_loop_reschedules_failed_scheduled_page_refresh(
         monitor._monitor_loop()
 
     assert monitor.next_page_refresh_at == (
-        10 + tracker.PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS
+        10 + tracker.PAGE_REFRESH_RETRY_DELAY_SECONDS
     )
     assert "Scheduled page refresh failed" in caplog.text
 
@@ -1098,7 +1098,7 @@ def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
         monitor._do_hard_page_refresh_with_retries()
 
     assert attempts == [False, False]
-    assert sleeps == [tracker.HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS]
+    assert sleeps == [tracker.PAGE_REFRESH_RETRY_DELAY_SECONDS]
     assert saved == [(monitor.active_match_ids, monitor.last_data)]
     assert "Page refresh failed after 2 attempts" in caplog.text
 

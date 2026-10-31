@@ -8,8 +8,6 @@
             continue;
         }
 
-        const timeElem = document.querySelector('td#time_' + match_id);
-
         const tds = Array.from(row.querySelectorAll('td.oddstd'));
         if (tds.length < 3) {
             result[match_id] = null;
@@ -34,8 +32,8 @@
         const onclick = timeTd?.getAttribute('onclick') ||
             row.querySelector('[onclick*="soccerInPage.detail"]')?.getAttribute('onclick');
         let league = 'Unknown';
-        let team1 = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
-        let team2 = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
+        let homeTeam = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
+        let awayTeam = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
         const gotSpan = row.querySelector('span[id="got_' + match_id + '"]');
         let match_time = gotSpan?.textContent.trim() || 'Unknown';
 
@@ -50,14 +48,13 @@
         if (onclick) {
             const match = onclick.match(/soccerInPage\.detail\([^,]+,"([^"]*)","([^"]*)","([^"]*)"\)/);
             if (match) {
-                team1 = match[1] || team1;
-                team2 = match[2] || team2;
+                homeTeam = match[1] || homeTeam;
+                awayTeam = match[2] || awayTeam;
                 league = match[3] || league;
             }
         }
 
         result[match_id] = {
-            time: timeElem?.textContent.trim() || 'Unknown',
             match_time: match_time,
             ah: {
                 home_ah_odds: odds1[0],
@@ -69,8 +66,8 @@
                 over: odds3[1],
                 under_odds: odds3[2]
             },
-            team1: team1,
-            team2: team2,
+            home_team: homeTeam,
+            away_team: awayTeam,
             score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || 'Unknown',
             league: league
         };

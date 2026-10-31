@@ -120,10 +120,11 @@ def test_collect_match_entries_handles_missing_or_empty_history(data):
     ("entry_data", "expected"),
     [
         ({}, False),
-        ({"time": None, "match_time": None}, False),
-        ({"time": "45", "match_time": "HT"}, False),
-        ({"time": "45", "match_time": "90+"}, True),
-        ({"time": "FT", "match_time": "45"}, True),
+        ({"match_time": None}, False),
+        ({"match_time": "HT"}, False),
+        ({"match_time": "90+"}, True),
+        ({"match_time": "FT"}, True),
+        ({"time": "FT"}, False),
     ],
 )
 def test_is_finished_match_handles_missing_live_and_finished_times(
@@ -211,8 +212,8 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
 
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
     match = entry(
-        team1="Home",
-        team2="Away",
+        home_team="Home",
+        away_team="Away",
         score="1-0",
         league="League",
         match_time="30",
@@ -224,8 +225,8 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
 
     assert sent[0] == {
         "league": "League",
-        "team1": "Home",
-        "team2": "Away",
+        "home_team": "Home",
+        "away_team": "Away",
         "score": "1-0",
         "over": "2.5",
         "over_odds": 1.55,
@@ -392,11 +393,11 @@ def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("time", "90"),
-        ("time", "90+3"),
+        ("match_time", "90"),
+        ("match_time", "90+3"),
         ("match_time", "90+"),
         ("match_time", "90+9"),
-        ("time", "FT"),
+        ("match_time", "FT"),
         ("match_time", "ET"),
         ("match_time", "et"),
     ],
@@ -580,7 +581,9 @@ def test_send_ah_notification_formats_payload_and_callback(monkeypatch):
         )
 
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
-    match = entry(team1="Home", team2="Away", score="0-0", league="League")
+    match = entry(
+        home_team="Home", away_team="Away", score="0-0", league="League"
+    )
 
     closed_ov_ah._send_ah_notification(
         "match-1", match, "0.5", 1.55, "home", "ODDS 1.90 -> 1.55", registered.append
@@ -615,7 +618,7 @@ def test_send_ah_notification_formats_handicap_by_odds_side(
 
     assert sent[0]["handicap_text"] == expected_text
     assert sent[0]["handicap_team_order"] == expected_order
-    assert sent[0]["team1"] == "Unknown"
+    assert sent[0]["home_team"] == "Unknown"
 
 
 def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):

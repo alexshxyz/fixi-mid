@@ -118,14 +118,11 @@ def _scores_match(
 
 def _is_finished_match(entry: MatchSnapshot) -> bool:
     """Проверить, указывает ли снимок на завершение матча."""
-    for field in ("time", "match_time"):
-        value = entry.get(field)
-        if value is None:
-            continue
-        time_text = str(value).casefold()
-        if any(marker.casefold() in time_text for marker in FINISHED_TIME_MARKERS):
-            return True
-    return False
+    value = entry.get("match_time")
+    if value is None:
+        return False
+    time_text = str(value).casefold()
+    return any(marker.casefold() in time_text for marker in FINISHED_TIME_MARKERS)
 
 
 def _notification_sent_callback(
@@ -174,16 +171,16 @@ def _send_market_notification(
     """Отправить Telegram-уведомление о найденном паттерне рынка."""
     if shutdown_requested is not None and shutdown_requested.is_set():
         return
-    team1 = last_entry.get("team1", "Unknown")
-    team2 = last_entry.get("team2", "Unknown")
+    home_team = last_entry.get("home_team", "Unknown")
+    away_team = last_entry.get("away_team", "Unknown")
     score = last_entry.get("score", "Unknown")
     league = last_entry.get("league", "Unknown")
     match_time = last_entry.get("match_time", "Unknown")
 
     notification: TelegramNotification = {
         "league": league,
-        "team1": team1,
-        "team2": team2,
+        "home_team": home_team,
+        "away_team": away_team,
         "score": score,
         "drop_type": drop_type,
         "match_id": match_id,

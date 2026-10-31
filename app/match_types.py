@@ -12,7 +12,7 @@ OddsSide = Literal["home", "away"]
 class OverMarketLine(TypedDict, total=False):
     """Линия и коэффициенты рынка Over в одном снимке матча."""
 
-    over: str | None
+    over: str
     over_odds: MarketValue
     under_odds: MarketValue
 
@@ -20,7 +20,7 @@ class OverMarketLine(TypedDict, total=False):
 class HandicapMarketLine(TypedDict, total=False):
     """Линия и коэффициенты азиатской форы в одном снимке матча."""
 
-    ah: str | None
+    ah: str
     home_ah_odds: MarketValue
     away_ah_odds: MarketValue
 
@@ -28,21 +28,20 @@ class HandicapMarketLine(TypedDict, total=False):
 class MatchSnapshot(TypedDict, total=False):
     """Данные матча и рынков, зафиксированные в один момент."""
 
-    time: str | None
-    match_time: str | None
+    match_time: str
     ah: HandicapMarketLine
     ov: OverMarketLine
-    team1: str
-    team2: str
+    home_team: str
+    away_team: str
     score: str
     league: str
-    date: str | None
+    date: str
 
 
 class MatchHistory(TypedDict, total=False):
     """Исходный снимок и последующие изменения одного матча."""
 
-    initial: MatchSnapshot | None
+    initial: MatchSnapshot
     changes: list[MatchSnapshot]
 
 
@@ -73,19 +72,19 @@ class TelegramNotification(TypedDict, total=False):
     """Аргументы отправки уведомления через Telegram."""
 
     league: str
-    team1: str
-    team2: str
-    score: str | None
+    home_team: str
+    away_team: str
+    score: str
     over: MarketValue
     over_odds: MarketValue
     match_id: str | int | None
     handicap_text: MarketValue
-    handicap_team_order: str | None
-    match_time: str | None
+    handicap_team_order: str
+    match_time: str
     on_sent_details: NotificationSentRegistrar | None
     channel_id: str | None
-    drop_type: str | None
-    strategy: str | None
+    drop_type: str
+    strategy: str
 
 
 class MatchRecord(TypedDict, total=False):
@@ -100,7 +99,7 @@ class MatchRecord(TypedDict, total=False):
     odds: float | None
     final_score: str | None
     result: str | None
-    link: str | None
+    link: str
     match_id: str | None
     market: str | None
     strategy: str

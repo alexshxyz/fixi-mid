@@ -26,16 +26,15 @@ from app.config import (
     CHANNEL_ID,
     DEBUGMODE,
     ERROR_SCREENSHOTS_DIR,
-    HARD_PAGE_REFRESH_MAX_RETRIES,
-    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
-    NO_MATCH_RETRY_DELAY_SECONDS,
-    PAGE_ACTION_MAX_RETRIES,
-    PAGE_ACTION_RETRY_DELAY_SECONDS,
+    ACTION_RETRY_DELAY_SECONDS,
+    NO_MATCHES_RETRY_DELAY_SECONDS,
     PAGE_DATA_READY_TIMEOUT_SECONDS,
     PAGE_ELEMENT_WAIT_TIMEOUT_MS,
-    PAGE_LOAD_MAX_RETRIES,
+    PAGE_DOM_LOAD_MAX_ATTEMPTS,
     PAGE_LOAD_TIMEOUT_MS,
-    PAGE_PREPARE_MAX_RETRIES,
+    PAGE_REFRESH_MAX_ATTEMPTS,
+    PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
     PAGE_POLL_INTERVAL_MS,
     PAGE_REFRESH_TABLE_TIMEOUT_MS,
     RESTART_HOURS,
@@ -48,7 +47,7 @@ from app.logger import setup_logger
 from app.observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
-    _raise_if_shutdown,
+    raise_if_shutdown,
     collect_match_status,
     page_is_closed,
     write_match_count,
@@ -100,29 +99,27 @@ def _capture_error_screenshot(page: Page, error_label: str, error: Exception) ->
         )
 
 
-def _retry_page_action(
-    page: Page,
+def _run_actions_with_retries(
     action: Callable[[], object],
     action_name: str,
-    max_retries: int = PAGE_ACTION_MAX_RETRIES,
-    retry_delay: float = PAGE_ACTION_RETRY_DELAY_SECONDS,
-    reload_before_retry: bool = False,
+    max_attempts: int,
+    retry_delay: float = ACTION_RETRY_DELAY_SECONDS,
     shutdown_requested: threading.Event | None = None,
 ) -> object | None:
     """Повторить действие со страницей после ошибки."""
-    for attempt in range(1, max_retries + 1):
-        _raise_if_shutdown(shutdown_requested, action_name)
+    for attempt in range(1, max_attempts + 1):
+        raise_if_shutdown(shutdown_requested, action_name)
         try:
             result = action()
-            _raise_if_shutdown(shutdown_requested, action_name)
+            raise_if_shutdown(shutdown_requested, action_name)
             return result
         except PageRestartRequired:
             raise
         except Exception as e:
-            _raise_if_shutdown(shutdown_requested, action_name, e)
-            if attempt == max_retries:
+            raise_if_shutdown(shutdown_requested, action_name, e)
+            if attempt == max_attempts:
                 logger.error(
-                    f"Failed to {action_name} after {max_retries} attempts: {e}"
+                    f"Failed to {action_name} after {max_attempts} attempts: {e}"
                 )
                 raise
 
@@ -133,25 +130,17 @@ def _retry_page_action(
                 time.sleep(retry_delay)
             else:
                 _wait_for_shutdown(shutdown_requested, retry_delay)
-            _raise_if_shutdown(shutdown_requested, action_name, e)
-            if reload_before_retry:
-                try:
-                    refresh_live_table(page)
-                except Exception as reload_error:
-                    _raise_if_shutdown(
-                        shutdown_requested, action_name, reload_error
-                    )
-                    logger.warning(f"Failed to refresh Live table before retry: {reload_error}")
+            raise_if_shutdown(shutdown_requested, action_name, e)
     return None
 
 
 def init_browser(
     p: Playwright,
-    max_navigation_retries: int = PAGE_LOAD_MAX_RETRIES,
+    max_navigation_attempts: int = PAGE_DOM_LOAD_MAX_ATTEMPTS,
     shutdown_requested: threading.Event | None = None,
 ) -> tuple[Browser, Page]:
     """Инициализировать браузер и открыть страницу сайта."""
-    _raise_if_shutdown(shutdown_requested, "browser setup")
+    raise_if_shutdown(shutdown_requested, "browser setup")
 
     logger.info("Setup browser...")
     proxy_server = validate_browser_proxy_server(BROWSER_PROXY_SERVER)
@@ -176,22 +165,22 @@ def init_browser(
             ],
         )
     except Exception as e:
-        _raise_if_shutdown(shutdown_requested, "browser launch", e)
+        raise_if_shutdown(shutdown_requested, "browser launch", e)
         raise
     try:
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
         context = browser.new_context()
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
         page = context.new_page()
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
         page.set_viewport_size({"width": 1280, "height": 720})
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
         try:
             context.add_cookies(SITE_COOKIES)
             logger.info("Cookies set")
         except Exception as e:
             logger.warning(f"Failed to add site cookies: {e}")
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
     except PageRestartRequired:
         with suppress(Exception):
             browser.close()
@@ -199,7 +188,7 @@ def init_browser(
     except Exception:
         with suppress(Exception):
             browser.close()
-        _raise_if_shutdown(shutdown_requested, "browser setup")
+        raise_if_shutdown(shutdown_requested, "browser setup")
         raise
 
     def open_page() -> None:
@@ -209,14 +198,12 @@ def init_browser(
             wait_until="domcontentloaded",
             timeout=PAGE_LOAD_TIMEOUT_MS,
         )
-
+    # Загрузка страницы.
     try:
-        _retry_page_action(
-            page,
+        _run_actions_with_retries(
             open_page,
             "load page",
-            max_retries=max_navigation_retries,
-            reload_before_retry=False,
+            max_attempts=max_navigation_attempts,
             shutdown_requested=shutdown_requested,
         )
     except PageRestartRequired:
@@ -226,7 +213,7 @@ def init_browser(
     except Exception:
         logger.error(
             "Page load failed after %s attempts. Restarting script...",
-            max_navigation_retries,
+            max_navigation_attempts,
         )
         _restart_script(browser)
         raise
@@ -392,13 +379,12 @@ def main() -> None:
 
                 try:
                     _restart_if_due(restart_deadline, browser, shutdown_requested)
-                    # Подготавливаем страницу перед запуском мониторинга.
+                    # Переключаемся на live-фильтр.
                     try:
-                        _retry_page_action(
-                            page,
+                        _run_actions_with_retries(
                             lambda: switch_to_live(page),
                             "prepare page",
-                            max_retries=PAGE_PREPARE_MAX_RETRIES,
+                            max_attempts=PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
                             shutdown_requested=shutdown_requested,
                         )
                     except Exception:
@@ -408,7 +394,7 @@ def main() -> None:
                         logger.error(
                             "Failed to prepare page after %s attempts. "
                             "Restarting script...",
-                            PAGE_PREPARE_MAX_RETRIES,
+                            PREPARE_LIVE_TABLE_MAX_ATTEMPTS,
                         )
                         _restart_script(browser)
                     if shutdown_requested.is_set():
@@ -422,25 +408,25 @@ def main() -> None:
                         remaining_seconds = restart_deadline - time.monotonic()
                         logger.info(
                             "No matches found. Retrying in %s seconds...",
-                            NO_MATCH_RETRY_DELAY_SECONDS,
+                            NO_MATCHES_RETRY_DELAY_SECONDS,
                         )
                         _wait_for_shutdown(
                             shutdown_requested,
                             max(
                                 0,
-                                min(NO_MATCH_RETRY_DELAY_SECONDS, remaining_seconds),
+                                min(NO_MATCHES_RETRY_DELAY_SECONDS, remaining_seconds),
                             ),
                         )
                         if shutdown_requested.is_set():
                             break
                         _restart_if_due(restart_deadline, browser, shutdown_requested)
+                        # Обновляем страницу при отсутствии матчей.
                         try:
-                            _retry_page_action(
-                                page,
+                            _run_actions_with_retries(
                                 lambda: refresh_page(page, wait_for_data=False),
                                 "refresh page while waiting for matches",
-                                max_retries=HARD_PAGE_REFRESH_MAX_RETRIES,
-                                retry_delay=HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+                                max_attempts=PAGE_REFRESH_MAX_ATTEMPTS,
+                                retry_delay=PAGE_REFRESH_RETRY_DELAY_SECONDS,
                                 shutdown_requested=shutdown_requested,
                             )
                         except Exception:
@@ -453,7 +439,7 @@ def main() -> None:
                             logger.error(
                                 "Page refresh failed after %s attempts while "
                                 "waiting for matches. Restarting script...",
-                                HARD_PAGE_REFRESH_MAX_RETRIES,
+                                PAGE_REFRESH_MAX_ATTEMPTS,
                             )
                             _restart_script(browser)
                         matches = collect_matches(page)

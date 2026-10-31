@@ -13,8 +13,8 @@ from .config import (
     DATA_DIR,
     DEBUGMODE,
     LIVE_CHANGE_POLL_INTERVAL_MS,
-    LIVE_REFRESH_MAX_RETRIES,
-    LIVE_REFRESH_RETRY_DELAY_SECONDS,
+    LIVE_TABLE_REFRESH_MAX_ATTEMPTS,
+    LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
 )
 from .logger import setup_logger
 from .match_types import MatchSnapshot
@@ -55,7 +55,7 @@ class ScheduledRestartRequired(PageRestartRequired):
     pass
 
 
-def _raise_if_shutdown(
+def raise_if_shutdown(
     shutdown_requested: Event | None,
     where: str | None = None,
     cause: Exception | None = None,
@@ -128,8 +128,8 @@ def wait_for_live_change(
 def reload_page_with_retries(
     page: Page,
     live_refresh_callback: Callable[[Page], None],
-    max_retries: int = LIVE_REFRESH_MAX_RETRIES,
-    retry_delay: float = LIVE_REFRESH_RETRY_DELAY_SECONDS,
+    max_retries: int = LIVE_TABLE_REFRESH_MAX_ATTEMPTS,
+    retry_delay: float = LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
     shutdown_requested: Event | None = None,
 ) -> bool | None:
     """Обновить Live-таблицу, повторяя неудачные попытки."""

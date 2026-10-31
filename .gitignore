@@ -24,6 +24,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Skills
+.github/
+
 # Runtime data
 matches.json
 match_state.json

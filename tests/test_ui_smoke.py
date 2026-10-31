@@ -57,12 +57,11 @@ def test_real_site_loads_and_live_table_is_active():
             )
 
             required_fields = {
-                "time",
                 "match_time",
                 "ah",
                 "ov",
-                "team1",
-                "team2",
+                "home_team",
+                "away_team",
                 "score",
                 "league",
                 "date",
@@ -81,7 +80,13 @@ def test_real_site_loads_and_live_table_is_active():
 
             parsed_values = [
                 first_match[field]
-                for field in ("time", "match_time", "team1", "team2", "score", "league")
+                for field in (
+                    "match_time",
+                    "home_team",
+                    "away_team",
+                    "score",
+                    "league",
+                )
             ]
             parsed_values.extend(first_match["ah"].values())
             parsed_values.extend(first_match["ov"].values())

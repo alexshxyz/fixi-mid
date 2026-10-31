@@ -95,14 +95,13 @@ class FakePlaywright:
 
 
 @pytest.mark.parametrize(
-    ("failures", "max_retries", "expected_calls"),
+    ("failures", "max_attempts", "expected_calls"),
     [(0, 3, 1), (2, 3, 3)],
 )
-def test_retry_page_action_returns_result_after_retries(
-    monkeypatch, failures, max_retries, expected_calls
+def test_run_actions_with_retries_returns_result_after_retries(
+    monkeypatch, failures, max_attempts, expected_calls
 ):
     attempts = []
-    refreshes = []
 
     def action():
         attempts.append(True)
@@ -110,27 +109,20 @@ def test_retry_page_action_returns_result_after_retries(
             raise RuntimeError("temporary")
         return "done"
 
-    monkeypatch.setattr(
-        main, "refresh_live_table", lambda page: refreshes.append(page)
-    )
     sleeps = []
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
-    assert main._retry_page_action(
-        "page",
+    assert main._run_actions_with_retries(
         action,
         "action",
-        max_retries=max_retries,
-        reload_before_retry=True,
+        max_attempts=max_attempts,
     ) == "done"
     assert len(attempts) == expected_calls
-    assert refreshes == ["page"] * failures
-    assert sleeps == [10] * failures
+    assert sleeps == [5] * failures
 
 
-def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
+def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog):
     attempts = []
-    monkeypatch.setattr(main, "refresh_live_table", lambda page: None)
     sleeps = []
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
@@ -139,16 +131,18 @@ def test_retry_page_action_raises_after_final_failure(monkeypatch, caplog):
         raise ValueError("permanent")
 
     with pytest.raises(ValueError, match="permanent"):
-        main._retry_page_action(
-            None, action, "load page", max_retries=2, reload_before_retry=True
+        main._run_actions_with_retries(
+            action,
+            "load page",
+            max_attempts=2,
         )
 
     assert len(attempts) == 2
-    assert sleeps == [10]
+    assert sleeps == [5]
     assert "Failed to load page after 2 attempts" in caplog.text
 
 
-def test_retry_page_action_allows_one_attempt_at_retry_boundary(monkeypatch):
+def test_run_actions_with_retries_allows_one_attempt_at_retry_boundary(monkeypatch):
     attempts = []
     sleeps = []
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
@@ -158,18 +152,17 @@ def test_retry_page_action_allows_one_attempt_at_retry_boundary(monkeypatch):
         raise RuntimeError("single attempt failed")
 
     with pytest.raises(RuntimeError, match="single attempt failed"):
-        main._retry_page_action(
-            "page",
+        main._run_actions_with_retries(
             fail_once,
             "load page",
-            max_retries=1,
+            max_attempts=1,
         )
 
     assert len(attempts) == 1
     assert sleeps == []
 
 
-def test_retry_page_action_stops_when_shutdown_interrupts_retry_wait(monkeypatch):
+def test_run_actions_with_retries_stops_when_shutdown_interrupts_retry_wait(monkeypatch):
     shutdown_requested = main.threading.Event()
     attempts = []
 
@@ -184,18 +177,17 @@ def test_retry_page_action_stops_when_shutdown_interrupts_retry_wait(monkeypatch
         raise RuntimeError("temporary")
 
     with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
-        main._retry_page_action(
-            "page",
+        main._run_actions_with_retries(
             action,
             "load page",
-            max_retries=2,
+            max_attempts=2,
             shutdown_requested=shutdown_requested,
         )
 
     assert len(attempts) == 1
 
 
-def test_retry_page_action_stops_when_action_finishes_after_shutdown(monkeypatch):
+def test_run_actions_with_retries_stops_when_action_finishes_after_shutdown(monkeypatch):
     shutdown_requested = main.threading.Event()
     attempts = []
 
@@ -205,40 +197,14 @@ def test_retry_page_action_stops_when_action_finishes_after_shutdown(monkeypatch
         return "done"
 
     with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
-        main._retry_page_action(
-            "page",
+        main._run_actions_with_retries(
             action,
             "prepare page",
+            max_attempts=2,
             shutdown_requested=shutdown_requested,
         )
 
     assert len(attempts) == 1
-
-
-def test_retry_page_action_logs_refresh_failure_and_retries(
-    monkeypatch, caplog
-):
-    attempts = []
-
-    def refresh(page):
-        raise RuntimeError("refresh failed")
-
-    def action():
-        attempts.append(True)
-        if len(attempts) == 1:
-            raise ValueError("action failed")
-        return "ok"
-
-    monkeypatch.setattr(main, "refresh_live_table", refresh)
-    sleeps = []
-    monkeypatch.setattr(main.time, "sleep", sleeps.append)
-
-    assert main._retry_page_action(
-        "page", action, "action", max_retries=2, reload_before_retry=True
-    ) == "ok"
-    assert len(attempts) == 2
-    assert sleeps == [10]
-    assert "Failed to refresh Live table before retry" in caplog.text
 
 
 def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
@@ -284,7 +250,7 @@ def test_init_browser_continues_if_cookie_setup_fails(monkeypatch, caplog):
     browser = FakeBrowser(context=context)
     playwright = FakePlaywright(browser)
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
-    monkeypatch.setattr(main, "_retry_page_action", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_run_actions_with_retries", lambda *args, **kwargs: None)
 
     assert main.init_browser(playwright) == (browser, page)
     assert "Failed to add site cookies: cookie error" in caplog.text
@@ -384,7 +350,7 @@ def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
         main.init_browser(playwright)
 
     assert len(attempts) == 2
-    assert sleeps == [10]
+    assert sleeps == [5]
     assert restart_calls == [browser]
     assert browser.close_calls == 1
 
@@ -918,8 +884,8 @@ def test_main_retries_no_match_page_refresh_then_restarts_without_loading_state(
         main.main()
 
     assert waits == [
-        main.NO_MATCH_RETRY_DELAY_SECONDS,
-        main.HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+        main.NO_MATCHES_RETRY_DELAY_SECONDS,
+        main.PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ]
     assert refresh_attempts == [(page, False)] * 2
     assert sleeps == []
@@ -944,7 +910,7 @@ def test_main_stops_cleanly_when_shutdown_is_requested_without_matches(
     )
 
     def request_shutdown(event, seconds):
-        assert seconds == main.NO_MATCH_RETRY_DELAY_SECONDS
+        assert seconds == main.NO_MATCHES_RETRY_DELAY_SECONDS
         event.set()
         return True
 
@@ -966,7 +932,7 @@ def test_main_stops_if_page_preparation_fails_during_shutdown(monkeypatch):
         kwargs["shutdown_requested"].set()
         raise RuntimeError("prepare interrupted")
 
-    monkeypatch.setattr(main, "_retry_page_action", interrupt_prepare)
+    monkeypatch.setattr(main, "_run_actions_with_retries", interrupt_prepare)
     monkeypatch.setattr(
         main, "collect_matches", lambda page: collected.append(page) or ["1"]
     )
@@ -992,7 +958,7 @@ def test_main_stops_if_refresh_fails_during_shutdown_before_matches(
         kwargs["shutdown_requested"].set()
         raise RuntimeError("refresh interrupted")
 
-    monkeypatch.setattr(main, "_retry_page_action", interrupt_refresh)
+    monkeypatch.setattr(main, "_run_actions_with_retries", interrupt_refresh)
 
     main.main()
 
@@ -1202,13 +1168,13 @@ def test_request_shutdown_sets_event():
 
 def test_raise_if_shutdown_only_raises_when_event_is_set():
     event = main.threading.Event()
-    main._raise_if_shutdown(None, "operation")
-    main._raise_if_shutdown(event, "operation")
+    main.raise_if_shutdown(None, "operation")
+    main.raise_if_shutdown(event, "operation")
 
     cause = RuntimeError("interrupted")
     event.set()
     with pytest.raises(main.PageRestartRequired, match="operation") as error:
-        main._raise_if_shutdown(event, "operation", cause)
+        main.raise_if_shutdown(event, "operation", cause)
 
     assert error.value.__cause__ is cause
 

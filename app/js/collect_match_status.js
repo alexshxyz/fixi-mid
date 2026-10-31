@@ -14,12 +14,12 @@
 
         const hasOdds = Array.from(row.querySelectorAll('p.odds1, p.odds3'))
             .some(odds => odds.offsetParent !== null);
-        const team1 = row.querySelector('a[id^="team1_"]')?.textContent.trim() || 'Unknown';
-        const team2 = row.querySelector('a[id^="team2_"]')?.textContent.trim() || 'Unknown';
+        const homeTeam = row.querySelector('a[id^="team1_"]')?.textContent.trim() || 'Unknown';
+        const awayTeam = row.querySelector('a[id^="team2_"]')?.textContent.trim() || 'Unknown';
 
         result.push({
             match_id: matchId,
-            label: `${team1} - ${team2}`,
+            label: `${homeTeam} - ${awayTeam}`,
             active: Boolean(matchId && hasOdds && globalReady)
         });
     }

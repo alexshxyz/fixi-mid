@@ -204,8 +204,8 @@ def _build_display_prediction(
 
 def _build_message(
     league: str,
-    team1: str,
-    team2: str,
+    home_team: str,
+    away_team: str,
     score: str | None,
     match_url: str,
     prediction: str,
@@ -216,7 +216,7 @@ def _build_message(
 
     # Make the team-name / score segment a hyperlink to the oddscomp detail page.
     # Telegram HTML parse mode supports <a href="...">...</a> for clickable text.
-    match_text = f"{team1} {score} {team2}"
+    match_text = f"{home_team} {score} {away_team}"
     linkified_match_text = f'<a href="{match_url}">{match_text}</a>' if match_url else match_text
 
     return (
@@ -325,8 +325,8 @@ def edit_telegram_notification(
 
 def _save_notification(
     league: str,
-    team1: str,
-    team2: str,
+    home_team: str,
+    away_team: str,
     prediction: str,
     odds_value: MarketValue,
     drop_type: str | None,
@@ -339,8 +339,8 @@ def _save_notification(
     try:
         save_match(
             league=league,
-            home_team=team1,
-            away_team=team2,
+            home_team=home_team,
+            away_team=away_team,
             prediction=prediction,
             odds=odds_value,
             drop_type=drop_type,
@@ -355,8 +355,8 @@ def _save_notification(
 
 def send_telegram_notification(
     league: str,
-    team1: str,
-    team2: str,
+    home_team: str,
+    away_team: str,
     score: str | None,
     over: MarketValue = None,
     over_odds: MarketValue = None,
@@ -386,8 +386,8 @@ def send_telegram_notification(
     strategy = strategy or "default"
     message = _build_message(
         league,
-        team1,
-        team2,
+        home_team,
+        away_team,
         score,
         match_url,
         display_prediction,
@@ -416,8 +416,8 @@ def send_telegram_notification(
 
     _save_notification(
         league,
-        team1,
-        team2,
+        home_team,
+        away_team,
         prediction,
         odds_value,
         drop_type,

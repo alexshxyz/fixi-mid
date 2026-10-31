@@ -293,9 +293,9 @@ def test_reload_page_with_retries_does_not_retry_when_matches_or_odds_are_missin
     [
         (
             RuntimeError("status failed"),
-            observer.LIVE_REFRESH_MAX_RETRIES,
+            observer.LIVE_TABLE_REFRESH_MAX_ATTEMPTS,
             None,
-            [2] * (observer.LIVE_REFRESH_MAX_RETRIES - 1),
+            [2] * (observer.LIVE_TABLE_REFRESH_MAX_ATTEMPTS - 1),
         ),
     ],
 )
@@ -466,7 +466,7 @@ def test_write_match_count_logs_snapshot_write_failure(monkeypatch, tmp_path, ca
 
 def test_extract_all_match_data_passes_ids_and_adds_local_timestamp(monkeypatch):
     returned = {
-        "1": {"team1": "Home", "ov": {"over": "2.5"}},
+        "1": {"home_team": "Home", "ov": {"over": "2.5"}},
         "2": None,
     }
     now = datetime(2026, 10, 9, 12, 34, 56, tzinfo=timezone.utc)

@@ -12,12 +12,11 @@ from .closed_ov_ah import find_pattern_matches
 from .config import (
     DATA_DIR,
     DEBUGMODE,
-    HARD_PAGE_REFRESH_MAX_RETRIES,
-    HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+    PAGE_REFRESH_MAX_ATTEMPTS,
+    PAGE_REFRESH_RETRY_DELAY_SECONDS,
     HEARTBEAT_INTERVAL_SECONDS,
-    NO_MATCH_RETRY_DELAY_SECONDS,
+    NO_MATCHES_RETRY_DELAY_SECONDS,
     PAGE_LIVE_RELOAD,
-    PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS,
     RESTART_HOURS,
     STATE_SAVE_FILE,
     get_table_live_reload_interval,
@@ -27,7 +26,7 @@ from .match_types import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
 from .observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
-    _raise_if_shutdown,
+    raise_if_shutdown,
     collect_match_status,
     extract_all_match_data,
     install_live_change_observer,
@@ -124,7 +123,7 @@ class MatchMonitor:
 
     def _raise_if_shutdown(self, cause: Exception | None = None) -> None:
         """Прервать обновление страницы, если запрошено завершение."""
-        _raise_if_shutdown(self.shutdown_requested, cause=cause)
+        raise_if_shutdown(self.shutdown_requested, cause=cause)
 
     def _save_state_to_json(
         self,
@@ -261,7 +260,7 @@ class MatchMonitor:
         except Exception as e:
             logger.error("Scheduled page refresh failed: %s", e)
             self.next_page_refresh_at = (
-                time.monotonic() + PAGE_REFRESH_FAILURE_RETRY_DELAY_SECONDS
+                time.monotonic() + PAGE_REFRESH_RETRY_DELAY_SECONDS
             )
             data_changed = False
 
@@ -387,13 +386,13 @@ class MatchMonitor:
             self._restart_if_due()
             logger.info(
                 "No matches found. Retrying in %s seconds...",
-                NO_MATCH_RETRY_DELAY_SECONDS,
+                NO_MATCHES_RETRY_DELAY_SECONDS,
             )
             self._wait_for_shutdown_or_timeout(
                 max(
                     0,
                     min(
-                        NO_MATCH_RETRY_DELAY_SECONDS,
+                        NO_MATCHES_RETRY_DELAY_SECONDS,
                         self.restart_deadline - time.monotonic(),
                     ),
                 )
@@ -425,8 +424,8 @@ class MatchMonitor:
 
     def _do_hard_page_refresh_with_retries(
         self,
-        max_retries: int = HARD_PAGE_REFRESH_MAX_RETRIES,
-        retry_delay: float = HARD_PAGE_REFRESH_RETRY_DELAY_SECONDS,
+        max_retries: int = PAGE_REFRESH_MAX_ATTEMPTS,
+        retry_delay: float = PAGE_REFRESH_RETRY_DELAY_SECONDS,
     ) -> list[dict[str, Any]]:
         """Повторять полную перезагрузку страницы с сохранением состояния."""
         if max_retries < 1:

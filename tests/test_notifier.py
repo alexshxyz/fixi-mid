@@ -430,8 +430,8 @@ def notification_dependencies(monkeypatch):
 def send_over(**overrides):
     arguments = {
         "league": "League",
-        "team1": "Home",
-        "team2": "Away",
+        "home_team": "Home",
+        "away_team": "Away",
         "score": "1-0",
         "over": "2.5",
         "over_odds": 1.55,
