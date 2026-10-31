@@ -1,10 +1,9 @@
 import csv
 import json
-import os
 from pathlib import Path
 
+from app.config import MATCHES_FILE
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
 PREFERRED_COLUMNS = (
     'date',
     'mark',
@@ -22,12 +21,7 @@ PREFERRED_COLUMNS = (
 
 def export_matches_to_csv() -> tuple[int, Path]:
     """Экспортировать сохранённые матчи в CSV рядом с JSON-файлом."""
-    configured_path = os.environ.get('MATCHES_FILE')
-    matches_path = (
-        Path(configured_path)
-        if configured_path
-        else PROJECT_DIR / 'data' / 'matches.json'
-    )
+    matches_path = Path(MATCHES_FILE)
     if not matches_path.is_absolute():
         matches_path = Path.cwd() / matches_path
     csv_path = matches_path.with_suffix('.csv')

@@ -40,7 +40,8 @@ from app.config import (
     SITE_COOKIES,
     SITE_URL,
     STATE_SAVE_FILE,
-    validate_browser_proxy_server,
+    TELEGRAM_PROXY_HOST,
+    TELEGRAM_PROXY_PORT,
 )
 from app.logger import setup_logger
 from app.observer import (
@@ -151,11 +152,12 @@ def init_browser(
     raise_if_shutdown(shutdown_requested, "browser setup")
 
     logger.info("Setup browser...")
-    proxy_server = validate_browser_proxy_server(BROWSER_PROXY_SERVER)
+    if not BROWSER_PROXY_SERVER.strip():
+        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
     try:
         browser = p.chromium.launch(
             headless=BROWSER_HEADLESS,
-            proxy={"server": proxy_server},
+            proxy={"server": BROWSER_PROXY_SERVER},
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -328,15 +330,14 @@ def _validate_configuration() -> None:
     required_settings = {
         "BOT_TOKEN": BOT_TOKEN,
         "CHANNEL_ID": CHANNEL_ID,
+        "BROWSER_PROXY_SERVER": BROWSER_PROXY_SERVER,
+        "TELEGRAM_PROXY_HOST": TELEGRAM_PROXY_HOST,
+        "TELEGRAM_PROXY_PORT": TELEGRAM_PROXY_PORT,
     }
     missing_settings: list[str] = []
     for name, value in required_settings.items():
-        if not value or not value.strip():
+        if not value.strip():
             missing_settings.append(name)
-    try:
-        validate_browser_proxy_server(BROWSER_PROXY_SERVER)
-    except RuntimeError:
-        missing_settings.append("BROWSER_PROXY_SERVER")
     if missing_settings:
         raise RuntimeError(
             "Missing required configuration: " + ", ".join(missing_settings)
@@ -344,7 +345,7 @@ def _validate_configuration() -> None:
 
 
 def main() -> None:
-    """Проверить конфигурацию и запустить основной цикл бота."""
+    """Основной цикл бота."""
     _validate_configuration()
     shutdown_requested = threading.Event()
     previous_handlers = {
@@ -439,6 +440,8 @@ def main() -> None:
                                 PAGE_REFRESH_MAX_ATTEMPTS,
                             )
                             _restart_bot(browser)
+                        if shutdown_requested.is_set():
+                            break
                         matches = collect_crown_matches(page)
 
                     if shutdown_requested.is_set():
@@ -467,10 +470,7 @@ def main() -> None:
                     _restart_bot(browser)
                 except Exception as e:
                     if shutdown_requested.is_set():
-                        logger.warning(
-                            "Browser operation was interrupted during shutdown",
-                            exc_info=True,
-                        )
+                        logger.info("Browser operation was interrupted during shutdown")
                         return
                     logger.error(f"Unexpected error in main: {e}")
                     _close_browser_quietly(browser)

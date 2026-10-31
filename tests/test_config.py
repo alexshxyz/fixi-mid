@@ -1,6 +1,7 @@
 import importlib
 from contextlib import contextmanager
 
+import dotenv
 import pytest
 
 from app import config
@@ -17,29 +18,18 @@ def config_with_environment(monkeypatch, **variables):
         importlib.reload(config)
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("1", True),
-        ("true", True),
-        (" YES ", True),
-        ("On", True),
-        ("0", False),
-        ("false", False),
-        ("no", False),
-        ("off", False),
-    ],
-)
-def test_browser_headless_parses_environment_value(monkeypatch, value, expected):
-    with config_with_environment(monkeypatch, BROWSER_HEADLESS=value) as settings:
-        assert settings.BROWSER_HEADLESS is expected
+def test_browser_headless_is_configured_in_code(monkeypatch):
+    with config_with_environment(monkeypatch, BROWSER_HEADLESS="false") as settings:
+        assert settings.BROWSER_HEADLESS is True
 
 
-def test_matches_file_can_be_overridden_with_environment(monkeypatch, tmp_path):
+def test_matches_file_is_not_overridden_by_environment(monkeypatch, tmp_path):
     matches_file = tmp_path / "custom-matches.json"
 
-    with config_with_environment(monkeypatch, MATCHES_FILE=str(matches_file)) as settings:
-        assert settings.MATCHES_FILE == str(matches_file)
+    with config_with_environment(
+        monkeypatch, MATCHES_FILE=str(matches_file)
+    ) as settings:
+        assert settings.MATCHES_FILE == str(settings.DATA_DIR / "matches.json")
 
 
 def test_default_match_data_paths_use_data_directory(monkeypatch):
@@ -99,9 +89,27 @@ def test_browser_proxy_server_can_be_overridden_with_environment(monkeypatch):
         assert settings.BROWSER_PROXY_SERVER == "socks5://proxy.example:1080"
 
 
-def test_browser_proxy_server_does_not_use_a_code_default(monkeypatch):
+def test_browser_proxy_server_is_an_empty_string_when_not_configured(monkeypatch):
     with config_with_environment(monkeypatch, BROWSER_PROXY_SERVER="") as settings:
         assert settings.BROWSER_PROXY_SERVER == ""
+
+
+def test_telegram_bot_settings_default_to_empty_strings(monkeypatch):
+    try:
+        with monkeypatch.context() as environment:
+            environment.delenv("BOT_TOKEN", raising=False)
+            environment.delenv("CHANNEL_ID", raising=False)
+            environment.delenv("MONITOR_TELEGRAM_TOKEN", raising=False)
+            environment.delenv("MONITOR_CHAT_ID", raising=False)
+            environment.setattr(dotenv, "load_dotenv", lambda **kwargs: None)
+            settings = importlib.reload(config)
+
+            assert settings.BOT_TOKEN == ""
+            assert settings.CHANNEL_ID == ""
+            assert settings.MONITOR_TELEGRAM_TOKEN == ""
+            assert settings.MONITOR_CHAT_ID == ""
+    finally:
+        importlib.reload(config)
 
 
 def test_site_cookies_have_expected_names_and_domain():

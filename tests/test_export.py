@@ -9,7 +9,7 @@ from app.tools import export
 @pytest.fixture
 def matches_path(tmp_path, monkeypatch):
     path = tmp_path / "matches.json"
-    monkeypatch.setenv("MATCHES_FILE", str(path))
+    monkeypatch.setattr(export, "MATCHES_FILE", str(path))
     return path
 
 
@@ -83,11 +83,22 @@ def test_export_empty_list_writes_headers_only(matches_path):
     assert rows == [list(export.PREFERRED_COLUMNS)]
 
 
+def test_export_ignores_matches_file_environment_variable(
+    matches_path, monkeypatch
+):
+    matches_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("MATCHES_FILE", str(matches_path.parent / "other.json"))
+
+    count, csv_path = export.export_matches_to_csv()
+
+    assert count == 0
+    assert csv_path == matches_path.with_suffix(".csv")
+
+
 def test_export_resolves_relative_match_path_from_current_directory(
     tmp_path, monkeypatch
 ):
-    monkeypatch.delenv("MATCHES_FILE", raising=False)
-    monkeypatch.setenv("MATCHES_FILE", "nested/matches.json")
+    monkeypatch.setattr(export, "MATCHES_FILE", "nested/matches.json")
     monkeypatch.chdir(tmp_path)
     relative_path = tmp_path / "nested" / "matches.json"
     relative_path.parent.mkdir()
@@ -100,12 +111,11 @@ def test_export_resolves_relative_match_path_from_current_directory(
 
 
 def test_export_defaults_to_data_directory(tmp_path, monkeypatch):
-    monkeypatch.delenv("MATCHES_FILE", raising=False)
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     matches_path = data_dir / "matches.json"
     matches_path.write_text("[]", encoding="utf-8")
-    monkeypatch.setattr(export, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(export, "MATCHES_FILE", str(matches_path))
 
     count, csv_path = export.export_matches_to_csv()
 
@@ -129,7 +139,7 @@ def test_export_propagates_invalid_json_and_missing_file_errors(
         export.export_matches_to_csv()
 
     missing_path = tmp_path / "missing.json"
-    monkeypatch.setenv("MATCHES_FILE", str(missing_path))
+    monkeypatch.setattr(export, "MATCHES_FILE", str(missing_path))
     with pytest.raises(FileNotFoundError):
         export.export_matches_to_csv()
 

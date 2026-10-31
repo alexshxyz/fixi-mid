@@ -14,31 +14,24 @@ load_dotenv(dotenv_path=PROJECT_DIR / '.env')
 
 # Настройки страницы
 SITE_URL: str = "https://www.goaloo.com/"
-BROWSER_HEADLESS: bool = os.environ.get('BROWSER_HEADLESS', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-BROWSER_PROXY_SERVER: str | None = os.environ.get('BROWSER_PROXY_SERVER')
+BROWSER_HEADLESS: bool = True
+BROWSER_PROXY_SERVER: str = os.environ.get('BROWSER_PROXY_SERVER', '')
 TELEGRAM_API_URL: str = "https://api.telegram.org/bot{token}/sendMessage"
 
-
-def validate_browser_proxy_server(proxy_server: str | None) -> str:
-    """Проверить, что задан обязательный адрес прокси браузера."""
-    if not proxy_server or not proxy_server.strip():
-        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
-    return proxy_server
-
 # Настройки файлов
-MATCHES_FILE: str = os.environ.get('MATCHES_FILE', str(DATA_DIR / 'matches.json'))
+MATCHES_FILE: str = str(DATA_DIR / 'matches.json')
 LEAGUES_FILE: str = str(DATA_DIR / 'leagues.json')
 STATE_SAVE_FILE: str = str(DATA_DIR / 'match_state.json')
 
 # Настройки Telegram-бота
-BOT_TOKEN: str | None = os.environ.get('BOT_TOKEN')
-CHANNEL_ID: str | None = os.environ.get('CHANNEL_ID')
-MONITOR_TELEGRAM_TOKEN: str | None = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
-MONITOR_CHAT_ID: str | None = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
+BOT_TOKEN: str = os.environ.get('BOT_TOKEN', '')
+CHANNEL_ID: str = os.environ.get('CHANNEL_ID', '')
+MONITOR_TELEGRAM_TOKEN: str = os.environ.get('MONITOR_TELEGRAM_TOKEN') or BOT_TOKEN
+MONITOR_CHAT_ID: str = os.environ.get('MONITOR_CHAT_ID') or CHANNEL_ID
 
 # Настройки прокси
-TELEGRAM_PROXY_HOST: str | None = os.environ.get('TELEGRAM_PROXY_HOST')
-TELEGRAM_PROXY_PORT: str | None = os.environ.get('TELEGRAM_PROXY_PORT')
+TELEGRAM_PROXY_HOST: str = os.environ.get('TELEGRAM_PROXY_HOST', '')
+TELEGRAM_PROXY_PORT: str = os.environ.get('TELEGRAM_PROXY_PORT', '')
 TELEGRAM_PROXY_USERNAME: str | None = os.environ.get('TELEGRAM_PROXY_USERNAME')
 TELEGRAM_PROXY_PASSWORD: str | None = os.environ.get('TELEGRAM_PROXY_PASSWORD')
 TELEGRAM_PROXIES: dict[str, str] | None = None

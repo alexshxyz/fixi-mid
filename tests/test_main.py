@@ -243,7 +243,9 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
 def test_validate_configuration_rejects_missing_browser_proxy(monkeypatch):
     monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", None)
+    monkeypatch.setattr(main, "TELEGRAM_PROXY_HOST", "proxy.test")
+    monkeypatch.setattr(main, "TELEGRAM_PROXY_PORT", "1080")
+    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "")
 
     with pytest.raises(RuntimeError, match="BROWSER_PROXY_SERVER"):
         main._validate_configuration()
@@ -645,6 +647,8 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
     monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+    monkeypatch.setattr(main, "TELEGRAM_PROXY_HOST", "proxy.test")
+    monkeypatch.setattr(main, "TELEGRAM_PROXY_PORT", "1080")
     monkeypatch.setattr(main, "init_storage", lambda: True)
     monkeypatch.setattr(main, "sync_playwright", lambda: FakeSyncPlaywright(playwright))
     monkeypatch.setattr(main, "init_browser", lambda p, **kwargs: (browser, page))
@@ -659,7 +663,9 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     [
         ("BOT_TOKEN", ""),
         ("CHANNEL_ID", "  "),
-        ("BROWSER_PROXY_SERVER", None),
+        ("BROWSER_PROXY_SERVER", ""),
+        ("TELEGRAM_PROXY_HOST", ""),
+        ("TELEGRAM_PROXY_PORT", "  "),
     ],
 )
 def test_main_fails_before_startup_when_required_configuration_is_missing(
