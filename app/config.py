@@ -57,7 +57,7 @@ THRESHOLD: float = 1.61
 START_ODD: float = 1.80
 
 # Диагностические записи
-DEBUGMODE: bool = True
+DEBUGMODE: bool = False
 
 # Интервал обновления Live-таблицы
 TABLE_LIVE_RELOAD_MIN_SECONDS: int = 100
