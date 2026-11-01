@@ -9,7 +9,7 @@ from app import config
 
 PROJECT_MODULES = (
     "app.pending_notifications",
-    "app.closed_ov_ah",
+    "app.detector",
     "app.config",
     "app.logger",
     "app.main",
@@ -28,7 +28,7 @@ PROJECT_MODULES = (
 APP_PYTHON_FILES = {
     "__init__.py",
     "pending_notifications.py",
-    "closed_ov_ah.py",
+    "detector.py",
     "config.py",
     "logger.py",
     "main.py",

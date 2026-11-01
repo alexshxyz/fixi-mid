@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from app import closed_ov_ah
+from app import detector
 from app.config import START_ODD, THRESHOLD
 
 
@@ -45,17 +45,17 @@ def closed_entry(market, **metadata):
     ],
 )
 def test_odds_to_float(value, expected):
-    assert closed_ov_ah._odds_to_float(value) == expected
+    assert detector._odds_to_float(value) == expected
 
 
 @pytest.mark.parametrize("value", ["0", "0.0", "+0", "-0", "-0.0"])
 def test_is_exact_zero_handicap_accepts_supported_zero_forms(value):
-    assert closed_ov_ah._is_exact_zero_ah_line(value)
+    assert detector._is_exact_zero_ah_line(value)
 
 
 @pytest.mark.parametrize("value", [None, "", "0.5", "0/-0.5", "0.00"])
 def test_is_exact_zero_handicap_rejects_non_matching_values(value):
-    assert not closed_ov_ah._is_exact_zero_ah_line(value)
+    assert not detector._is_exact_zero_ah_line(value)
 
 
 @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ def test_is_exact_zero_handicap_rejects_non_matching_values(value):
     ["0/-0.5", "+0/-1", "0/-0,5"],
 )
 def test_is_ah_line_exception_accepts_supported_forms(value):
-    assert closed_ov_ah._is_ah_line_exception(value)
+    assert detector._is_ah_line_exception(value)
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_is_ah_line_exception_accepts_supported_forms(value):
     [None, "", "0/0.5", "-0/-0.5", "0 / -0.5"],
 )
 def test_is_ah_line_exception_rejects_invalid_forms(value):
-    assert not closed_ov_ah._is_ah_line_exception(value)
+    assert not detector._is_ah_line_exception(value)
 
 
 @pytest.mark.parametrize(
@@ -87,13 +87,13 @@ def test_is_ah_line_exception_rejects_invalid_forms(value):
     ],
 )
 def test_ah_line_sign(value, expected):
-    assert closed_ov_ah._ah_line_sign(value) == expected
+    assert detector._ah_line_sign(value) == expected
 
 
 def test_get_market_values_preserves_ah_line_and_selects_away_odds():
     match_entry = entry(handicap="0/-0.5", away_odds="1.8")
 
-    assert closed_ov_ah._get_market_values(match_entry, "ah") == (
+    assert detector._get_market_values(match_entry, "ah") == (
         "0/-0.5",
         1.8,
         "away",
@@ -104,7 +104,7 @@ def test_collect_match_entries_includes_initial_and_changes_in_order():
     initial = {"id": "initial"}
     changes = [{"id": "first"}, {"id": "second"}]
 
-    assert closed_ov_ah._collect_match_entries(
+    assert detector._collect_match_entries(
         {"initial": initial, "changes": changes}
     ) == [initial, *changes]
 
@@ -114,7 +114,7 @@ def test_collect_match_entries_includes_initial_and_changes_in_order():
     [{}, {"initial": None}, {"initial": {}, "changes": []}],
 )
 def test_collect_match_entries_handles_missing_or_empty_history(data):
-    assert closed_ov_ah._collect_match_entries(data) == []
+    assert detector._collect_match_entries(data) == []
 
 
 @pytest.mark.parametrize(
@@ -129,7 +129,7 @@ def test_collect_match_entries_handles_missing_or_empty_history(data):
 def test_is_finished_match_handles_live_and_finished_times(
     entry_data, expected
 ):
-    assert closed_ov_ah._is_finished_match(entry_data) is expected
+    assert detector._is_finished_match(entry_data) is expected
 
 
 def test_get_last_entry_before_closed_returns_latest_open_entry_and_index():
@@ -140,7 +140,7 @@ def test_get_last_entry_before_closed_returns_latest_open_entry_and_index():
         entry(over="Closed"),
     ]
 
-    selected, index = closed_ov_ah._get_last_entry_before_closed(entries, "ov")
+    selected, index = detector._get_last_entry_before_closed(entries, "ov")
 
     assert selected is entries[2]
     assert index == 2
@@ -153,14 +153,14 @@ def test_get_last_entry_before_closed_skips_closed_over_entries():
         entry(over="Closed"),
     ]
 
-    selected, index = closed_ov_ah._get_last_entry_before_closed(entries, "ov")
+    selected, index = detector._get_last_entry_before_closed(entries, "ov")
 
     assert selected is entries[0]
     assert index == 0
 
 
 def test_get_last_entry_before_closed_returns_none_when_history_has_no_open_entry():
-    selected, index = closed_ov_ah._get_last_entry_before_closed(
+    selected, index = detector._get_last_entry_before_closed(
         [entry(handicap="Closed"), entry(handicap="Closed")],
         "ah",
     )
@@ -170,12 +170,12 @@ def test_get_last_entry_before_closed_returns_none_when_history_has_no_open_entr
 
 
 def test_notification_sent_callback_is_optional():
-    assert closed_ov_ah._notification_sent_callback(None, "match-1", "ov", "League") is None
+    assert detector._notification_sent_callback(None, "match-1", "ov", "League") is None
 
 
 def test_notification_sent_callback_registers_message_details():
     received = []
-    callback = closed_ov_ah._notification_sent_callback(
+    callback = detector._notification_sent_callback(
         received.append, "match-1", "ah", "League"
     )
 
@@ -209,7 +209,7 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
         sent.append(kwargs)
         kwargs["on_sent_details"](7, "text", "link", "Over 2.5", "channel")
 
-    monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
+    monkeypatch.setattr(detector, "send_telegram_notification", fake_send)
     match = entry(
         home_team="Home",
         away_team="Away",
@@ -218,7 +218,7 @@ def test_send_over_notification_builds_payload_and_callback(monkeypatch):
         match_time="30",
     )
 
-    closed_ov_ah._send_over_notification(
+    detector._send_over_notification(
         "match-1", match, "2.5", 1.55, "ODDS 1.90 -> 1.55", registered.append
     )
 
@@ -246,12 +246,12 @@ def test_send_over_notification_without_closed_uses_strategy_without_tracking(
     sent = []
     registered = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "send_telegram_notification",
         lambda **kwargs: sent.append(kwargs),
     )
 
-    closed_ov_ah._send_over_notification(
+    detector._send_over_notification(
         "match-1",
         entry(league="League"),
         "2.5",
@@ -270,9 +270,9 @@ def test_send_over_notification_uses_defaults_and_swallows_send_error(monkeypatc
     def fail_send(**kwargs):
         raise RuntimeError("telegram unavailable")
 
-    monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fail_send)
+    monkeypatch.setattr(detector, "send_telegram_notification", fail_send)
 
-    closed_ov_ah._send_over_notification(
+    detector._send_over_notification(
         "match-1", {"match_time": "Unknown"}, "2.5", 1.5, "drop"
     )
 
@@ -284,12 +284,12 @@ def test_send_market_notification_does_not_send_after_shutdown(monkeypatch):
     shutdown_requested.set()
     sends = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "send_telegram_notification",
         lambda **kwargs: sends.append(kwargs),
     )
 
-    closed_ov_ah._send_market_notification(
+    detector._send_market_notification(
         "ov",
         "match-1",
         entry(),
@@ -313,12 +313,12 @@ def over_history(confirming_odds=START_ODD, closed_odds=THRESHOLD):
 def test_find_over_pattern_sends_at_inclusive_odds_boundaries(monkeypatch):
     notifications = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_send_over_notification",
         lambda *args: notifications.append(args),
     )
 
-    matched = closed_ov_ah._find_over_pattern(
+    matched = detector._find_over_pattern(
         over_history(), "match-1"
     )
 
@@ -339,14 +339,14 @@ def test_without_closed_strategy_matches_latest_open_market_snapshot(
 ):
     notifications = []
     monkeypatch.setattr(
-        closed_ov_ah, send_name, lambda *args: notifications.append(args)
+        detector, send_name, lambda *args: notifications.append(args)
     )
     if market == "ov":
         history = [
             entry(over=line, over_odds=initial_odds),
             entry(over=line, over_odds=latest_odds),
         ]
-        matched = closed_ov_ah._find_over_pattern_without_closed(
+        matched = detector._find_over_pattern_without_closed(
             history, "match-1"
         )
     else:
@@ -354,7 +354,7 @@ def test_without_closed_strategy_matches_latest_open_market_snapshot(
             entry(handicap=line, away_odds=initial_odds),
             entry(handicap=line, away_odds=latest_odds),
         ]
-        matched = closed_ov_ah._find_ah_pattern_without_closed(
+        matched = detector._find_ah_pattern_without_closed(
             history, "match-1"
         )
 
@@ -393,12 +393,12 @@ def test_without_closed_strategy_rejects_non_matching_latest_snapshot(
 ):
     notifications = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_send_over_notification",
         lambda *args: notifications.append(args),
     )
 
-    assert not closed_ov_ah._find_over_pattern_without_closed(
+    assert not detector._find_over_pattern_without_closed(
         history, "match-1"
     )
     assert notifications == []
@@ -417,12 +417,12 @@ def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
         "_find_ah_pattern",
     ):
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             name,
             lambda *args, _name=name, **kwargs: checks.append(_name) or False,
         )
 
-    assert closed_ov_ah.find_pattern_matches(history) == []
+    assert detector.find_pattern_matches(history) == []
     assert checks == [
         "_find_over_pattern_without_closed",
         "_find_ah_pattern_without_closed",
@@ -450,7 +450,7 @@ def test_find_pattern_compares_closed_and_confirming_scores(
     notifications = []
     if market == "over":
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_over_notification",
             lambda *args: notifications.append(args),
         )
@@ -463,10 +463,10 @@ def test_find_pattern_compares_closed_and_confirming_scores(
             entry(over="2.5", over_odds=THRESHOLD),
             closed_entry("ov", score=closed_score),
         ]
-        matched = closed_ov_ah._find_over_pattern(history, "match-1")
+        matched = detector._find_over_pattern(history, "match-1")
     else:
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_ah_notification",
             lambda *args: notifications.append(args),
         )
@@ -479,7 +479,7 @@ def test_find_pattern_compares_closed_and_confirming_scores(
             entry(handicap="-0.5", away_odds=THRESHOLD),
             closed_entry("ah", score=closed_score),
         ]
-        matched = closed_ov_ah._find_ah_pattern(history, "match-1")
+        matched = detector._find_ah_pattern(history, "match-1")
 
     assert matched is expected_match
     assert len(notifications) == int(expected_match)
@@ -492,7 +492,7 @@ def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
     notifications = []
     if market == "over":
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_over_notification",
             lambda *args: notifications.append(args),
         )
@@ -502,10 +502,10 @@ def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
             entry(over="2.5", over_odds=THRESHOLD, score="1-0"),
             closed_entry("ov", score="1-0"),
         ]
-        matched = closed_ov_ah._find_over_pattern(history, "match-1")
+        matched = detector._find_over_pattern(history, "match-1")
     else:
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_ah_notification",
             lambda *args: notifications.append(args),
         )
@@ -515,7 +515,7 @@ def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
             entry(handicap="-0.5", away_odds=THRESHOLD, score="1-0"),
             closed_entry("ah", score="1-0"),
         ]
-        matched = closed_ov_ah._find_ah_pattern(history, "match-1")
+        matched = detector._find_ah_pattern(history, "match-1")
 
     assert not matched
     assert notifications == []
@@ -541,7 +541,7 @@ def test_find_pattern_rejects_finished_match_times(
     metadata = {field: value}
     if market == "over":
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_over_notification",
             lambda *args: notifications.append(args),
         )
@@ -550,10 +550,10 @@ def test_find_pattern_rejects_finished_match_times(
             entry(over="2.5", over_odds=THRESHOLD, score="1-0"),
             closed_entry("ov", score="1-0", **metadata),
         ]
-        matched = closed_ov_ah._find_over_pattern(history, "match-1")
+        matched = detector._find_over_pattern(history, "match-1")
     else:
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             "_send_ah_notification",
             lambda *args: notifications.append(args),
         )
@@ -562,14 +562,14 @@ def test_find_pattern_rejects_finished_match_times(
             entry(handicap="-0.5", away_odds=THRESHOLD, score="1-0"),
             closed_entry("ah", score="1-0", **metadata),
         ]
-        matched = closed_ov_ah._find_ah_pattern(history, "match-1")
+        matched = detector._find_ah_pattern(history, "match-1")
 
     assert not matched
     assert notifications == []
 
 
 def test_find_over_pattern_returns_false_when_every_preceding_entry_is_closed():
-    assert not closed_ov_ah._find_over_pattern(
+    assert not detector._find_over_pattern(
         [closed_entry("ov"), closed_entry("ov")],
         "match-1",
     )
@@ -578,7 +578,7 @@ def test_find_over_pattern_returns_false_when_every_preceding_entry_is_closed():
 def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
     notifications = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_send_over_notification",
         lambda *args: notifications.append(args),
     )
@@ -589,7 +589,7 @@ def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
         closed_entry("ov"),
     ]
 
-    assert closed_ov_ah._find_over_pattern(history, "match-1")
+    assert detector._find_over_pattern(history, "match-1")
     assert len(notifications) == 1
 
 
@@ -618,17 +618,17 @@ def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
 def test_find_over_pattern_rejects_non_matching_histories(history, monkeypatch):
     send = []
     monkeypatch.setattr(
-        closed_ov_ah, "_send_over_notification", lambda *args: send.append(args)
+        detector, "_send_over_notification", lambda *args: send.append(args)
     )
 
-    assert not closed_ov_ah._find_over_pattern(history, "match-1")
+    assert not detector._find_over_pattern(history, "match-1")
     assert send == []
 
 
 def test_find_over_pattern_skips_closed_entries_while_searching(monkeypatch):
     sent = []
     monkeypatch.setattr(
-        closed_ov_ah, "_send_over_notification", lambda *args: sent.append(args)
+        detector, "_send_over_notification", lambda *args: sent.append(args)
     )
     history = [
         entry(over="2.5", over_odds=START_ODD),
@@ -637,7 +637,7 @@ def test_find_over_pattern_skips_closed_entries_while_searching(monkeypatch):
         closed_entry("ov"),
     ]
 
-    assert closed_ov_ah._find_over_pattern(history, "match-1")
+    assert detector._find_over_pattern(history, "match-1")
     assert len(sent) == 1
 
 
@@ -654,7 +654,7 @@ def test_find_ah_pattern_selects_odds_side_and_sends_notification(
 ):
     sent = []
     monkeypatch.setattr(
-        closed_ov_ah, "_send_ah_notification", lambda *args: sent.append(args)
+        detector, "_send_ah_notification", lambda *args: sent.append(args)
     )
     history = [
         entry(handicap=handicap, home_odds=START_ODD, away_odds=START_ODD),
@@ -662,7 +662,7 @@ def test_find_ah_pattern_selects_odds_side_and_sends_notification(
         closed_entry("ah"),
     ]
 
-    assert closed_ov_ah._find_ah_pattern(history, "match-1")
+    assert detector._find_ah_pattern(history, "match-1")
     assert sent[0][4] == expected_side
     assert sent[0][2] == expected_text
     assert sent[0][3] == (home_odds if expected_side == "home" else away_odds)
@@ -694,10 +694,10 @@ def test_find_ah_pattern_selects_odds_side_and_sends_notification(
 def test_find_ah_pattern_rejects_non_matching_histories(history, monkeypatch):
     send = []
     monkeypatch.setattr(
-        closed_ov_ah, "_send_ah_notification", lambda *args: send.append(args)
+        detector, "_send_ah_notification", lambda *args: send.append(args)
     )
 
-    assert not closed_ov_ah._find_ah_pattern(history, "match-1")
+    assert not detector._find_ah_pattern(history, "match-1")
     assert send == []
 
 
@@ -711,12 +711,12 @@ def test_send_ah_notification_formats_payload_and_callback(monkeypatch):
             8, "text", "link", "Handicap -0.5 Home", "channel"
         )
 
-    monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fake_send)
+    monkeypatch.setattr(detector, "send_telegram_notification", fake_send)
     match = entry(
         home_team="Home", away_team="Away", score="0-0", league="League"
     )
 
-    closed_ov_ah._send_ah_notification(
+    detector._send_ah_notification(
         "match-1", match, "0.5", 1.55, "home", "ODDS 1.90 -> 1.55", registered.append
     )
 
@@ -740,10 +740,10 @@ def test_send_ah_notification_formats_handicap_by_odds_side(
 ):
     sent = []
     monkeypatch.setattr(
-        closed_ov_ah, "send_telegram_notification", lambda **kwargs: sent.append(kwargs)
+        detector, "send_telegram_notification", lambda **kwargs: sent.append(kwargs)
     )
 
-    closed_ov_ah._send_ah_notification(
+    detector._send_ah_notification(
         "match-1", {"match_time": "Unknown"}, handicap, 1.5, "away", "drop"
     )
 
@@ -756,9 +756,9 @@ def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):
     def fail_send(**kwargs):
         raise RuntimeError("telegram unavailable")
 
-    monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fail_send)
+    monkeypatch.setattr(detector, "send_telegram_notification", fail_send)
 
-    closed_ov_ah._send_ah_notification(
+    detector._send_ah_notification(
         "match-1", {"match_time": "Unknown"}, "-0.5", 1.5, "away", "drop"
     )
 
@@ -768,7 +768,7 @@ def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):
 def test_find_ah_pattern_skips_closed_entries_while_searching(monkeypatch):
     sent = []
     monkeypatch.setattr(
-        closed_ov_ah, "_send_ah_notification", lambda *args: sent.append(args)
+        detector, "_send_ah_notification", lambda *args: sent.append(args)
     )
     history = [
         entry(handicap="-0.5", away_odds=START_ODD),
@@ -777,7 +777,7 @@ def test_find_ah_pattern_skips_closed_entries_while_searching(monkeypatch):
         closed_entry("ah"),
     ]
 
-    assert closed_ov_ah._find_ah_pattern(history, "match-1")
+    assert detector._find_ah_pattern(history, "match-1")
     assert len(sent) == 1
 
 
@@ -788,19 +788,19 @@ def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
         "unmatched": {},
     }
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_find_over_pattern",
         lambda entries, match_id, callback, shutdown_requested=None: match_id
         == "over-match",
     )
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_find_ah_pattern",
         lambda entries, match_id, callback, shutdown_requested=None: match_id
         == "handicap-match",
     )
 
-    assert closed_ov_ah.find_pattern_matches(history) == [
+    assert detector.find_pattern_matches(history) == [
         "over-match",
         "handicap-match",
     ]
@@ -808,13 +808,13 @@ def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
 
 def test_find_pattern_matches_returns_both_markets_in_order(monkeypatch):
     monkeypatch.setattr(
-        closed_ov_ah, "_find_over_pattern", lambda *args, **kwargs: True
+        detector, "_find_over_pattern", lambda *args, **kwargs: True
     )
     monkeypatch.setattr(
-        closed_ov_ah, "_find_ah_pattern", lambda *args, **kwargs: True
+        detector, "_find_ah_pattern", lambda *args, **kwargs: True
     )
 
-    assert closed_ov_ah.find_pattern_matches({"match-1": {}}) == [
+    assert detector.find_pattern_matches({"match-1": {}}) == [
         "match-1",
         "match-1",
     ]
@@ -828,7 +828,7 @@ def test_find_pattern_matches_passes_notification_callback(monkeypatch):
         "_find_over_pattern",
     ):
         monkeypatch.setattr(
-            closed_ov_ah,
+            detector,
             name,
             lambda entries, match_id, on_notification_sent, shutdown_requested=None: observed.append(
                 (entries, match_id, on_notification_sent)
@@ -840,10 +840,10 @@ def test_find_pattern_matches_passes_notification_callback(monkeypatch):
         "_find_ah_pattern",
     ):
         monkeypatch.setattr(
-            closed_ov_ah, name, lambda *args, **kwargs: False
+            detector, name, lambda *args, **kwargs: False
         )
 
-    result = closed_ov_ah.find_pattern_matches(
+    result = detector.find_pattern_matches(
         {"match-1": {"initial": {"value": 1}, "changes": [{"value": 2}]}},
         on_notification_sent=callback,
     )
@@ -856,7 +856,7 @@ def test_find_pattern_matches_passes_notification_callback(monkeypatch):
 
 
 def test_find_pattern_matches_empty_history_returns_empty_list():
-    assert closed_ov_ah.find_pattern_matches({}) == []
+    assert detector.find_pattern_matches({}) == []
 
 
 def test_find_pattern_matches_stops_before_analyzing_after_shutdown(monkeypatch):
@@ -864,12 +864,12 @@ def test_find_pattern_matches_stops_before_analyzing_after_shutdown(monkeypatch)
     shutdown_requested.set()
     calls = []
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_find_over_pattern",
         lambda *args: calls.append(args) or True,
     )
 
-    assert closed_ov_ah.find_pattern_matches(
+    assert detector.find_pattern_matches(
         {"match-1": {}}, shutdown_requested=shutdown_requested
     ) == []
     assert calls == []
@@ -893,18 +893,18 @@ def test_find_market_pattern_stops_when_shutdown_arrives_during_search(
         shutdown_requested.set()
         return "Open"
 
-    monkeypatch.setattr(closed_ov_ah, "_line_status", line_status)
+    monkeypatch.setattr(detector, "_line_status", line_status)
     monkeypatch.setattr(
-        closed_ov_ah,
+        detector,
         "_get_last_entry_before_closed",
         lambda history, market: (history[-2], len(history) - 2),
     )
     monkeypatch.setattr(
-        closed_ov_ah, "_get_market_values", lambda current, market: ("2.5", 1.5, None)
+        detector, "_get_market_values", lambda current, market: ("2.5", 1.5, None)
     )
     notifications = []
 
-    assert not closed_ov_ah._find_market_pattern(
+    assert not detector._find_market_pattern(
         entries,
         "match-1",
         "ov",

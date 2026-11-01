@@ -253,11 +253,12 @@ def _send_message(
                         e,
                     )
                 else:
-                    telegram_response_dict = (
-                        cast(_TelegramResponse, telegram_response)
-                        if isinstance(telegram_response, dict)
-                        else None
-                    )
+                    response_value: object = telegram_response
+                    telegram_response_dict: _TelegramResponse | None = None
+                    if isinstance(telegram_response, dict):
+                        telegram_response_dict = cast(
+                            _TelegramResponse, telegram_response
+                        )
                     if not (
                         telegram_response_dict is not None
                         and telegram_response_dict.get("ok") is False
@@ -269,7 +270,7 @@ def _send_message(
                                 "Telegram notification sent for match %s",
                                 match_id,
                             )
-                        return cast(object, telegram_response)
+                        return response_value
 
                     logger.error(
                         "Telegram API rejected request on attempt %s/%s: %s",

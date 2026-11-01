@@ -8,7 +8,7 @@ from typing import Any, NoReturn
 from playwright.sync_api import Page
 
 from . import pending_notifications, state
-from .closed_ov_ah import find_pattern_matches
+from .detector import find_pattern_matches
 from .config import (
     DATA_DIR,
     DEBUGMODE,

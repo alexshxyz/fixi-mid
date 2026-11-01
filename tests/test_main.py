@@ -966,7 +966,7 @@ def test_main_stops_if_refresh_fails_during_shutdown_before_matches(
         main, "_wait_for_shutdown", lambda event, seconds: False
     )
 
-    def interrupt_refresh(page, action, action_name, **kwargs):
+    def interrupt_refresh(action, action_name, **kwargs):
         if action_name == "prepare page":
             return None
         kwargs["shutdown_requested"].set()
@@ -1243,7 +1243,7 @@ def test_check_for_restart_without_browser_restarts_script(monkeypatch):
     with pytest.raises(StopRestart):
         main._check_for_restart(99, None)
 
-    assert calls == [()]
+    assert calls == [(None,)]
 
 
 def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
