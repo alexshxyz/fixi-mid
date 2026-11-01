@@ -87,7 +87,7 @@ def test_is_ah_line_exception_rejects_invalid_forms(value):
     ],
 )
 def test_ah_line_sign(value, expected):
-    assert detector._ah_line_sign(value) == expected
+    assert detector.ah_line_sign(value) == expected
 
 
 def test_get_market_values_preserves_ah_line_and_selects_away_odds():
@@ -169,139 +169,6 @@ def test_get_last_entry_before_closed_returns_none_when_history_has_no_open_entr
     assert index == -1
 
 
-def test_notification_sent_callback_is_optional():
-    assert detector._notification_sent_callback(None, "match-1", "ov", "League") is None
-
-
-def test_notification_sent_callback_registers_message_details():
-    received = []
-    callback = detector._notification_sent_callback(
-        received.append, "match-1", "ah", "League"
-    )
-
-    callback(
-        42,
-        "message",
-        "https://example.test/match-1",
-        "Handicap -0.5 Away",
-        "custom-channel",
-    )
-
-    assert received == [
-        {
-            "match_id": "match-1",
-            "market": "ah",
-            "league": "League",
-            "message_id": 42,
-            "message": "message",
-            "link": "https://example.test/match-1",
-            "prediction": "Handicap -0.5 Away",
-            "channel_id": "custom-channel",
-        }
-    ]
-
-
-def test_send_over_notification_builds_payload_and_callback(monkeypatch):
-    sent = []
-    registered = []
-
-    def fake_send(**kwargs):
-        sent.append(kwargs)
-        kwargs["on_sent_details"](7, "text", "link", "Over 2.5", "channel")
-
-    monkeypatch.setattr(detector, "send_telegram_notification", fake_send)
-    match = entry(
-        home_team="Home",
-        away_team="Away",
-        score="1-0",
-        league="League",
-        match_time="30",
-    )
-
-    detector._send_over_notification(
-        "match-1", match, "2.5", 1.55, "ODDS 1.90 -> 1.55", registered.append
-    )
-
-    assert sent[0] == {
-        "league": "League",
-        "home_team": "Home",
-        "away_team": "Away",
-        "score": "1-0",
-        "over": "2.5",
-        "over_odds": 1.55,
-        "drop_type": "ODDS 1.90 -> 1.55",
-        "match_id": "match-1",
-        "match_time": "30",
-        "on_sent_details": sent[0]["on_sent_details"],
-        "strategy": "default",
-        "shutdown_requested": None,
-    }
-    assert registered[0]["market"] == "ov"
-    assert registered[0]["match_id"] == "match-1"
-
-
-def test_send_over_notification_without_closed_uses_strategy_without_tracking(
-    monkeypatch,
-):
-    sent = []
-    registered = []
-    monkeypatch.setattr(
-        detector,
-        "send_telegram_notification",
-        lambda **kwargs: sent.append(kwargs),
-    )
-
-    detector._send_over_notification(
-        "match-1",
-        entry(league="League"),
-        "2.5",
-        THRESHOLD,
-        "drop",
-        registered.append,
-        strategy="without closed",
-    )
-
-    assert sent[0]["strategy"] == "without closed"
-    assert sent[0]["on_sent_details"] is None
-    assert registered == []
-
-
-def test_send_over_notification_uses_defaults_and_swallows_send_error(monkeypatch, caplog):
-    def fail_send(**kwargs):
-        raise RuntimeError("telegram unavailable")
-
-    monkeypatch.setattr(detector, "send_telegram_notification", fail_send)
-
-    detector._send_over_notification(
-        "match-1", {"match_time": "Unknown"}, "2.5", 1.5, "drop"
-    )
-
-    assert "Failed to send notification" in caplog.text
-
-
-def test_send_market_notification_does_not_send_after_shutdown(monkeypatch):
-    shutdown_requested = threading.Event()
-    shutdown_requested.set()
-    sends = []
-    monkeypatch.setattr(
-        detector,
-        "send_telegram_notification",
-        lambda **kwargs: sends.append(kwargs),
-    )
-
-    detector._send_market_notification(
-        "ov",
-        "match-1",
-        entry(),
-        "2.5",
-        1.5,
-        "drop",
-        shutdown_requested=shutdown_requested,
-    )
-
-    assert sends == []
-
-
 def over_history(confirming_odds=START_ODD, closed_odds=THRESHOLD):
     return [
         entry(over="2.5", over_odds=confirming_odds),
@@ -310,43 +177,33 @@ def over_history(confirming_odds=START_ODD, closed_odds=THRESHOLD):
     ]
 
 
-def test_find_over_pattern_sends_at_inclusive_odds_boundaries(monkeypatch):
-    notifications = []
-    monkeypatch.setattr(
-        detector,
-        "_send_over_notification",
-        lambda *args: notifications.append(args),
-    )
+def test_find_over_pattern_returns_signal_at_inclusive_odds_boundaries():
+    signal = detector._find_over_pattern(over_history(), "match-1")
 
-    matched = detector._find_over_pattern(
-        over_history(), "match-1"
-    )
-
-    assert matched
-    assert len(notifications) == 1
-    assert notifications[0][2:5] == ("2.5", THRESHOLD, f"ODDS {START_ODD:.2f} -> {THRESHOLD:.2f}")
+    assert signal is not None
+    assert signal["match_id"] == "match-1"
+    assert signal["market"] == "ov"
+    assert signal["line"] == "2.5"
+    assert signal["odds"] == THRESHOLD
+    assert signal["drop_type"] == f"ODDS {START_ODD:.2f} -> {THRESHOLD:.2f}"
 
 
 @pytest.mark.parametrize(
-    ("market", "line", "initial_odds", "latest_odds", "send_name"),
+    ("market", "line", "initial_odds", "latest_odds"),
     [
-        ("ov", "2.5", START_ODD, THRESHOLD, "_send_over_notification"),
-        ("ah", "-0.5", START_ODD, THRESHOLD, "_send_ah_notification"),
+        ("ov", "2.5", START_ODD, THRESHOLD),
+        ("ah", "-0.5", START_ODD, THRESHOLD),
     ],
 )
 def test_without_closed_strategy_matches_latest_open_market_snapshot(
-    monkeypatch, market, line, initial_odds, latest_odds, send_name
+    market, line, initial_odds, latest_odds
 ):
-    notifications = []
-    monkeypatch.setattr(
-        detector, send_name, lambda *args: notifications.append(args)
-    )
     if market == "ov":
         history = [
             entry(over=line, over_odds=initial_odds),
             entry(over=line, over_odds=latest_odds),
         ]
-        matched = detector._find_over_pattern_without_closed(
+        signal = detector._find_over_pattern_without_closed(
             history, "match-1"
         )
     else:
@@ -354,13 +211,14 @@ def test_without_closed_strategy_matches_latest_open_market_snapshot(
             entry(handicap=line, away_odds=initial_odds),
             entry(handicap=line, away_odds=latest_odds),
         ]
-        matched = detector._find_ah_pattern_without_closed(
+        signal = detector._find_ah_pattern_without_closed(
             history, "match-1"
         )
 
-    assert matched
-    assert notifications[0][1] is history[-1]
-    assert notifications[0][-1] == "without closed"
+    assert signal is not None
+    assert signal["entry"] is history[-1]
+    assert signal["strategy"] == "without closed"
+    assert signal["line"] == ("-0.5" if market == "ah" else line)
 
 
 @pytest.mark.parametrize(
@@ -388,20 +246,8 @@ def test_without_closed_strategy_matches_latest_open_market_snapshot(
         ],
     ],
 )
-def test_without_closed_strategy_rejects_non_matching_latest_snapshot(
-    history, monkeypatch
-):
-    notifications = []
-    monkeypatch.setattr(
-        detector,
-        "_send_over_notification",
-        lambda *args: notifications.append(args),
-    )
-
-    assert not detector._find_over_pattern_without_closed(
-        history, "match-1"
-    )
-    assert notifications == []
+def test_without_closed_strategy_rejects_non_matching_latest_snapshot(history):
+    assert detector._find_over_pattern_without_closed(history, "match-1") is None
 
 
 def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
@@ -419,7 +265,7 @@ def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
         monkeypatch.setattr(
             detector,
             name,
-            lambda *args, _name=name, **kwargs: checks.append(_name) or False,
+            lambda *args, _name=name, **kwargs: checks.append(_name),
         )
 
     assert detector.find_pattern_matches(history) == []
@@ -445,15 +291,9 @@ def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
 )
 @pytest.mark.parametrize("market", ["over", "handicap"])
 def test_find_pattern_compares_closed_and_confirming_scores(
-    monkeypatch, market, closed_score, confirming_score, expected_match
+    market, closed_score, confirming_score, expected_match
 ):
-    notifications = []
     if market == "over":
-        monkeypatch.setattr(
-            detector,
-            "_send_over_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(
                 over="2.5",
@@ -463,13 +303,8 @@ def test_find_pattern_compares_closed_and_confirming_scores(
             entry(over="2.5", over_odds=THRESHOLD),
             closed_entry("ov", score=closed_score),
         ]
-        matched = detector._find_over_pattern(history, "match-1")
+        signal = detector._find_over_pattern(history, "match-1")
     else:
-        monkeypatch.setattr(
-            detector,
-            "_send_ah_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(
                 handicap="-0.5",
@@ -479,46 +314,33 @@ def test_find_pattern_compares_closed_and_confirming_scores(
             entry(handicap="-0.5", away_odds=THRESHOLD),
             closed_entry("ah", score=closed_score),
         ]
-        matched = detector._find_ah_pattern(history, "match-1")
+        signal = detector._find_ah_pattern(history, "match-1")
 
-    assert matched is expected_match
-    assert len(notifications) == int(expected_match)
+    assert (signal is not None) is expected_match
 
 
 @pytest.mark.parametrize("market", ["over", "handicap"])
 def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
-    monkeypatch, market
+    market,
 ):
-    notifications = []
     if market == "over":
-        monkeypatch.setattr(
-            detector,
-            "_send_over_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(over="2.5", over_odds=START_ODD, score="1-0"),
             entry(over="2.5", over_odds=1.90, score="2-0"),
             entry(over="2.5", over_odds=THRESHOLD, score="1-0"),
             closed_entry("ov", score="1-0"),
         ]
-        matched = detector._find_over_pattern(history, "match-1")
+        signal = detector._find_over_pattern(history, "match-1")
     else:
-        monkeypatch.setattr(
-            detector,
-            "_send_ah_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(handicap="-0.5", away_odds=START_ODD, score="1-0"),
             entry(handicap="-0.5", away_odds=1.90, score="2-0"),
             entry(handicap="-0.5", away_odds=THRESHOLD, score="1-0"),
             closed_entry("ah", score="1-0"),
         ]
-        matched = detector._find_ah_pattern(history, "match-1")
+        signal = detector._find_ah_pattern(history, "match-1")
 
-    assert not matched
-    assert notifications == []
+    assert signal is None
 
 
 @pytest.mark.parametrize(
@@ -535,37 +357,25 @@ def test_find_pattern_does_not_skip_nearest_confirming_row_on_score_mismatch(
 )
 @pytest.mark.parametrize("market", ["over", "handicap"])
 def test_find_pattern_rejects_finished_match_times(
-    monkeypatch, market, field, value
+    market, field, value
 ):
-    notifications = []
     metadata = {field: value}
     if market == "over":
-        monkeypatch.setattr(
-            detector,
-            "_send_over_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(over="2.5", over_odds=START_ODD, score="1-0"),
             entry(over="2.5", over_odds=THRESHOLD, score="1-0"),
             closed_entry("ov", score="1-0", **metadata),
         ]
-        matched = detector._find_over_pattern(history, "match-1")
+        signal = detector._find_over_pattern(history, "match-1")
     else:
-        monkeypatch.setattr(
-            detector,
-            "_send_ah_notification",
-            lambda *args: notifications.append(args),
-        )
         history = [
             entry(handicap="-0.5", away_odds=START_ODD, score="1-0"),
             entry(handicap="-0.5", away_odds=THRESHOLD, score="1-0"),
             closed_entry("ah", score="1-0", **metadata),
         ]
-        matched = detector._find_ah_pattern(history, "match-1")
+        signal = detector._find_ah_pattern(history, "match-1")
 
-    assert not matched
-    assert notifications == []
+    assert signal is None
 
 
 def test_find_over_pattern_returns_false_when_every_preceding_entry_is_closed():
@@ -575,13 +385,7 @@ def test_find_over_pattern_returns_false_when_every_preceding_entry_is_closed():
     )
 
 
-def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
-    notifications = []
-    monkeypatch.setattr(
-        detector,
-        "_send_over_notification",
-        lambda *args: notifications.append(args),
-    )
+def test_find_over_pattern_matches_after_multiple_closed_snapshots():
     history = [
         entry(over="2.5", over_odds=START_ODD),
         entry(over="2.5", over_odds=THRESHOLD),
@@ -589,8 +393,9 @@ def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
         closed_entry("ov"),
     ]
 
-    assert detector._find_over_pattern(history, "match-1")
-    assert len(notifications) == 1
+    signal = detector._find_over_pattern(history, "match-1")
+    assert signal is not None
+    assert signal["line"] == "2.5"
 
 
 @pytest.mark.parametrize(
@@ -615,21 +420,11 @@ def test_find_over_pattern_matches_after_multiple_closed_snapshots(monkeypatch):
         ],
     ],
 )
-def test_find_over_pattern_rejects_non_matching_histories(history, monkeypatch):
-    send = []
-    monkeypatch.setattr(
-        detector, "_send_over_notification", lambda *args: send.append(args)
-    )
-
-    assert not detector._find_over_pattern(history, "match-1")
-    assert send == []
+def test_find_over_pattern_rejects_non_matching_histories(history):
+    assert detector._find_over_pattern(history, "match-1") is None
 
 
-def test_find_over_pattern_skips_closed_entries_while_searching(monkeypatch):
-    sent = []
-    monkeypatch.setattr(
-        detector, "_send_over_notification", lambda *args: sent.append(args)
-    )
+def test_find_over_pattern_skips_closed_entries_while_searching():
     history = [
         entry(over="2.5", over_odds=START_ODD),
         closed_entry("ov"),
@@ -637,8 +432,9 @@ def test_find_over_pattern_skips_closed_entries_while_searching(monkeypatch):
         closed_entry("ov"),
     ]
 
-    assert detector._find_over_pattern(history, "match-1")
-    assert len(sent) == 1
+    signal = detector._find_over_pattern(history, "match-1")
+    assert signal is not None
+    assert signal["odds"] == THRESHOLD
 
 
 @pytest.mark.parametrize(
@@ -649,23 +445,22 @@ def test_find_over_pattern_skips_closed_entries_while_searching(monkeypatch):
         ("0/-0.5", START_ODD, THRESHOLD, "away", "0/-0.5"),
     ],
 )
-def test_find_ah_pattern_selects_odds_side_and_sends_notification(
-    monkeypatch, handicap, home_odds, away_odds, expected_side, expected_text
+def test_find_ah_pattern_selects_odds_side_and_returns_signal(
+    handicap, home_odds, away_odds, expected_side, expected_text
 ):
-    sent = []
-    monkeypatch.setattr(
-        detector, "_send_ah_notification", lambda *args: sent.append(args)
-    )
     history = [
         entry(handicap=handicap, home_odds=START_ODD, away_odds=START_ODD),
         entry(handicap=handicap, home_odds=home_odds, away_odds=away_odds),
         closed_entry("ah"),
     ]
 
-    assert detector._find_ah_pattern(history, "match-1")
-    assert sent[0][4] == expected_side
-    assert sent[0][2] == expected_text
-    assert sent[0][3] == (home_odds if expected_side == "home" else away_odds)
+    signal = detector._find_ah_pattern(history, "match-1")
+    assert signal is not None
+    assert signal["odds_side"] == expected_side
+    assert signal["line"] == expected_text
+    assert signal["odds"] == (
+        home_odds if expected_side == "home" else away_odds
+    )
 
 
 @pytest.mark.parametrize(
@@ -691,85 +486,11 @@ def test_find_ah_pattern_selects_odds_side_and_sends_notification(
         ],
     ],
 )
-def test_find_ah_pattern_rejects_non_matching_histories(history, monkeypatch):
-    send = []
-    monkeypatch.setattr(
-        detector, "_send_ah_notification", lambda *args: send.append(args)
-    )
-
-    assert not detector._find_ah_pattern(history, "match-1")
-    assert send == []
+def test_find_ah_pattern_rejects_non_matching_histories(history):
+    assert detector._find_ah_pattern(history, "match-1") is None
 
 
-def test_send_ah_notification_formats_payload_and_callback(monkeypatch):
-    sent = []
-    registered = []
-
-    def fake_send(**kwargs):
-        sent.append(kwargs)
-        kwargs["on_sent_details"](
-            8, "text", "link", "Handicap -0.5 Home", "channel"
-        )
-
-    monkeypatch.setattr(detector, "send_telegram_notification", fake_send)
-    match = entry(
-        home_team="Home", away_team="Away", score="0-0", league="League"
-    )
-
-    detector._send_ah_notification(
-        "match-1", match, "0.5", 1.55, "home", "ODDS 1.90 -> 1.55", registered.append
-    )
-
-    assert sent[0]["handicap_text"] == "-0.5"
-    assert sent[0]["handicap_team_order"] == "Home"
-    assert sent[0]["strategy"] == "default"
-    assert registered[0]["market"] == "ah"
-
-
-@pytest.mark.parametrize(
-    ("handicap", "expected_text", "expected_order"),
-    [
-        ("0.5", "-0.5", "Away"),
-        ("-0.5", "-0.5", "Away"),
-        ("0/-0.5", "0/-0.5", "Away"),
-        (None, None, "Away"),
-    ],
-)
-def test_send_ah_notification_formats_handicap_by_odds_side(
-    monkeypatch, handicap, expected_text, expected_order
-):
-    sent = []
-    monkeypatch.setattr(
-        detector, "send_telegram_notification", lambda **kwargs: sent.append(kwargs)
-    )
-
-    detector._send_ah_notification(
-        "match-1", {"match_time": "Unknown"}, handicap, 1.5, "away", "drop"
-    )
-
-    assert sent[0]["handicap_text"] == expected_text
-    assert sent[0]["handicap_team_order"] == expected_order
-    assert sent[0]["home_team"] == "Unknown"
-
-
-def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):
-    def fail_send(**kwargs):
-        raise RuntimeError("telegram unavailable")
-
-    monkeypatch.setattr(detector, "send_telegram_notification", fail_send)
-
-    detector._send_ah_notification(
-        "match-1", {"match_time": "Unknown"}, "-0.5", 1.5, "away", "drop"
-    )
-
-    assert "Failed to send notification" in caplog.text
-
-
-def test_find_ah_pattern_skips_closed_entries_while_searching(monkeypatch):
-    sent = []
-    monkeypatch.setattr(
-        detector, "_send_ah_notification", lambda *args: sent.append(args)
-    )
+def test_find_ah_pattern_skips_closed_entries_while_searching():
     history = [
         entry(handicap="-0.5", away_odds=START_ODD),
         closed_entry("ah"),
@@ -777,81 +498,76 @@ def test_find_ah_pattern_skips_closed_entries_while_searching(monkeypatch):
         closed_entry("ah"),
     ]
 
-    assert detector._find_ah_pattern(history, "match-1")
-    assert len(sent) == 1
+    signal = detector._find_ah_pattern(history, "match-1")
+    assert signal is not None
+    assert signal["odds_side"] == "away"
 
 
-def test_find_pattern_matches_returns_match_for_either_market(monkeypatch):
+def test_find_pattern_matches_returns_signals_for_each_market():
     history = {
-        "over-match": {"initial": {}, "changes": []},
-        "handicap-match": {"initial": {}, "changes": []},
+        "over-match": {
+            "initial": entry(over="2.5", over_odds=START_ODD),
+            "changes": [
+                entry(over="2.5", over_odds=THRESHOLD),
+                {
+                    **entry(handicap="-0.5", away_odds=THRESHOLD),
+                    "ov": {"over": "Closed"},
+                },
+            ],
+        },
+        "handicap-match": {
+            "initial": entry(handicap="-0.5", away_odds=START_ODD),
+            "changes": [
+                entry(handicap="-0.5", away_odds=THRESHOLD),
+                {
+                    **entry(over="2.5", over_odds=THRESHOLD),
+                    "ah": {"ah": "Closed"},
+                },
+            ],
+        },
         "unmatched": {},
     }
-    monkeypatch.setattr(
-        detector,
-        "_find_over_pattern",
-        lambda entries, match_id, callback, shutdown_requested=None: match_id
-        == "over-match",
-    )
-    monkeypatch.setattr(
-        detector,
-        "_find_ah_pattern",
-        lambda entries, match_id, callback, shutdown_requested=None: match_id
-        == "handicap-match",
-    )
 
-    assert detector.find_pattern_matches(history) == [
-        "over-match",
-        "handicap-match",
+    signals = detector.find_pattern_matches(history)
+
+    assert [(signal["match_id"], signal["market"]) for signal in signals] == [
+        ("over-match", "ov"),
+        ("handicap-match", "ah"),
     ]
 
 
-def test_find_pattern_matches_returns_both_markets_in_order(monkeypatch):
-    monkeypatch.setattr(
-        detector, "_find_over_pattern", lambda *args, **kwargs: True
-    )
-    monkeypatch.setattr(
-        detector, "_find_ah_pattern", lambda *args, **kwargs: True
-    )
+def test_find_pattern_matches_keeps_strategy_order_for_same_match():
+    history = {
+        "match-1": {
+            "initial": entry(
+                over="2.5",
+                over_odds=START_ODD,
+                handicap="-0.5",
+                away_odds=START_ODD,
+            ),
+            "changes": [
+                entry(
+                    over="2.5",
+                    over_odds=THRESHOLD,
+                    handicap="-0.5",
+                    away_odds=THRESHOLD,
+                ),
+                {
+                    **entry(
+                        handicap="-0.5",
+                        away_odds=THRESHOLD,
+                    ),
+                    "ov": {"over": "Closed"},
+                },
+            ],
+        }
+    }
 
-    assert detector.find_pattern_matches({"match-1": {}}) == [
-        "match-1",
-        "match-1",
-    ]
+    signals = detector.find_pattern_matches(history)
 
-
-def test_find_pattern_matches_passes_notification_callback(monkeypatch):
-    observed = []
-    callback = lambda *args: None
-    for name in (
-        "_find_over_pattern_without_closed",
-        "_find_over_pattern",
-    ):
-        monkeypatch.setattr(
-            detector,
-            name,
-            lambda entries, match_id, on_notification_sent, shutdown_requested=None: observed.append(
-                (entries, match_id, on_notification_sent)
-            )
-            or False,
-        )
-    for name in (
-        "_find_ah_pattern_without_closed",
-        "_find_ah_pattern",
-    ):
-        monkeypatch.setattr(
-            detector, name, lambda *args, **kwargs: False
-        )
-
-    result = detector.find_pattern_matches(
-        {"match-1": {"initial": {"value": 1}, "changes": [{"value": 2}]}},
-        on_notification_sent=callback,
-    )
-
-    assert result == []
-    assert observed == [
-        ([{"value": 1}, {"value": 2}], "match-1", callback),
-        ([{"value": 1}, {"value": 2}], "match-1", callback),
+    assert [(signal["market"], signal["strategy"]) for signal in signals] == [
+        ("ah", "without closed"),
+        ("ov", "default"),
     ]
 
 
@@ -875,9 +591,7 @@ def test_find_pattern_matches_stops_before_analyzing_after_shutdown(monkeypatch)
     assert calls == []
 
 
-def test_find_market_pattern_stops_when_shutdown_arrives_during_search(
-    monkeypatch,
-):
+def test_find_market_pattern_stops_when_shutdown_arrives_during_search(monkeypatch):
     shutdown_requested = threading.Event()
     entries = [
         *over_history()[:-1],
@@ -902,15 +616,10 @@ def test_find_market_pattern_stops_when_shutdown_arrives_during_search(
     monkeypatch.setattr(
         detector, "_get_market_values", lambda current, market: ("2.5", 1.5, None)
     )
-    notifications = []
-
-    assert not detector._find_market_pattern(
+    assert detector._find_market_pattern(
         entries,
         "match-1",
         "ov",
-        lambda *args: notifications.append(args),
-        None,
         shutdown_requested=shutdown_requested,
-    )
+    ) is None
     assert len(status_calls) == 2
-    assert notifications == []

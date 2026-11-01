@@ -8,7 +8,6 @@ from typing import Any, NoReturn
 from playwright.sync_api import Page
 
 from . import pending_notifications, state
-from .detector import find_pattern_matches
 from .config import (
     DATA_DIR,
     DEBUGMODE,
@@ -36,6 +35,7 @@ from .observer import (
     wait_for_live_change,
     write_match_count,
 )
+from .signal_pipeline import process_match_history
 
 logger = setup_logger(__name__)
 
@@ -181,7 +181,7 @@ class MatchMonitor:
             except OSError:
                 logger.exception("Failed to write analyzer input snapshot to %s", snapshot_path)
 
-        find_pattern_matches(
+        process_match_history(
             self.match_history,
             self._register_pending_notification,
             shutdown_requested=self.shutdown_requested,

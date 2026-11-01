@@ -49,6 +49,19 @@ class MatchHistory(TypedDict, total=False):
 MatchHistoryMap = dict[str, MatchHistory]
 
 
+class MatchSignal(TypedDict):
+    """Найденный сигнал рынка, готовый к обработке pipeline."""
+
+    match_id: str
+    market: MarketType
+    entry: MatchSnapshot
+    line: str
+    odds: float
+    drop_type: str
+    odds_side: OddsSide | None
+    strategy: str
+
+
 class NotificationSentDetails(TypedDict):
     """Данные отправленного уведомления для callback."""
 

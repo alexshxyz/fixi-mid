@@ -509,7 +509,7 @@ def test_run_analyzer_passes_full_history_to_pattern_matcher(
     calls = []
     monkeypatch.setattr(
         tracker,
-        "find_pattern_matches",
+        "process_match_history",
         lambda history, callback, **kwargs: calls.append((history, callback, kwargs)),
     )
 
@@ -527,7 +527,7 @@ def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
     monkeypatch.setattr(tracker, "DEBUGMODE", True)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(
-        tracker, "find_pattern_matches", lambda *args, **kwargs: None
+        tracker, "process_match_history", lambda *args, **kwargs: None
     )
     monitor.match_history = {"1": {"initial": market_data(), "changes": []}}
 
@@ -547,7 +547,7 @@ def test_run_analyzer_returns_without_running_when_shutdown_is_set(
     monitor.shutdown_requested = shutdown_requested
     calls = []
     monkeypatch.setattr(
-        tracker, "find_pattern_matches", lambda *args, **kwargs: calls.append(args)
+        tracker, "process_match_history", lambda *args, **kwargs: calls.append(args)
     )
 
     monitor._run_analyzer()
@@ -612,7 +612,7 @@ def test_run_analyzer_logs_debug_snapshot_write_error(
     monkeypatch.setattr(tracker, "DEBUGMODE", True)
     monkeypatch.setattr(tracker, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(
-        tracker, "find_pattern_matches", lambda *args, **kwargs: None
+        tracker, "process_match_history", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(
         "builtins.open",
