@@ -216,6 +216,7 @@ def save_match(
     match_id: str | int | None = None,
     market: str | None = None,
     strategy: str | None = 'default',
+    mark: str | None = None,
 ) -> tuple[int | None, int | None]:
     """Сохранить уведомление, если такой прогноз ещё не записан."""
     normalized_odds: float | None = None
@@ -227,7 +228,7 @@ def save_match(
         date_value = date.today().isoformat()
 
     match_record: MatchRecord = {
-        'mark': None,
+        'mark': mark,
         'league': league,
         'home_team': home_team,
         'away_team': away_team,

@@ -205,6 +205,7 @@ def _build_message(
     match_url: str,
     prediction: str,
     match_time: str = 'Unknown',
+    marker: str = "🔎",
 ) -> str:
     """Сформировать HTML-сообщение о матче."""
     clean_match_time = _normalize_match_time_for_message(match_time)
@@ -216,7 +217,7 @@ def _build_message(
 
     return (
         f"<b>{league}</b>\n"
-        f"🔎 {clean_match_time}’ {linkified_match_text}\n\n"
+        f"{marker} {clean_match_time}’ {linkified_match_text}\n\n"
         f"{prediction}"
     )
 
@@ -336,6 +337,7 @@ def _save_notification(
     match_id: str | int | None,
     market: str,
     strategy: str,
+    mark: str | None = None,
 ) -> None:
     """Сохранить успешно отправленное уведомление."""
     try:
@@ -350,6 +352,7 @@ def _save_notification(
             match_id=match_id,
             market=market,
             strategy=strategy,
+            mark=mark,
         )
     except Exception as db_error:
         logger.error(f"Failed to save match: {db_error}")
@@ -394,6 +397,7 @@ def send_telegram_notification(
         match_url,
         display_prediction,
         match_time=match_time,
+        marker="⚡️" if strategy == "without closed" else "🔎",
     )
 
     payload: dict[str, Any] = {
@@ -427,6 +431,7 @@ def send_telegram_notification(
         match_id,
         market,
         strategy,
+        "⚡️" if strategy == "without closed" else None,
     )
     telegram_response_dict = (
         cast(_TelegramResponse, telegram_response)

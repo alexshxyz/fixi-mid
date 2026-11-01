@@ -155,6 +155,7 @@ def _send_market_notification(
     odds_side: OddsSide | None = None,
     on_notification_sent: NotificationSentCallback | None = None,
     shutdown_requested: Event | None = None,
+    strategy: str = "default",
 ) -> None:
     """Отправить Telegram-уведомление о найденном паттерне рынка."""
     if shutdown_requested is not None and shutdown_requested.is_set():
@@ -165,8 +166,12 @@ def _send_market_notification(
     league = last_entry.get("league", "Unknown")
     match_time = last_entry["match_time"]
 
-    on_sent_details = _notification_sent_callback(
-        on_notification_sent, match_id, market, league
+    on_sent_details = (
+        None
+        if strategy == "without closed"
+        else _notification_sent_callback(
+            on_notification_sent, match_id, market, league
+        )
     )
     try:
         if market == "ov":
@@ -181,7 +186,7 @@ def _send_market_notification(
                 match_id=match_id,
                 match_time=match_time,
                 on_sent_details=on_sent_details,
-                strategy="default",
+                strategy=strategy,
                 shutdown_requested=shutdown_requested,
             )
         else:
@@ -204,7 +209,7 @@ def _send_market_notification(
                 match_id=match_id,
                 match_time=match_time,
                 on_sent_details=on_sent_details,
-                strategy="default",
+                strategy=strategy,
                 shutdown_requested=shutdown_requested,
             )
     except Exception as e:
@@ -219,6 +224,7 @@ def _send_over_notification(
     drop_type: str,
     on_notification_sent: NotificationSentCallback | None = None,
     shutdown_requested: Event | None = None,
+    strategy: str = "default",
 ) -> None:
     """Отправить уведомление о паттерне Over."""
     _send_market_notification(
@@ -230,6 +236,7 @@ def _send_over_notification(
         drop_type,
         on_notification_sent=on_notification_sent,
         shutdown_requested=shutdown_requested,
+        strategy=strategy,
     )
 
 
@@ -242,6 +249,7 @@ def _send_ah_notification(
     drop_type: str,
     on_notification_sent: NotificationSentCallback | None = None,
     shutdown_requested: Event | None = None,
+    strategy: str = "default",
 ) -> None:
     """Отправить уведомление о паттерне азиатской форы."""
     _send_market_notification(
@@ -254,6 +262,7 @@ def _send_ah_notification(
         odds_side=odds_side,
         on_notification_sent=on_notification_sent,
         shutdown_requested=shutdown_requested,
+        strategy=strategy,
     )
 
 
@@ -292,18 +301,23 @@ def _find_market_pattern(
     notify: Callable[..., None],
     on_notification_sent: NotificationSentCallback | None,
     shutdown_requested: Event | None = None,
+    strategy: str = "default",
 ) -> bool:
-    """Проверить закрытие линии после подходящего изменения коэффициента."""
+    """Проверить паттерн падения коэффициента для выбранной стратегии."""
     if shutdown_requested is not None and shutdown_requested.is_set():
         return False
-    if (
-        len(entries) < 2
-        or _line_status(entries[-1], market) != "Closed"
-        or _is_finished_match(entries[-1])
-    ):
+    if len(entries) < 2 or _is_finished_match(entries[-1]):
         return False
 
-    last_entry, last_idx = _get_last_entry_before_closed(entries, market)
+    last_entry: MatchSnapshot | None
+    if strategy == "without closed":
+        if _line_status(entries[-1], market) == "Closed":
+            return False
+        last_entry, last_idx = entries[-1], len(entries) - 1
+    else:
+        if _line_status(entries[-1], market) != "Closed":
+            return False
+        last_entry, last_idx = _get_last_entry_before_closed(entries, market)
     if last_entry is None:
         return False
 
@@ -339,6 +353,7 @@ def _find_market_pattern(
                     drop_type,
                     on_notification_sent,
                     shutdown_requested,
+                    strategy,
                 )
             else:
                 notify(
@@ -350,6 +365,7 @@ def _find_market_pattern(
                     drop_type,
                     on_notification_sent,
                     shutdown_requested,
+                    strategy,
                 )
             return True
 
@@ -390,6 +406,42 @@ def _find_ah_pattern(
     )
 
 
+def _find_over_pattern_without_closed(
+    entries: list[MatchSnapshot],
+    match_id: str,
+    on_notification_sent: NotificationSentCallback | None = None,
+    shutdown_requested: Event | None = None,
+) -> bool:
+    """Проверить паттерн Over без ожидания закрытия линии."""
+    return _find_market_pattern(
+        entries,
+        match_id,
+        "ov",
+        _send_over_notification,
+        on_notification_sent,
+        shutdown_requested,
+        strategy="without closed",
+    )
+
+
+def _find_ah_pattern_without_closed(
+    entries: list[MatchSnapshot],
+    match_id: str,
+    on_notification_sent: NotificationSentCallback | None = None,
+    shutdown_requested: Event | None = None,
+) -> bool:
+    """Проверить паттерн азиатской форы без ожидания закрытия линии."""
+    return _find_market_pattern(
+        entries,
+        match_id,
+        "ah",
+        _send_ah_notification,
+        on_notification_sent,
+        shutdown_requested,
+        strategy="without closed",
+    )
+
+
 def find_pattern_matches(
     matches_history: MatchHistoryMap,
     on_notification_sent: NotificationSentCallback | None = None,
@@ -402,6 +454,24 @@ def find_pattern_matches(
         if shutdown_requested is not None and shutdown_requested.is_set():
             break
         entries = _collect_match_entries(data)
+
+        over_matched = _find_over_pattern_without_closed(
+            entries,
+            match_id,
+            on_notification_sent,
+            shutdown_requested=shutdown_requested,
+        )
+        if over_matched:
+            sent_matches.append(match_id)
+
+        ah_matched = _find_ah_pattern_without_closed(
+            entries,
+            match_id,
+            on_notification_sent,
+            shutdown_requested=shutdown_requested,
+        )
+        if ah_matched:
+            sent_matches.append(match_id)
 
         over_matched = _find_over_pattern(
             entries,

@@ -345,6 +345,23 @@ def test_save_match_normalizes_optional_or_invalid_odds(
     assert read_matches(matches_file)[0]["odds"] == expected
 
 
+def test_save_match_persists_strategy_mark(matches_file):
+    storage.save_match(
+        "League",
+        "Home",
+        "Away",
+        "Over 2.5",
+        1.55,
+        "link",
+        strategy="without closed",
+        mark="⚡️",
+    )
+
+    record = read_matches(matches_file)[0]
+    assert record["strategy"] == "without closed"
+    assert record["mark"] == "⚡️"
+
+
 def test_save_match_does_not_add_duplicate(matches_file):
     arguments = ("League", "Home", "Away", "Over 2.5", 1.9, "link")
 

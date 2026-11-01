@@ -386,6 +386,7 @@ def test_save_notification_forwards_fields_to_storage(monkeypatch):
             "match_id": "match-id",
             "market": "ov",
             "strategy": "old",
+            "mark": None,
         }
     ]
 
@@ -492,10 +493,63 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
             "match-1",
             "ov",
             "new",
+            None,
         )
     ]
     assert details_callback == [
         (123, message, match_url, "Over 2.5", "custom-channel")
+    ]
+
+
+def test_without_closed_strategy_uses_lightning_marker_and_does_not_track(
+    notification_dependencies, caplog
+):
+    calls = notification_dependencies
+
+    assert send_over(strategy="without closed") is True
+
+    message = calls["sent"][0][0][0]["text"]
+    assert "⚡️ 45’" in message
+    assert "🔎 " not in message
+    assert calls["saved"][0][-2:] == ("without closed", "⚡️")
+    assert "did not include a message_id" not in caplog.text
+
+
+def test_strategy_notifications_share_per_market_duplicate_limit(monkeypatch):
+    sent = []
+    saved = []
+    sent_markets = set()
+
+    monkeypatch.setattr(
+        notifier,
+        "check_duplicate_market",
+        lambda match_id, market: (match_id, market) in sent_markets,
+    )
+    monkeypatch.setattr(
+        notifier,
+        "_send_message",
+        lambda payload, *args, **kwargs: sent.append(payload)
+        or {"ok": True, "result": {"message_id": len(sent)}},
+    )
+
+    def save_notification(*args):
+        saved.append(args)
+        sent_markets.add((args[7], args[8]))
+
+    monkeypatch.setattr(notifier, "_save_notification", save_notification)
+
+    assert send_over(strategy="without closed") is True
+    assert send_over(strategy="default") is False
+    assert send_over(
+        handicap_text="-0.5",
+        handicap_team_order="Home",
+        strategy="default",
+    ) is True
+
+    assert len(sent) == 2
+    assert [record[8:] for record in saved] == [
+        ("ov", "without closed", "⚡️"),
+        ("ah", "default", None),
     ]
 
 
@@ -525,7 +579,7 @@ def test_send_telegram_notification_builds_handicap_signal(notification_dependen
     assert " · " not in args[0]["text"]
     assert calls["market_duplicate"] == [("match-1", "ah")]
     assert calls["saved"][0][3] == "Handicap -0.75 Away"
-    assert calls["saved"][0][8:] == ("ah", "default")
+    assert calls["saved"][0][8:] == ("ah", "default", None)
 
 
 def test_send_telegram_notification_converts_display_but_keeps_internal_prediction(
