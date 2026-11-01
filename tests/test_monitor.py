@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 import app.tools.monitor as monitor
 from app import config
+from app.config import Settings
 from app.tools.monitor import parse_log_time
 
 
@@ -91,16 +92,23 @@ def test_send_monitor_notification_posts_telegram_status_and_handles_http_result
         status_code = response_status
         text = "service unavailable"
 
-    monkeypatch.setattr(config, "MONITOR_TELEGRAM_TOKEN", "test-token")
-    monkeypatch.setattr(config, "MONITOR_CHAT_ID", "test-chat")
-    monkeypatch.setattr(monitor, "TELEGRAM_PROXIES", {"https": "proxy"})
+    settings = Settings(
+        browser_proxy_server="",
+        bot_token="",
+        channel_id="",
+        monitor_telegram_token="test-token",
+        monitor_chat_id="test-chat",
+        telegram_proxy_host="",
+        telegram_proxy_port="",
+        telegram_proxies={"https": "proxy"},
+    )
     monkeypatch.setattr(
         monitor.requests,
         "post",
         lambda *args, **kwargs: calls.append((args, kwargs)) or Response(),
     )
 
-    assert monitor.send_monitor_notification("status") is expected
+    assert monitor.send_monitor_notification("status", settings) is expected
     assert calls == [
         (
             ("https://api.telegram.org/bottest-token/sendMessage",),
@@ -176,7 +184,9 @@ def test_main_reports_fresh_stale_and_invalid_log_timestamps(
     monkeypatch.setattr(monitor, "datetime", FixedDateTime)
     monkeypatch.setattr(monitor, "get_last_log_line", lambda: last_line)
     monkeypatch.setattr(
-        monitor, "send_monitor_notification", sent_messages.append
+        monitor,
+        "send_monitor_notification",
+        lambda message, settings=None: sent_messages.append(message),
     )
     monkeypatch.setattr(
         monitor.time,
@@ -222,7 +232,9 @@ def test_main_escapes_log_content_for_telegram_html(monkeypatch):
         lambda: "2026-10-23 11:59:59 - INFO - <b>unsafe</b>",
     )
     monkeypatch.setattr(
-        monitor, "send_monitor_notification", sent_messages.append
+        monitor,
+        "send_monitor_notification",
+        lambda message, settings=None: sent_messages.append(message),
     )
     monkeypatch.setattr(
         monitor.time,

@@ -13,27 +13,28 @@ PARENT_DIR = os.path.dirname(
 
 sys.path.insert(0, PARENT_DIR)
 from app import config
-from app.config import (
-    TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
-    TELEGRAM_PROXIES,
-)
+from app.config import Settings
 from app.logger import format_console_log_message, setup_logger
 
 logger = setup_logger(__name__, 'monitor.log')
 
 
-def send_monitor_notification(msg: str) -> bool:
+def send_monitor_notification(
+    msg: str,
+    settings: Settings | None = None,
+) -> bool:
     """Отправить сообщение о состоянии мониторинга в Telegram."""
-    url = TELEGRAM_API_URL_TEMPLATE.format(token=config.MONITOR_TELEGRAM_TOKEN)
+    runtime_settings = settings if settings is not None else config.load_settings()
+    url = runtime_settings.monitor_telegram_api_url
     try:
         response = requests.post(
             url,
             data={
-                "chat_id": config.MONITOR_CHAT_ID,
+                "chat_id": runtime_settings.monitor_chat_id,
                 "text": msg,
                 "parse_mode": "HTML",
             },
-            proxies=TELEGRAM_PROXIES,
+            proxies=runtime_settings.telegram_proxies,
             timeout=config.MONITOR_TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
         if response.status_code != 200:
@@ -95,6 +96,7 @@ def parse_log_time(line: str | None) -> datetime | None:
 
 def main() -> NoReturn:
     """Периодически проверять свежесть лога и отправлять статус."""
+    settings = config.load_settings()
     while True:
         last_line = get_last_log_line()
 
@@ -124,7 +126,7 @@ def main() -> NoReturn:
         if age is not None:
             msg += f"\n<code>Age: {int(age)} sec</code>"
 
-        send_monitor_notification(msg)
+        send_monitor_notification(msg, settings)
 
         time.sleep(config.MONITOR_CHECK_INTERVAL_SECONDS)
 

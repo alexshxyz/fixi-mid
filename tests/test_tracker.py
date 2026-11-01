@@ -520,7 +520,10 @@ def test_run_analyzer_passes_full_history_to_pattern_matcher(
     assert calls[0][0]["1"]["changes"] == [changed, changed_again]
     assert calls[0][1].__self__ is monitor
     assert calls[0][1].__func__ is tracker.MatchMonitor._register_pending_notification
-    assert calls[0][2] == {"shutdown_requested": None}
+    assert calls[0][2] == {
+        "shutdown_requested": None,
+        "settings": monitor.settings,
+    }
 
 
 def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
@@ -601,7 +604,11 @@ def test_process_due_notifications_passes_shutdown_argument(
     assert calls == [
         (
             (monitor.pending_notifications, monitor.last_data, monitor.active_match_ids),
-            {"shutdown_requested": None},
+            {
+                "shutdown_requested": None,
+                "leagues": monitor.leagues,
+                "settings": monitor.settings,
+            },
         )
     ]
 
@@ -1393,6 +1400,8 @@ def test_parse_and_monitor_match_constructs_and_runs_monitor(monkeypatch):
                 "restart_deadline": 123,
                 "shutdown_requested": None,
                 "saved_state_path": None,
+                "settings": None,
+                "leagues": None,
             },
         ),
         "run",

@@ -30,7 +30,6 @@ def process(
     edits = []
     marks = []
     monkeypatch.setattr(alarms.time, "time", lambda: now)
-    monkeypatch.setattr(alarms, "LEAGUES_LIST", list(listed_leagues))
     monkeypatch.setattr(
         alarms,
         "edit_telegram_notification",
@@ -45,6 +44,7 @@ def process(
         pending,
         last_data,
         active_match_ids or [],
+        leagues=list(listed_leagues),
     )
     return edits, marks
 

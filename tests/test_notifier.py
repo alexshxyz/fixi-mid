@@ -3,7 +3,24 @@ import threading
 import pytest
 
 from app import notifier
-from app.config import CHANNEL_ID, SITE_URL
+from app.config import SITE_URL, Settings
+
+CHANNEL_ID = "test-channel"
+DEFAULT_SETTINGS = Settings(
+    browser_proxy_server="",
+    bot_token="test-token",
+    channel_id=CHANNEL_ID,
+    monitor_telegram_token="test-token",
+    monitor_chat_id=CHANNEL_ID,
+    telegram_proxy_host="",
+    telegram_proxy_port="",
+    telegram_proxies=None,
+)
+
+
+@pytest.fixture(autouse=True)
+def use_test_settings(monkeypatch):
+    monkeypatch.setattr(notifier, "load_settings", lambda: DEFAULT_SETTINGS)
 
 
 @pytest.mark.parametrize(
@@ -174,10 +191,10 @@ def test_send_message_posts_expected_request_and_returns_json(monkeypatch):
     assert result == response_data
     assert calls == [
         (
-            (notifier._TELEGRAM_API_URL,),
+            (DEFAULT_SETTINGS.telegram_api_url,),
             {
                 "json": {"text": "hello"},
-                "proxies": notifier.TELEGRAM_PROXIES,
+                "proxies": DEFAULT_SETTINGS.telegram_proxies,
                 "timeout": 10,
             },
         )
@@ -319,8 +336,9 @@ def test_edit_telegram_notification_uses_edit_endpoint_and_fallback_channel(monk
             ),
             {
                 "success_message": "Telegram notification 44 updated",
-                "api_url": notifier._TELEGRAM_EDIT_MESSAGE_URL,
+                "api_url": DEFAULT_SETTINGS.telegram_edit_message_url,
                 "shutdown_requested": None,
+                "settings": DEFAULT_SETTINGS,
             },
         )
     ]
@@ -478,6 +496,7 @@ def test_send_telegram_notification_sends_saves_and_calls_callbacks(
                 "max_attempts": 3,
                 "retry_delay": 5,
                 "shutdown_requested": None,
+                "settings": DEFAULT_SETTINGS,
             },
         )
     ]

@@ -1,5 +1,6 @@
 from threading import Event
 
+from .config import Settings
 from . import detector
 from .logger import setup_logger
 from .match_types import (
@@ -48,6 +49,7 @@ def _send_signal(
     signal: MatchSignal,
     on_notification_sent: NotificationSentCallback | None,
     shutdown_requested: Event | None,
+    settings: Settings | None,
 ) -> None:
     """Передать найденный сигнал транспортному модулю."""
     entry = signal["entry"]
@@ -71,6 +73,7 @@ def _send_signal(
                 on_sent_details=on_sent_details,
                 strategy=signal["strategy"],
                 shutdown_requested=shutdown_requested,
+                settings=settings,
             )
         else:
             handicap = signal["line"]
@@ -96,6 +99,7 @@ def _send_signal(
                 on_sent_details=on_sent_details,
                 strategy=signal["strategy"],
                 shutdown_requested=shutdown_requested,
+                settings=settings,
             )
     except Exception as error:
         logger.error(
@@ -109,6 +113,7 @@ def process_match_history(
     matches_history: MatchHistoryMap,
     on_notification_sent: NotificationSentCallback | None = None,
     shutdown_requested: Event | None = None,
+    settings: Settings | None = None,
 ) -> list[str]:
     """Найти сигналы, отправить их и вернуть ID совпавших матчей."""
     signals = detector.find_pattern_matches(
@@ -120,5 +125,5 @@ def process_match_history(
         if shutdown_requested is not None and shutdown_requested.is_set():
             break
         matched_ids.append(signal["match_id"])
-        _send_signal(signal, on_notification_sent, shutdown_requested)
+        _send_signal(signal, on_notification_sent, shutdown_requested, settings)
     return matched_ids

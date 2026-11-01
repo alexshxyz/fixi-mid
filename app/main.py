@@ -15,15 +15,13 @@ if __package__ in (None, ""):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, project_root)
 
+from app import config
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from app.tracker import parse_and_monitor_match
 from app.state import load_state_from_json
 from app.storage import init_storage
 from app.config import (
     BROWSER_HEADLESS,
-    BROWSER_PROXY_SERVER,
-    BOT_TOKEN,
-    CHANNEL_ID,
     DEBUGMODE,
     ERROR_SCREENSHOTS_DIR,
     FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
@@ -40,8 +38,7 @@ from app.config import (
     SITE_COOKIES,
     SITE_URL,
     STATE_SAVE_FILE,
-    TELEGRAM_PROXY_HOST,
-    TELEGRAM_PROXY_PORT,
+    Settings,
 )
 from app.logger import setup_logger
 from app.observer import (
@@ -147,17 +144,20 @@ def init_browser(
     p: Playwright,
     max_navigation_attempts: int = PAGE_DOM_LOAD_MAX_ATTEMPTS,
     shutdown_requested: threading.Event | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> tuple[Browser, Page]:
     """Инициализировать браузер и открыть страницу сайта."""
     raise_if_shutdown(shutdown_requested, "browser setup")
+    runtime_settings = settings if settings is not None else config.load_settings()
 
     logger.info("Setup browser...")
-    if not BROWSER_PROXY_SERVER.strip():
+    if not runtime_settings.browser_proxy_server.strip():
         raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
     try:
         browser = p.chromium.launch(
             headless=BROWSER_HEADLESS,
-            proxy={"server": BROWSER_PROXY_SERVER},
+            proxy={"server": runtime_settings.browser_proxy_server},
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -325,14 +325,15 @@ def _check_for_restart(
     )
 
 
-def _validate_configuration() -> None:
+def _validate_configuration(settings: Settings | None = None) -> None:
     """Проверить наличие обязательных настроек перед запуском."""
+    runtime_settings = settings if settings is not None else config.load_settings()
     required_settings = {
-        "BOT_TOKEN": BOT_TOKEN,
-        "CHANNEL_ID": CHANNEL_ID,
-        "BROWSER_PROXY_SERVER": BROWSER_PROXY_SERVER,
-        "TELEGRAM_PROXY_HOST": TELEGRAM_PROXY_HOST,
-        "TELEGRAM_PROXY_PORT": TELEGRAM_PROXY_PORT,
+        "BOT_TOKEN": runtime_settings.bot_token,
+        "CHANNEL_ID": runtime_settings.channel_id,
+        "BROWSER_PROXY_SERVER": runtime_settings.browser_proxy_server,
+        "TELEGRAM_PROXY_HOST": runtime_settings.telegram_proxy_host,
+        "TELEGRAM_PROXY_PORT": runtime_settings.telegram_proxy_port,
     }
     missing_settings: list[str] = []
     for name, value in required_settings.items():
@@ -346,7 +347,9 @@ def _validate_configuration() -> None:
 
 def main() -> None:
     """Основной цикл бота."""
-    _validate_configuration()
+    settings = config.load_settings()
+    _validate_configuration(settings)
+    leagues = config.load_leagues()
     shutdown_requested = threading.Event()
     previous_handlers = {
         signum: signal.signal(
@@ -363,7 +366,9 @@ def main() -> None:
             with sync_playwright() as p:
                 try:
                     browser, page = init_browser(
-                        p, shutdown_requested=shutdown_requested
+                        p,
+                        shutdown_requested=shutdown_requested,
+                        settings=settings,
                     )
                 except CookieSetupError as e:
                     logger.error("%s", e)
@@ -460,6 +465,8 @@ def main() -> None:
                         saved_state_path=(
                             STATE_SAVE_FILE if saved_state is not None else None
                         ),
+                        settings=settings,
+                        leagues=leagues,
                     )
                 except PageRestartRequired as e:
                     if shutdown_requested.is_set():

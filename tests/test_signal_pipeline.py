@@ -71,6 +71,7 @@ def test_process_match_history_sends_over_and_registers_sent_details(monkeypatch
         "on_sent_details": sent[0]["on_sent_details"],
         "strategy": "default",
         "shutdown_requested": None,
+        "settings": None,
     }
     assert registered == [
         {

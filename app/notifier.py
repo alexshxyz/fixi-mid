@@ -6,14 +6,12 @@ from threading import Event
 from typing import Any, TypedDict, cast
 
 from .config import (
-    BOT_TOKEN,
-    CHANNEL_ID,
     TELEGRAM_REQUEST_TIMEOUT_SECONDS,
     TELEGRAM_RETRY_DELAY_SECONDS,
     TELEGRAM_SEND_MAX_ATTEMPTS,
     SITE_URL,
-    TELEGRAM_API_URL as TELEGRAM_API_URL_TEMPLATE,
-    TELEGRAM_PROXIES,
+    Settings,
+    load_settings,
 )
 from .storage import (
     save_match,
@@ -33,10 +31,6 @@ class _TelegramResponse(TypedDict, total=False):
     description: object
     result: object
 
-_TELEGRAM_API_URL: str = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
-_TELEGRAM_EDIT_MESSAGE_URL: str = (
-    _TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
-)
 _NORMALIZED_HANDICAP_OUTCOMES: dict[tuple[str, Decimal], str] = {
     ("Home", Decimal("-0.5")): "Победа 1",
     ("Away", Decimal("-0.5")): "Победа 2",
@@ -226,20 +220,25 @@ def _send_message(
     payload: dict[str, Any],
     match_id: str | int | None = None,
     success_message: str | None = None,
-    api_url: str = _TELEGRAM_API_URL,
+    api_url: str | None = None,
     max_attempts: int = 1,
     retry_delay: float = TELEGRAM_RETRY_DELAY_SECONDS,
     shutdown_requested: Event | None = None,
+    settings: Settings | None = None,
 ) -> object | None:
     """Отправить запрос к Telegram API и вернуть объект ответа."""
+    runtime_settings = settings or load_settings()
+    request_url = (
+        runtime_settings.telegram_api_url if api_url is None else api_url
+    )
     for attempt in range(1, max_attempts + 1):
         if shutdown_requested is not None and shutdown_requested.is_set():
             return None
         try:
             response = requests.post(
-                api_url,
+                request_url,
                 json=payload,
-                proxies=TELEGRAM_PROXIES,
+                proxies=runtime_settings.telegram_proxies,
                 timeout=TELEGRAM_REQUEST_TIMEOUT_SECONDS,
             )
             if response.status_code == 200:
@@ -306,12 +305,14 @@ def _send_message(
 def edit_telegram_notification(
     message_id: str | int,
     text: str,
-    channel_id: str | None = CHANNEL_ID,
+    channel_id: str | None = None,
     shutdown_requested: Event | None = None,
+    settings: Settings | None = None,
 ) -> bool:
     """Отредактировать ранее отправленное сообщение Telegram."""
+    runtime_settings = settings or load_settings()
     payload: dict[str, Any] = {
-        "chat_id": channel_id or CHANNEL_ID,
+        "chat_id": channel_id or runtime_settings.channel_id,
         "message_id": message_id,
         "text": text,
         "parse_mode": "HTML",
@@ -321,8 +322,9 @@ def edit_telegram_notification(
         _send_message(
             payload,
             success_message=f"Telegram notification {message_id} updated",
-            api_url=_TELEGRAM_EDIT_MESSAGE_URL,
+            api_url=runtime_settings.telegram_edit_message_url,
             shutdown_requested=shutdown_requested,
+            settings=runtime_settings,
         )
     )
 
@@ -375,10 +377,12 @@ def send_telegram_notification(
     drop_type: str | None = None,
     strategy: str | None = None,
     shutdown_requested: Event | None = None,
+    settings: Settings | None = None,
 ) -> bool:
     """Отправить сигнал в Telegram и сохранить его при успехе."""
     # Отправляет уведомление о матче в Telegram канал.
-    target_channel_id = channel_id or CHANNEL_ID
+    runtime_settings = settings or load_settings()
+    target_channel_id = channel_id or runtime_settings.channel_id
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = over_odds
     prediction = _build_prediction(over, handicap_text, handicap_team_order)
@@ -417,6 +421,7 @@ def send_telegram_notification(
         max_attempts=TELEGRAM_SEND_MAX_ATTEMPTS,
         retry_delay=TELEGRAM_RETRY_DELAY_SECONDS,
         shutdown_requested=shutdown_requested,
+        settings=runtime_settings,
     )
     if not telegram_response:
         return False

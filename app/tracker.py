@@ -17,8 +17,11 @@ from .config import (
     NO_MATCHES_RETRY_DELAY_SECONDS,
     PAGE_LIVE_RELOAD,
     RESTART_HOURS,
+    Settings,
     STATE_SAVE_FILE,
     get_table_live_reload_interval,
+    load_leagues,
+    load_settings,
 )
 from .logger import setup_logger
 from .match_types import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
@@ -54,6 +57,8 @@ class MatchMonitor:
         restart_deadline: float | None = None,
         shutdown_requested: Event | None = None,
         saved_state_path: str | Path | None = None,
+        settings: Settings | None = None,
+        leagues: list[str] | None = None,
     ) -> None:
         """Инициализировать монитор, его состояние и расписание проверок."""
         self.page: Page = page
@@ -65,6 +70,8 @@ class MatchMonitor:
         )
         self.shutdown_requested: Event | None = shutdown_requested
         self.saved_state_path = saved_state_path
+        self.settings = settings if settings is not None else load_settings()
+        self.leagues = leagues if leagues is not None else load_leagues()
         self.match_history: MatchHistoryMap = {}
         self.last_data: dict[str, MatchSnapshot] = {}
         self.pending_notifications: dict[str, dict[str, Any]] = {}
@@ -185,6 +192,7 @@ class MatchMonitor:
             self.match_history,
             self._register_pending_notification,
             shutdown_requested=self.shutdown_requested,
+            settings=self.settings,
         )
 
     def _register_pending_notification(
@@ -202,6 +210,8 @@ class MatchMonitor:
             self.last_data,
             self.active_match_ids,
             shutdown_requested=self.shutdown_requested,
+            leagues=self.leagues,
+            settings=self.settings,
         )
 
     def _next_notification_timeout(self) -> float | None:
@@ -598,6 +608,8 @@ def parse_and_monitor_match(
     restart_deadline: float | None = None,
     shutdown_requested: Event | None = None,
     saved_state_path: str | Path | None = None,
+    settings: Settings | None = None,
+    leagues: list[str] | None = None,
 ) -> None:
     """Запустить мониторинг матчей с новым или восстановленным состоянием."""
     MatchMonitor(
@@ -609,6 +621,8 @@ def parse_and_monitor_match(
         restart_deadline=restart_deadline,
         shutdown_requested=shutdown_requested,
         saved_state_path=saved_state_path,
+        settings=settings,
+        leagues=leagues,
     ).run()
 
 

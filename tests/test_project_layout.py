@@ -71,7 +71,9 @@ def test_match_data_directory_contains_data_not_python_modules():
     assert not list(config.DATA_DIR.rglob("*.py"))
 
     leagues_path = config.DATA_DIR / "leagues.json"
-    assert json.loads(leagues_path.read_text(encoding="utf-8")) == config.LEAGUES_LIST
+    assert json.loads(leagues_path.read_text(encoding="utf-8")) == (
+        config.load_leagues(leagues_path)
+    )
 
 
 def test_main_file_can_be_loaded_directly_from_another_working_directory(tmp_path):

@@ -1,6 +1,7 @@
 import pytest
 
 from app import main
+from app.config import Settings
 from app.tracker import PageRestartRequired
 
 
@@ -54,6 +55,27 @@ class FakePage:
     def screenshot(self, *, path):
         with open(path, "wb") as screenshot_file:
             screenshot_file.write(b"fake screenshot")
+
+
+def build_settings(**overrides):
+    values = {
+        "browser_proxy_server": "",
+        "bot_token": "",
+        "channel_id": "",
+        "monitor_telegram_token": "",
+        "monitor_chat_id": "",
+        "telegram_proxy_host": "",
+        "telegram_proxy_port": "",
+        "telegram_proxies": None,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def use_settings(monkeypatch, **overrides):
+    settings = build_settings(**overrides)
+    monkeypatch.setattr(main.config, "load_settings", lambda: settings)
+    return settings
 
 
 class FakeBrowser:
@@ -217,12 +239,13 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
     context = FakeContext(page=page)
     browser = FakeBrowser(context=context)
     playwright = FakePlaywright(browser)
-    monkeypatch.setattr(main, "BROWSER_HEADLESS", True)
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+    settings = use_settings(
+        monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
+    )
     monkeypatch.setattr(main, "SITE_COOKIES", [{"name": "cookie"}])
     monkeypatch.setattr(main, "SITE_URL", "https://example.test")
 
-    result_browser, result_page = main.init_browser(playwright)
+    result_browser, result_page = main.init_browser(playwright, settings=settings)
 
     assert result_browser is browser
     assert result_page is page
@@ -241,14 +264,15 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
 
 
 def test_validate_configuration_rejects_missing_browser_proxy(monkeypatch):
-    monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
-    monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
-    monkeypatch.setattr(main, "TELEGRAM_PROXY_HOST", "proxy.test")
-    monkeypatch.setattr(main, "TELEGRAM_PROXY_PORT", "1080")
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "")
+    settings = build_settings(
+        bot_token="test-token",
+        channel_id="test-channel",
+        telegram_proxy_host="proxy.test",
+        telegram_proxy_port="1080",
+    )
 
     with pytest.raises(RuntimeError, match="BROWSER_PROXY_SERVER"):
-        main._validate_configuration()
+        main._validate_configuration(settings)
 
 
 def test_init_browser_stops_if_cookie_setup_fails(monkeypatch, caplog):
@@ -256,13 +280,15 @@ def test_init_browser_stops_if_cookie_setup_fails(monkeypatch, caplog):
     context = FakeContext(page=page, cookies_error=RuntimeError("cookie error"))
     browser = FakeBrowser(context=context)
     playwright = FakePlaywright(browser)
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+    settings = use_settings(
+        monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
+    )
     monkeypatch.setattr(main, "_run_actions_with_retries", lambda *args, **kwargs: None)
 
     with pytest.raises(
         main.CookieSetupError, match="Failed to add required site cookies"
     ) as error:
-        main.init_browser(playwright)
+        main.init_browser(playwright, settings=settings)
 
     assert str(error.value.__cause__) == "cookie error"
     assert browser.close_calls == 1
@@ -309,10 +335,12 @@ def test_init_browser_closes_after_shutdown_during_browser_launch():
             shutdown_requested.set()
             return browser
 
+    settings = build_settings(browser_proxy_server="socks5://proxy.test:1080")
     with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
         main.init_browser(
             InterruptedPlaywright(browser),
             shutdown_requested=shutdown_requested,
+            settings=settings,
         )
 
     assert browser.close_calls == 1
@@ -332,20 +360,24 @@ def test_init_browser_converts_launch_failure_after_shutdown(monkeypatch):
             shutdown_requested.set()
             raise RuntimeError("launch interrupted")
 
+    settings = build_settings(browser_proxy_server="socks5://proxy.test:1080")
     with pytest.raises(main.PageRestartRequired, match="browser launch"):
         main.init_browser(
             InterruptedPlaywright(),
             shutdown_requested=shutdown_requested,
+            settings=settings,
         )
 
 
 def test_init_browser_propagates_launch_failure_without_shutdown():
+    settings = build_settings(browser_proxy_server="socks5://proxy.test:1080")
+
     class BrokenPlaywright(FakePlaywright):
         def launch(self, **kwargs):
             raise RuntimeError("launch failed")
 
     with pytest.raises(RuntimeError, match="launch failed"):
-        main.init_browser(BrokenPlaywright(FakeBrowser()))
+        main.init_browser(BrokenPlaywright(FakeBrowser()), settings=settings)
 
 
 def test_init_browser_closes_after_setup_failure_even_if_close_fails(monkeypatch):
@@ -358,10 +390,12 @@ def test_init_browser_closes_after_setup_failure_even_if_close_fails(monkeypatch
             raise RuntimeError("close failed")
 
     browser = BrokenBrowser()
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+    settings = use_settings(
+        monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
+    )
 
     with pytest.raises(RuntimeError, match="context creation failed"):
-        main.init_browser(FakePlaywright(browser))
+        main.init_browser(FakePlaywright(browser), settings=settings)
 
     assert browser.close_calls == 1
 
@@ -372,7 +406,9 @@ def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
     restart_calls = []
     browser = FakeBrowser()
     playwright = FakePlaywright(browser)
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
+    settings = use_settings(
+        monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
+    )
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
     def fail_goto(*args, **kwargs):
         attempts.append((args, kwargs))
@@ -391,7 +427,7 @@ def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
     monkeypatch.setattr(main, "_restart_bot", restart)
 
     with pytest.raises(RestartRequested):
-        main.init_browser(playwright)
+        main.init_browser(playwright, settings=settings)
 
     assert len(attempts) == 2
     assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
@@ -644,11 +680,15 @@ def configure_main(monkeypatch, *, saved_state=None, page=None, browser=None):
     page = page or FakePage()
     browser = browser or FakeBrowser(context=FakeContext(page=page))
     playwright = FakePlaywright(browser)
-    monkeypatch.setattr(main, "BOT_TOKEN", "test-token")
-    monkeypatch.setattr(main, "CHANNEL_ID", "test-channel")
-    monkeypatch.setattr(main, "BROWSER_PROXY_SERVER", "socks5://proxy.test:1080")
-    monkeypatch.setattr(main, "TELEGRAM_PROXY_HOST", "proxy.test")
-    monkeypatch.setattr(main, "TELEGRAM_PROXY_PORT", "1080")
+    use_settings(
+        monkeypatch,
+        bot_token="test-token",
+        channel_id="test-channel",
+        browser_proxy_server="socks5://proxy.test:1080",
+        telegram_proxy_host="proxy.test",
+        telegram_proxy_port="1080",
+    )
+    monkeypatch.setattr(main.config, "load_leagues", lambda: [])
     monkeypatch.setattr(main, "init_storage", lambda: True)
     monkeypatch.setattr(main, "sync_playwright", lambda: FakeSyncPlaywright(playwright))
     monkeypatch.setattr(main, "init_browser", lambda p, **kwargs: (browser, page))
@@ -672,7 +712,23 @@ def test_main_fails_before_startup_when_required_configuration_is_missing(
     monkeypatch, setting, value
 ):
     configure_main(monkeypatch)
-    monkeypatch.setattr(main, setting, value)
+    field_name = {
+        "BOT_TOKEN": "bot_token",
+        "CHANNEL_ID": "channel_id",
+        "BROWSER_PROXY_SERVER": "browser_proxy_server",
+        "TELEGRAM_PROXY_HOST": "telegram_proxy_host",
+        "TELEGRAM_PROXY_PORT": "telegram_proxy_port",
+    }[setting]
+    settings_overrides = {
+        "bot_token": "test-token",
+        "channel_id": "test-channel",
+        "browser_proxy_server": "socks5://proxy.test:1080",
+        "telegram_proxy_host": "proxy.test",
+        "telegram_proxy_port": "1080",
+    }
+    settings_overrides[field_name] = value
+    invalid_settings = build_settings(**settings_overrides)
+    monkeypatch.setattr(main.config, "load_settings", lambda: invalid_settings)
     storage_calls = []
     signal_calls = []
     monkeypatch.setattr(main, "init_storage", lambda: storage_calls.append(True))
@@ -753,6 +809,14 @@ def test_main_starts_monitor_with_saved_state(monkeypatch):
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][2]["shutdown_requested"],
                 "saved_state_path": main.STATE_SAVE_FILE,
+                "settings": build_settings(
+                    bot_token="test-token",
+                    channel_id="test-channel",
+                    browser_proxy_server="socks5://proxy.test:1080",
+                    telegram_proxy_host="proxy.test",
+                    telegram_proxy_port="1080",
+                ),
+                "leagues": [],
             },
         )
     ]
@@ -796,6 +860,14 @@ def test_main_waits_for_saved_match_and_refreshes_page(monkeypatch):
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][1]["shutdown_requested"],
                 "saved_state_path": main.STATE_SAVE_FILE,
+                "settings": build_settings(
+                    bot_token="test-token",
+                    channel_id="test-channel",
+                    browser_proxy_server="socks5://proxy.test:1080",
+                    telegram_proxy_host="proxy.test",
+                    telegram_proxy_port="1080",
+                ),
+                "leagues": [],
             },
         )
     ]
@@ -824,6 +896,14 @@ def test_main_starts_monitor_with_collected_matches(monkeypatch):
                 "page_refresh_callback": main.refresh_page,
                 "shutdown_requested": calls[0][1]["shutdown_requested"],
                 "saved_state_path": None,
+                "settings": build_settings(
+                    bot_token="test-token",
+                    channel_id="test-channel",
+                    browser_proxy_server="socks5://proxy.test:1080",
+                    telegram_proxy_host="proxy.test",
+                    telegram_proxy_port="1080",
+                ),
+                "leagues": [],
             },
         )
     ]
@@ -1068,7 +1148,7 @@ def test_main_stops_if_shutdown_is_requested_during_browser_setup(
 ):
     configure_main(monkeypatch)
 
-    def stop_during_setup(playwright, *, shutdown_requested):
+    def stop_during_setup(playwright, *, shutdown_requested, settings):
         shutdown_requested.set()
         raise main.PageRestartRequired("Shutdown requested during load page")
 

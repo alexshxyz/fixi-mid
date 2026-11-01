@@ -4,10 +4,11 @@ from threading import Event
 from collections.abc import MutableMapping
 
 from .config import (
-    LEAGUES_LIST,
     NOTIFICATION_CHECK_DELAY_SECONDS,
+    Settings,
     TELEGRAM_EDIT_MAX_ATTEMPTS,
     TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
+    load_leagues,
 )
 from .logger import setup_logger
 from .notifier import edit_telegram_notification
@@ -37,9 +38,13 @@ def process_due_notifications(
     last_data: MutableMapping[str, Any],
     active_match_ids: list[str],
     shutdown_requested: Event | None = None,
+    *,
+    leagues: list[str] | None = None,
+    settings: Settings | None = None,
 ) -> None:
     """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
     now = time.time()
+    configured_leagues = leagues if leagues is not None else load_leagues()
     for message_id, notification in list(pending_notifications.items()):
         if shutdown_requested is not None and shutdown_requested.is_set():
             return
@@ -52,7 +57,7 @@ def process_due_notifications(
             field_name = 'over' if market == 'ov' else 'ah'
             last_market_data = last_data.get(match_id, {}).get(market, {})
             closed_remains = last_market_data.get(field_name) == 'Closed'
-            league_is_listed = notification['league'] in LEAGUES_LIST
+            league_is_listed = notification['league'] in configured_leagues
 
             if league_is_listed:
                 marker = '🔥' if closed_remains else '⭐️'
@@ -71,7 +76,9 @@ def process_due_notifications(
             notification.get('channel_id'),
         )
         edit_succeeded = edit_telegram_notification(
-            *edit_arguments, shutdown_requested=shutdown_requested
+            *edit_arguments,
+            shutdown_requested=shutdown_requested,
+            settings=settings,
         )
         if edit_succeeded:
             if (
