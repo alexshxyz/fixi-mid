@@ -22,7 +22,7 @@ def test_get_last_data_extracts_tracked_match_values():
         "match_time": "12",
         "score": "0-0",
     }
-    assert state.get_last_data({"ah": {}, "ov": {}}) == {
+    assert state.get_last_data({"ah": {}, "ov": {}, "match_time": "Unknown"}) == {
         "ah": {},
         "ov": {},
         "match_time": "Unknown",

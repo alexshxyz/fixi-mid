@@ -5,7 +5,6 @@ from threading import Event
 from typing import Any
 from collections.abc import Callable, Sequence
 
-from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -33,14 +32,10 @@ logger = setup_logger(__name__)
 def page_is_closed(page: Page, error: Exception | None = None) -> bool:
     """Проверить, закрыта ли страница браузера."""
     is_closed = getattr(page, "is_closed", None)
-    page_closed_flag = callable(is_closed) and is_closed()
-    if isinstance(error, PlaywrightError) and page_closed_flag:
-        return True
-
-    if error is not None and "has been closed" in str(error).lower():
-        return True
-
-    return page_closed_flag
+    page_closed_flag = bool(callable(is_closed) and is_closed())
+    return page_closed_flag or (
+        error is not None and "has been closed" in str(error).lower()
+    )
 
 
 class PageRestartRequired(Exception):

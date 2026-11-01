@@ -29,7 +29,7 @@ class HandicapMarketLine(TypedDict, total=False):
 class MatchSnapshot(TypedDict, total=False):
     """Данные матча и рынков, зафиксированные в один момент."""
 
-    match_time: str
+    match_time: Required[str]
     ah: Required[HandicapMarketLine]
     ov: Required[OverMarketLine]
     home_team: str

@@ -9,15 +9,12 @@ from app.config import CHANNEL_ID, SITE_URL
 @pytest.mark.parametrize(
     ("raw_time", "expected"),
     [
-        (None, "Unknown"),
-        ("", "Unknown"),
-        ("  ", "Unknown"),
         ("Unknown", "Unknown"),
-        (" ht ", "45"),
-        ("fT", "FT"),
-        ("eT", "ET"),
-        ("et+2", "et+2"),
-        ("  37  ", "37"),
+        ("HT", "45"),
+        ("FT", "FT"),
+        ("ET", "ET"),
+        ("ET+2", "ET+2"),
+        ("37", "37"),
     ],
 )
 def test_normalize_match_time_for_message(raw_time, expected):
@@ -177,7 +174,7 @@ def test_send_message_posts_expected_request_and_returns_json(monkeypatch):
     assert result == response_data
     assert calls == [
         (
-            (notifier.TELEGRAM_API_URL,),
+            (notifier._TELEGRAM_API_URL,),
             {
                 "json": {"text": "hello"},
                 "proxies": notifier.TELEGRAM_PROXIES,
@@ -322,7 +319,7 @@ def test_edit_telegram_notification_uses_edit_endpoint_and_fallback_channel(monk
             ),
             {
                 "success_message": "Telegram notification 44 updated",
-                "api_url": notifier.TELEGRAM_EDIT_MESSAGE_URL,
+                "api_url": notifier._TELEGRAM_EDIT_MESSAGE_URL,
                 "shutdown_requested": None,
             },
         )

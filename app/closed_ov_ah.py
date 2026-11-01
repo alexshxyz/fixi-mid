@@ -109,10 +109,7 @@ def _match_scores(
 
 def _is_finished_match(entry: MatchSnapshot) -> bool:
     """Проверить, указывает ли снимок на завершение матча."""
-    value = entry.get("match_time")
-    if value is None:
-        return False
-    time_text = str(value).casefold()
+    time_text = entry["match_time"].casefold()
     return any(marker.casefold() in time_text for marker in FINISHED_TIME_MARKERS)
 
 
@@ -166,7 +163,7 @@ def _send_market_notification(
     away_team = last_entry.get("away_team", "Unknown")
     score = last_entry.get("score", "Unknown")
     league = last_entry.get("league", "Unknown")
-    match_time = last_entry.get("match_time", "Unknown")
+    match_time = last_entry["match_time"]
 
     on_sent_details = _notification_sent_callback(
         on_notification_sent, match_id, market, league

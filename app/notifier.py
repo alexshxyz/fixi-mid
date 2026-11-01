@@ -3,7 +3,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from threading import Event
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from .config import (
     BOT_TOKEN,
@@ -24,9 +24,20 @@ from .match_types import MarketValue, NotificationSentRegistrar
 
 logger = setup_logger(__name__)
 
-TELEGRAM_API_URL = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
-TELEGRAM_EDIT_MESSAGE_URL = TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
-NORMALIZED_HANDICAP_OUTCOMES = {
+class _TelegramResult(TypedDict, total=False):
+    message_id: str | int
+
+
+class _TelegramResponse(TypedDict, total=False):
+    ok: bool
+    description: object
+    result: object
+
+_TELEGRAM_API_URL: str = TELEGRAM_API_URL_TEMPLATE.format(token=BOT_TOKEN)
+_TELEGRAM_EDIT_MESSAGE_URL: str = (
+    _TELEGRAM_API_URL.rsplit('/', 1)[0] + '/editMessageText'
+)
+_NORMALIZED_HANDICAP_OUTCOMES: dict[tuple[str, Decimal], str] = {
     ("Home", Decimal("-0.5")): "Победа 1",
     ("Away", Decimal("-0.5")): "Победа 2",
     ("Home", Decimal("0.5")): "1X",
@@ -34,25 +45,9 @@ NORMALIZED_HANDICAP_OUTCOMES = {
 }
 
 
-def _normalize_match_time_for_message(raw_time: str | None) -> str:
+def _normalize_match_time_for_message(raw_time: str) -> str:
     """Нормализовать игровое время для сообщения Telegram."""
-    if raw_time is None:
-        return 'Unknown'
-
-    value = str(raw_time).strip()
-    if not value or value == 'Unknown':
-        return 'Unknown'
-
-    upper = value.upper()
-    if upper == 'HT':
-        return '45'
-    if upper == 'FT':
-        return 'FT'
-    if upper == 'ET':
-        return 'ET'
-    if upper.startswith('ET+'):
-        return value
-    return value
+    return '45' if raw_time == 'HT' else raw_time
 
 
 def _normalize_split_value(
@@ -193,7 +188,7 @@ def _build_display_prediction(
     display_handicap = handicap - score_difference
     display_handicap = _round_quarter_handicap(display_handicap)
 
-    normalized_outcome = NORMALIZED_HANDICAP_OUTCOMES.get(
+    normalized_outcome = _NORMALIZED_HANDICAP_OUTCOMES.get(
         (handicap_team_order, display_handicap)
     )
     if normalized_outcome is not None:
@@ -209,7 +204,7 @@ def _build_message(
     score: str | None,
     match_url: str,
     prediction: str,
-    match_time: str | None = 'Unknown',
+    match_time: str = 'Unknown',
 ) -> str:
     """Сформировать HTML-сообщение о матче."""
     clean_match_time = _normalize_match_time_for_message(match_time)
@@ -230,11 +225,11 @@ def _send_message(
     payload: dict[str, Any],
     match_id: str | int | None = None,
     success_message: str | None = None,
-    api_url: str = TELEGRAM_API_URL,
+    api_url: str = _TELEGRAM_API_URL,
     max_attempts: int = 1,
     retry_delay: float = TELEGRAM_RETRY_DELAY_SECONDS,
     shutdown_requested: Event | None = None,
-) -> Any:
+) -> object | None:
     """Отправить запрос к Telegram API и вернуть объект ответа."""
     for attempt in range(1, max_attempts + 1):
         if shutdown_requested is not None and shutdown_requested.is_set():
@@ -248,7 +243,7 @@ def _send_message(
             )
             if response.status_code == 200:
                 try:
-                    telegram_response = response.json()
+                    telegram_response: object = response.json()
                 except ValueError as e:
                     logger.error(
                         "Invalid Telegram API response on attempt %s/%s: %s",
@@ -257,9 +252,14 @@ def _send_message(
                         e,
                     )
                 else:
+                    telegram_response_dict = (
+                        cast(_TelegramResponse, telegram_response)
+                        if isinstance(telegram_response, dict)
+                        else None
+                    )
                     if not (
-                        isinstance(telegram_response, dict)
-                        and telegram_response.get("ok") is False
+                        telegram_response_dict is not None
+                        and telegram_response_dict.get("ok") is False
                     ):
                         if success_message:
                             logger.info(success_message)
@@ -268,13 +268,15 @@ def _send_message(
                                 "Telegram notification sent for match %s",
                                 match_id,
                             )
-                        return telegram_response
+                        return cast(object, telegram_response)
 
                     logger.error(
                         "Telegram API rejected request on attempt %s/%s: %s",
                         attempt,
                         max_attempts,
-                        telegram_response.get("description", telegram_response),
+                        telegram_response_dict.get(
+                            "description", telegram_response_dict
+                        ),
                     )
             else:
                 logger.error(
@@ -306,7 +308,7 @@ def edit_telegram_notification(
     shutdown_requested: Event | None = None,
 ) -> bool:
     """Отредактировать ранее отправленное сообщение Telegram."""
-    payload = {
+    payload: dict[str, Any] = {
         "chat_id": channel_id or CHANNEL_ID,
         "message_id": message_id,
         "text": text,
@@ -317,7 +319,7 @@ def edit_telegram_notification(
         _send_message(
             payload,
             success_message=f"Telegram notification {message_id} updated",
-            api_url=TELEGRAM_EDIT_MESSAGE_URL,
+            api_url=_TELEGRAM_EDIT_MESSAGE_URL,
             shutdown_requested=shutdown_requested,
         )
     )
@@ -363,7 +365,7 @@ def send_telegram_notification(
     match_id: str | int | None = None,
     handicap_text: MarketValue = None,
     handicap_team_order: str | None = None,
-    match_time: str | None = 'Unknown',
+    match_time: str = 'Unknown',
     on_sent_details: NotificationSentRegistrar | None = None,
     channel_id: str | None = None,
     drop_type: str | None = None,
@@ -394,7 +396,7 @@ def send_telegram_notification(
         match_time=match_time,
     )
 
-    payload = {
+    payload: dict[str, Any] = {
         "chat_id": target_channel_id,
         "text": message,
         "parse_mode": "HTML",
@@ -426,9 +428,23 @@ def send_telegram_notification(
         market,
         strategy,
     )
-    result = telegram_response.get('result')
+    telegram_response_dict = (
+        cast(_TelegramResponse, telegram_response)
+        if isinstance(telegram_response, dict)
+        else None
+    )
+    result = (
+        telegram_response_dict.get('result')
+        if telegram_response_dict is not None
+        else None
+    )
+    telegram_result = (
+        cast(_TelegramResult, result) if isinstance(result, dict) else None
+    )
     telegram_message_id = (
-        result.get('message_id') if isinstance(result, dict) else None
+        telegram_result.get('message_id')
+        if telegram_result is not None
+        else None
     )
     if telegram_message_id is not None:
         if on_sent_details:

@@ -15,7 +15,7 @@ def get_last_data(match_data: MatchSnapshot) -> MatchSnapshot:
     return {
         'ah': match_data['ah'],
         'ov': match_data['ov'],
-        'match_time': match_data.get('match_time', 'Unknown'),
+        'match_time': match_data['match_time'],
         'score': match_data.get('score', 'Unknown'),
     }
 
@@ -58,7 +58,7 @@ def save_state_to_json(
 ) -> bool:
     """Сохранить текущее состояние матчей в JSON-файл."""
     try:
-        payload = {
+        payload: dict[str, object] = {
             "match_history": match_history,
             "last_data": last_data,
             "active_match_ids": active_match_ids,

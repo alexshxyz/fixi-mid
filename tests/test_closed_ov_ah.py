@@ -15,6 +15,7 @@ def entry(
     away_odds=None,
     **metadata,
 ):
+    metadata.setdefault("match_time", "Unknown")
     return {
         "ov": {"over": over, "over_odds": over_odds},
         "ah": {
@@ -27,6 +28,7 @@ def entry(
 
 
 def closed_entry(market, **metadata):
+    metadata.setdefault("match_time", "Unknown")
     return {
         market: {market if market == "ah" else "over": "Closed"},
         **metadata,
@@ -118,15 +120,13 @@ def test_collect_match_entries_handles_missing_or_empty_history(data):
 @pytest.mark.parametrize(
     ("entry_data", "expected"),
     [
-        ({}, False),
-        ({"match_time": None}, False),
+        ({"match_time": "Unknown"}, False),
         ({"match_time": "HT"}, False),
         ({"match_time": "90+"}, True),
         ({"match_time": "FT"}, True),
-        ({"time": "FT"}, False),
     ],
 )
-def test_is_finished_match_handles_missing_live_and_finished_times(
+def test_is_finished_match_handles_live_and_finished_times(
     entry_data, expected
 ):
     assert closed_ov_ah._is_finished_match(entry_data) is expected
@@ -246,7 +246,9 @@ def test_send_over_notification_uses_defaults_and_swallows_send_error(monkeypatc
 
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fail_send)
 
-    closed_ov_ah._send_over_notification("match-1", {}, "2.5", 1.5, "drop")
+    closed_ov_ah._send_over_notification(
+        "match-1", {"match_time": "Unknown"}, "2.5", 1.5, "drop"
+    )
 
     assert "Failed to send notification" in caplog.text
 
@@ -612,7 +614,7 @@ def test_send_ah_notification_formats_handicap_by_odds_side(
     )
 
     closed_ov_ah._send_ah_notification(
-        "match-1", {}, handicap, 1.5, "away", "drop"
+        "match-1", {"match_time": "Unknown"}, handicap, 1.5, "away", "drop"
     )
 
     assert sent[0]["handicap_text"] == expected_text
@@ -627,7 +629,7 @@ def test_send_ah_notification_swallows_send_error(monkeypatch, caplog):
     monkeypatch.setattr(closed_ov_ah, "send_telegram_notification", fail_send)
 
     closed_ov_ah._send_ah_notification(
-        "match-1", {}, "-0.5", 1.5, "away", "drop"
+        "match-1", {"match_time": "Unknown"}, "-0.5", 1.5, "away", "drop"
     )
 
     assert "Failed to send notification" in caplog.text

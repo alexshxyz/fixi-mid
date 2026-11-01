@@ -34,7 +34,18 @@ def _load_matches() -> list[MatchRecord]:
         with path.open('r', encoding='utf-8') as f:
             data: Any = json.load(f)
         if isinstance(data, list):
-            return cast(list[MatchRecord], data)
+            raw_matches = cast(list[object], data)
+            matches: list[MatchRecord] = []
+            for item in raw_matches:
+                if isinstance(item, dict):
+                    matches.append(cast(MatchRecord, item))
+            if len(matches) != len(raw_matches):
+                logger.error(
+                    "Matches file contains non-object entries. "
+                    "Skipping invalid entries in %s.",
+                    path,
+                )
+            return matches
         logger.error("Matches file does not contain a JSON list. Resetting %s.", path)
     except (json.JSONDecodeError, OSError, ValueError):
         logger.error("Matches file is empty or corrupted. Resetting %s.", path)
@@ -124,8 +135,6 @@ def get_match_notification_states() -> dict[str, MatchNotificationState]:
     """Вернуть отправленные рынки для всех известных матчей."""
     states: dict[str, MatchNotificationState] = {}
     for item in _load_matches():
-        if not isinstance(item, dict):
-            continue
         match_id = _get_match_id(item)
         if match_id is None:
             continue
@@ -167,8 +176,6 @@ def update_match_mark(
 
     matches = _load_matches()
     for index, match in enumerate(matches):
-        if not isinstance(match, dict):
-            continue
         if (
             match.get('link') == link
             and match.get('prediction') == prediction
@@ -260,7 +267,7 @@ def get_matches_in_date_range(
 ) -> list[MatchRecord]:
     """Вернуть записи за период, включая start_date и исключая end_date."""
     matches = _load_matches()
-    filtered = []
+    filtered: list[MatchRecord] = []
     for match in matches:
         match_date = match.get('date')
         if match_date and start_date <= match_date < end_date:
