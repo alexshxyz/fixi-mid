@@ -433,7 +433,7 @@ def test_write_match_count_respects_debug_mode(
 
     observer.write_match_count(records, [10])
 
-    snapshot = tmp_path / "data" / "count.json"
+    snapshot = tmp_path / "data" / "matches_count.json"
     assert snapshot.exists() is expected_file
     if expected_file:
         assert json.loads(snapshot.read_text(encoding="utf-8")) == {

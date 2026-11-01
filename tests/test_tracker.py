@@ -534,7 +534,7 @@ def test_run_analyzer_writes_debug_snapshot(monkeypatch, monitor, tmp_path):
     monitor._run_analyzer()
 
     snapshot = json.loads(
-        (tmp_path / "data" / "data_closed_ov_ah.json").read_text(encoding="utf-8")
+        (tmp_path / "data" / "matches_data.json").read_text(encoding="utf-8")
     )
     assert snapshot["1"]["initial"] == monitor.match_history["1"]["initial"]
 

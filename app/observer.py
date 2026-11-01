@@ -192,7 +192,7 @@ def write_match_count(
         if str(item['match_id']) in active_ids:
             payload['Active'].append(item['label'])
 
-    snapshot_path = DATA_DIR / 'count.json'
+    snapshot_path = DATA_DIR / 'matches_count.json'
     try:
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         with open(snapshot_path, 'w', encoding='utf-8') as snapshot_file:

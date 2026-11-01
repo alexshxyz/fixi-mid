@@ -31,6 +31,6 @@ Thumbs.db
 matches.json
 match_state.json
 matches.csv
-data_closed_ov_ah.json
-count.json
+matches_data.json
+matches_count.json
 think.md

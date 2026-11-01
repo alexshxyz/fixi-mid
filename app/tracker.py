@@ -167,7 +167,7 @@ class MatchMonitor:
         if self._shutdown_is_requested():
             return
         if DEBUGMODE:
-            snapshot_path = DATA_DIR / "data_closed_ov_ah.json"
+            snapshot_path = DATA_DIR / "matches_data.json"
             try:
                 snapshot_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
