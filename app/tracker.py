@@ -74,7 +74,7 @@ class MatchMonitor:
         self.leagues = leagues if leagues is not None else load_leagues()
         self.match_history: MatchHistoryMap = {}
         self.last_data: dict[str, MatchSnapshot] = {}
-        self.pending_notifications: dict[str, dict[str, Any]] = {}
+        self.pending_notifications_by_message_id: dict[str, dict[str, Any]] = {}
         self.active_match_ids: list[str] = []
         self.next_reload_at: float = time.monotonic() + get_table_live_reload_interval()
         self.next_page_refresh_at: float = time.monotonic() + PAGE_LIVE_RELOAD
@@ -145,7 +145,7 @@ class MatchMonitor:
             self.match_history,
             last_data,
             active_match_ids,
-            self.pending_notifications,
+            self.pending_notifications_by_message_id,
             path,
         )
 
@@ -155,7 +155,9 @@ class MatchMonitor:
         if restored_state is not None:
             self.match_history.update(restored_state["match_history"])
             self.last_data = restored_state["last_data"]
-            self.pending_notifications = restored_state["pending_notifications"]
+            self.pending_notifications_by_message_id = restored_state[
+                "pending_notifications"
+            ]
             self.active_match_ids = restored_state["active_match_ids"]
             if self.match_ids is not None:
                 self._synchronize_matches(self.match_ids)
@@ -200,13 +202,13 @@ class MatchMonitor:
     ) -> None:
         """Запланировать отложенную проверку отправленного уведомления."""
         pending_notifications.register_pending_notification(
-            self.pending_notifications, notification
+            self.pending_notifications_by_message_id, notification
         )
 
     def _process_due_notifications(self) -> None:
         """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
         pending_notifications.process_due_notifications(
-            self.pending_notifications,
+            self.pending_notifications_by_message_id,
             self.last_data,
             self.active_match_ids,
             shutdown_requested=self.shutdown_requested,
@@ -217,7 +219,7 @@ class MatchMonitor:
     def _next_notification_timeout(self) -> float | None:
         """Вычислить время ожидания до ближайшей проверки уведомления."""
         return pending_notifications.next_notification_timeout(
-            self.pending_notifications
+            self.pending_notifications_by_message_id
         )
 
     def _load_initial_data(self) -> None:
@@ -524,10 +526,10 @@ class MatchMonitor:
         for removed_id in removed_match_ids:
             self.match_history.pop(removed_id, None)
             for message_id, notification in list(
-                self.pending_notifications.items()
+                self.pending_notifications_by_message_id.items()
             ):
                 if str(notification['match_id']) == str(removed_id):
-                    del self.pending_notifications[message_id]
+                    del self.pending_notifications_by_message_id[message_id]
             self.last_data.pop(removed_id, None)
 
         initialized_match_ids = [match_id for match_id in current_match_ids if match_id in previous_match_ids]

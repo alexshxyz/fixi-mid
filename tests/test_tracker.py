@@ -47,7 +47,7 @@ def test_match_monitor_initializes_runtime_state_and_callbacks():
     assert result.page_refresh_callback is page_callback
     assert result.match_history == {}
     assert result.last_data == {}
-    assert result.pending_notifications == {}
+    assert result.pending_notifications_by_message_id == {}
     assert result.active_match_ids == []
 
 
@@ -325,7 +325,7 @@ def test_run_logs_shutdown_errors_without_expected_close_traceback(
 def test_save_state_to_json_persists_all_state_and_returns_true(monitor, tmp_path):
     path = tmp_path / "state.json"
     monitor.match_history = {"1": {"initial": market_data(), "changes": []}}
-    monitor.pending_notifications = {"20": {"match_id": "1"}}
+    monitor.pending_notifications_by_message_id = {"20": {"match_id": "1"}}
 
     assert monitor._save_state_to_json(["1"], {"1": market_data()}, path)
 
@@ -333,7 +333,7 @@ def test_save_state_to_json_persists_all_state_and_returns_true(monitor, tmp_pat
         "match_history": monitor.match_history,
         "last_data": {"1": market_data()},
         "active_match_ids": ["1"],
-        "pending_notifications": monitor.pending_notifications,
+        "pending_notifications": monitor.pending_notifications_by_message_id,
     }
 
 
@@ -369,7 +369,7 @@ def test_init_or_restore_state_restores_state_and_backfills_dates(monitor):
     assert initial["date"] is None
     assert changed["date"] is None
     assert monitor.last_data["1"]["score"] == "0-0"
-    assert monitor.pending_notifications == {"5": {"match_id": "1"}}
+    assert monitor.pending_notifications_by_message_id == {"5": {"match_id": "1"}}
 
 
 def test_init_or_restore_state_removes_file_after_accepting_saved_state(
@@ -586,7 +586,7 @@ def test_register_pending_notification_delegates_to_pending_store(
 
     monitor._register_pending_notification(notification)
 
-    assert calls == [(monitor.pending_notifications, notification)]
+    assert calls == [(monitor.pending_notifications_by_message_id, notification)]
 
 
 def test_process_due_notifications_passes_shutdown_argument(
@@ -603,7 +603,11 @@ def test_process_due_notifications_passes_shutdown_argument(
 
     assert calls == [
         (
-            (monitor.pending_notifications, monitor.last_data, monitor.active_match_ids),
+            (
+                monitor.pending_notifications_by_message_id,
+                monitor.last_data,
+                monitor.active_match_ids,
+            ),
             {
                 "shutdown_requested": None,
                 "leagues": monitor.leagues,
@@ -805,7 +809,7 @@ def test_monitor_loop_polls_after_live_change_and_processes_no_change(
     monitor.next_heartbeat_at = 1000
     monitor.restart_deadline = 1000
     monitor.active_match_ids = ["1"]
-    monitor.pending_notifications = {"10": {"deadline": 5}}
+    monitor.pending_notifications_by_message_id = {"10": {"deadline": 5}}
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
     monkeypatch.setattr(tracker.time, "time", lambda: 0)
     changes = iter([True, False])
@@ -1252,7 +1256,7 @@ def test_synchronize_matches_removes_pending_notifications_for_removed_matches(
         "stay": {"initial": active_data, "changes": []},
     }
     monitor.last_data = {"1": removed_data, "stay": active_data}
-    monitor.pending_notifications = {
+    monitor.pending_notifications_by_message_id = {
         "10": {"match_id": 1},
         "11": {"match_id": "1"},
         "12": {"match_id": "stay"},
@@ -1264,7 +1268,9 @@ def test_synchronize_matches_removes_pending_notifications_for_removed_matches(
     assert monitor.active_match_ids == ["stay"]
     assert "1" not in monitor.match_history
     assert "1" not in monitor.last_data
-    assert monitor.pending_notifications == {"12": {"match_id": "stay"}}
+    assert monitor.pending_notifications_by_message_id == {
+        "12": {"match_id": "stay"}
+    }
 
 
 def test_synchronize_matches_returns_false_when_active_ids_unchanged(
