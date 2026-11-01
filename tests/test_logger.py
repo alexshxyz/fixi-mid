@@ -7,7 +7,7 @@ from app import logger as logger_module
 TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - ")
 
 
-def test_setup_logger_writes_info_to_file_and_debug_to_console(tmp_path, capsys):
+def test_setup_logger_writes_debug_to_file_but_not_console(tmp_path, capsys):
     name = f"{__name__}.test_setup_logger"
     log_file = tmp_path / "bot.log"
     logger = logging.getLogger(name)
@@ -28,27 +28,27 @@ def test_setup_logger_writes_info_to_file_and_debug_to_console(tmp_path, capsys)
             if isinstance(handler, logging.StreamHandler)
             and not isinstance(handler, logging.FileHandler)
         )
-        assert file_handler.level == logging.INFO
-        assert console_handler.level == logging.DEBUG
+        assert file_handler.level == logging.DEBUG
+        assert console_handler.level == logging.INFO
 
         logger.debug("debug message")
         logger.info("info message")
 
         console_output = capsys.readouterr().err
         console_lines = console_output.splitlines()
-        assert any(
-            TIMESTAMP_PATTERN.match(line) and " - DEBUG - debug message" in line
-            for line in console_lines
-        )
+        assert all("debug message" not in line for line in console_lines)
         assert all(TIMESTAMP_PATTERN.match(line) for line in console_lines)
         contents = log_file.read_text(encoding="utf-8")
         file_lines = contents.splitlines()
+        assert any(
+            TIMESTAMP_PATTERN.match(line) and " - DEBUG - debug message" in line
+            for line in file_lines
+        )
         assert any(
             TIMESTAMP_PATTERN.match(line) and " - INFO - info message" in line
             for line in file_lines
         )
         assert all(TIMESTAMP_PATTERN.match(line) for line in file_lines)
-        assert "debug message" not in contents
     finally:
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)

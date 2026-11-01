@@ -3,14 +3,14 @@ import os
 import re
 from copy import copy
 from pathlib import Path
-from typing import TextIO
+from typing import Final, TextIO
 
 
-_MATCH_IDS_PATTERN = re.compile(
+_MATCH_IDS_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"((?:Active|New|Removed) \d+|Matches (?:updated|found): \d+)"
     r"\s*\([^)]*\)"
 )
-_SENSITIVE_ENVIRONMENT_VARIABLES = (
+_SENSITIVE_ENVIRONMENT_VARIABLES: Final[tuple[str, ...]] = (
     'BOT_TOKEN',
     'MONITOR_TELEGRAM_TOKEN',
     'CHANNEL_ID',
@@ -84,7 +84,7 @@ def setup_logger(
     project_dir = Path(__file__).resolve().parent.parent
     log_file = project_dir / log_filename
     file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
@@ -92,7 +92,7 @@ def setup_logger(
     file_handler.setFormatter(formatter)
 
     console_handler = _ConsoleLogHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
 
     if not logger.handlers:

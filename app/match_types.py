@@ -1,5 +1,6 @@
 from typing import (
     Literal,
+    Required,
     TypedDict,
 )
 from collections.abc import Callable
@@ -12,7 +13,7 @@ OddsSide = Literal["home", "away"]
 class OverMarketLine(TypedDict, total=False):
     """Линия и коэффициенты рынка Over в одном снимке матча."""
 
-    over: str
+    over: Required[str]
     over_odds: MarketValue
     under_odds: MarketValue
 
@@ -20,7 +21,7 @@ class OverMarketLine(TypedDict, total=False):
 class HandicapMarketLine(TypedDict, total=False):
     """Линия и коэффициенты азиатской форы в одном снимке матча."""
 
-    ah: str
+    ah: Required[str]
     home_ah_odds: MarketValue
     away_ah_odds: MarketValue
 
@@ -29,8 +30,8 @@ class MatchSnapshot(TypedDict, total=False):
     """Данные матча и рынков, зафиксированные в один момент."""
 
     match_time: str
-    ah: HandicapMarketLine
-    ov: OverMarketLine
+    ah: Required[HandicapMarketLine]
+    ov: Required[OverMarketLine]
     home_team: str
     away_team: str
     score: str

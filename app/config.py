@@ -34,7 +34,7 @@ TELEGRAM_PROXY_HOST: str = os.environ.get('TELEGRAM_PROXY_HOST', '')
 TELEGRAM_PROXY_PORT: str = os.environ.get('TELEGRAM_PROXY_PORT', '')
 TELEGRAM_PROXY_USERNAME: str | None = os.environ.get('TELEGRAM_PROXY_USERNAME')
 TELEGRAM_PROXY_PASSWORD: str | None = os.environ.get('TELEGRAM_PROXY_PASSWORD')
-TELEGRAM_PROXIES: dict[str, str] | None = None
+telegram_proxies: dict[str, str] | None = None
 if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
     proxy_auth: str = ''
     if TELEGRAM_PROXY_USERNAME and TELEGRAM_PROXY_PASSWORD:
@@ -46,16 +46,20 @@ if TELEGRAM_PROXY_HOST and TELEGRAM_PROXY_PORT:
     telegram_proxy_url: str = (
         f'socks5h://{proxy_auth}{TELEGRAM_PROXY_HOST}:{TELEGRAM_PROXY_PORT}'
     )
-    TELEGRAM_PROXIES = {
+    telegram_proxies = {
         'http': telegram_proxy_url,
         'https': telegram_proxy_url,
     }
+TELEGRAM_PROXIES: dict[str, str] | None = telegram_proxies
 
-THRESHOLD: float = 1.61 # Максимальный коэффициент перед Closed (1.61)
-START_ODD: float = 1.80 # Минимальный коэффициент для подтверждения паттерна (1.80)
+# Пороги коэффициентов
+THRESHOLD: float = 1.61
+START_ODD: float = 1.80
 
-DEBUGMODE: bool = True # Запись истории анализа в data_closed_ov_ah.json и count.json
+# Диагностические записи
+DEBUGMODE: bool = True
 
+# Интервал обновления Live-таблицы
 TABLE_LIVE_RELOAD_MIN_SECONDS: int = 100
 TABLE_LIVE_RELOAD_MAX_SECONDS: int = 120
 
@@ -68,10 +72,14 @@ def get_table_live_reload_interval() -> int:
     )
 
 
-PAGE_LIVE_RELOAD: int = 3600 # Полная перезагрузка страницы
+# Полная перезагрузка страницы
+PAGE_LIVE_RELOAD: int = 3600
 
-RESTART_HOURS: int = 24 # Плановая перезагрузка скрипта
-NOTIFICATION_CHECK_DELAY_SECONDS: int = 180 # Задержка проверки статуса Telegram-сигнала
+# Плановая перезагрузка скрипта
+RESTART_HOURS: int = 24
+
+# Задержка проверки статуса Telegram-сигнала
+NOTIFICATION_CHECK_DELAY_SECONDS: int = 180
 
 # Таймауты и интервалы ожидания страницы.
 PAGE_DOM_LOAD_TIMEOUT_MS: int = 30_000
@@ -105,9 +113,11 @@ TELEGRAM_SEND_MAX_ATTEMPTS: int = 3
 TELEGRAM_EDIT_MAX_ATTEMPTS: int = 3
 TELEGRAM_EDIT_RETRY_DELAY_SECONDS: int = 10
 
+# Маркеры завершенных матчей
+FINISHED_TIME_MARKERS: tuple[str, ...] = ("90", "90+", "FT", "ET", "Penalty")
+
 # Куки сайта
 SITE_COOKIE_DOMAIN: str = "www.goaloo.com"
-FINISHED_TIME_MARKERS: tuple[str, ...] = ("90", "90+", "FT", "ET", "Penalty")
 SITE_COOKIES: list[SetCookieParam] = [
     {"name": name, "value": value, "domain": SITE_COOKIE_DOMAIN, "path": "/"}
     for name, value in [

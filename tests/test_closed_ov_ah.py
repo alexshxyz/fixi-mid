@@ -42,45 +42,34 @@ def closed_entry(market, **metadata):
         ("not-a-number", None),
     ],
 )
-def test_to_float(value, expected):
-    assert closed_ov_ah._to_float(value) == expected
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (None, None),
-        ("", None),
-        ("  ", None),
-        ("  -0.5  ", "-0.5"),
-        (0.5, "0.5"),
-    ],
-)
-def test_normalize_ah_text(value, expected):
-    assert closed_ov_ah._normalize_ah_text(value) == expected
+def test_odds_to_float(value, expected):
+    assert closed_ov_ah._odds_to_float(value) == expected
 
 
 @pytest.mark.parametrize("value", ["0", "0.0", "+0", "-0", "-0.0"])
 def test_is_exact_zero_handicap_accepts_supported_zero_forms(value):
-    assert closed_ov_ah._is_exact_zero_ah(value)
+    assert closed_ov_ah._is_exact_zero_ah_line(value)
 
 
 @pytest.mark.parametrize("value", [None, "", "0.5", "0/-0.5", "0.00"])
 def test_is_exact_zero_handicap_rejects_non_matching_values(value):
-    assert not closed_ov_ah._is_exact_zero_ah(value)
+    assert not closed_ov_ah._is_exact_zero_ah_line(value)
 
 
 @pytest.mark.parametrize(
     "value",
-    ["0/-0.5", "+0/-1", "0 / -0,5"],
+    ["0/-0.5", "+0/-1", "0/-0,5"],
 )
-def test_is_away_zero_split_handicap_accepts_supported_forms(value):
-    assert closed_ov_ah._is_away_zero_split_handicap(value)
+def test_is_ah_line_exception_accepts_supported_forms(value):
+    assert closed_ov_ah._is_ah_line_exception(value)
 
 
-@pytest.mark.parametrize("value", [None, "", "0/0.5", "-0/-0.5", "0 / -"])
-def test_is_away_zero_split_handicap_rejects_invalid_forms(value):
-    assert not closed_ov_ah._is_away_zero_split_handicap(value)
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "0/0.5", "-0/-0.5", "0 / -0.5"],
+)
+def test_is_ah_line_exception_rejects_invalid_forms(value):
+    assert not closed_ov_ah._is_ah_line_exception(value)
 
 
 @pytest.mark.parametrize(
@@ -95,8 +84,18 @@ def test_is_away_zero_split_handicap_rejects_invalid_forms(value):
         ("0/-0.5", -1),
     ],
 )
-def test_ah_sign(value, expected):
-    assert closed_ov_ah._ah_sign(value) == expected
+def test_ah_line_sign(value, expected):
+    assert closed_ov_ah._ah_line_sign(value) == expected
+
+
+def test_get_market_values_preserves_ah_line_and_selects_away_odds():
+    match_entry = entry(handicap="0/-0.5", away_odds="1.8")
+
+    assert closed_ov_ah._get_market_values(match_entry, "ah") == (
+        "0/-0.5",
+        1.8,
+        "away",
+    )
 
 
 def test_collect_match_entries_includes_initial_and_changes_in_order():

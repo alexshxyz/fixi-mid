@@ -16,14 +16,13 @@ from .match_types import (
     NotificationSentRegistrar,
     OddsSide,
     OverMarketLine,
-    TelegramNotification,
 )
 
 logger = setup_logger(__name__)
 
 
-def _to_float(value: MarketValue) -> float | None:
-    """Преобразовать значение рынка в число или вернуть None."""
+def _odds_to_float(value: MarketValue) -> float | None:
+    """Преобразовать коэффициент в число или вернуть None."""
     if value is None:
         return None
     try:
@@ -32,36 +31,28 @@ def _to_float(value: MarketValue) -> float | None:
         return None
 
 
-def _normalize_ah_text(value: MarketValue) -> str | None:
-    """Очистить значение форы и вернуть None для пустой строки."""
+def _is_exact_zero_ah_line(value: MarketValue) -> bool:
+    """Проверить, обозначает ли значение нулевую фору."""
+    return value is not None and str(value) in {"0", "0.0", "+0", "-0", "-0.0"}
+
+
+def _is_ah_line_exception(value: MarketValue) -> bool:
+    """Распознать фору исключение. (например 0/-0.5)"""
+    if value is None:
+        return False
+    return re.fullmatch(r"\+?0/-[\d.,]+", str(value)) is not None
+
+
+def _ah_line_sign(value: MarketValue) -> int | None:
+    """Определить принадлежность форы к команде."""
     if value is None:
         return None
-    text = str(value).strip()
-    return text if text else None
-
-
-def _is_exact_zero_ah(value: MarketValue) -> bool:
-    """Проверить, обозначает ли значение нулевую фору."""
-    text = _normalize_ah_text(value)
-    return text in {"0", "0.0", "+0", "-0", "-0.0"}
-
-
-def _is_away_zero_split_handicap(value: MarketValue) -> bool:
-    """Распознать дробную фору ноль/-значение для второй команды."""
-    text = _normalize_ah_text(value)
-    if text is None:
-        return False
-    return bool(re.match(r"^\+?0\s*/\s*-[\d.,]+$", text))
-
-
-def _ah_sign(value: MarketValue) -> int | None:
-    """Определить сторону форы: 1, -1, 0 или None."""
-    text = _normalize_ah_text(value)
-    if text is None:
+    text = str(value)
+    if not text:
         return None
-    if _is_exact_zero_ah(text):
+    if _is_exact_zero_ah_line(text):
         return 0
-    if _is_away_zero_split_handicap(text):
+    if _is_ah_line_exception(text):
         return -1
     return -1 if text.startswith("-") else 1
 
@@ -76,11 +67,11 @@ def _collect_match_entries(data: MatchHistory) -> list[MatchSnapshot]:
     return entries
 
 
-def _line_status(entry: MatchSnapshot, market: MarketType) -> str | None:
+def _line_status(entry: MatchSnapshot, market: MarketType) -> str:
     """Получить значение линии рынка из снимка матча."""
     if market == "ov":
-        return entry.get("ov", {}).get("over")
-    return entry.get("ah", {}).get("ah")
+        return entry["ov"]["over"]
+    return entry["ah"]["ah"]
 
 
 def _get_last_entry_before_closed(
@@ -94,7 +85,7 @@ def _get_last_entry_before_closed(
     return None, -1
 
 
-def _scores_match(
+def _match_scores(
     closed_entry: MatchSnapshot,
     confirming_entry: MatchSnapshot,
 ) -> bool:
@@ -177,36 +168,48 @@ def _send_market_notification(
     league = last_entry.get("league", "Unknown")
     match_time = last_entry.get("match_time", "Unknown")
 
-    notification: TelegramNotification = {
-        "league": league,
-        "home_team": home_team,
-        "away_team": away_team,
-        "score": score,
-        "drop_type": drop_type,
-        "match_id": match_id,
-        "match_time": match_time,
-        "on_sent_details": _notification_sent_callback(
-            on_notification_sent, match_id, market, league
-        ),
-        "strategy": "default",
-    }
-    if market == "ov":
-        notification["over"] = line
-        notification["over_odds"] = odds
-    else:
-        handicap = line
-        if handicap and not handicap.startswith("-") and _ah_sign(handicap) != -1:
-            handicap = f"-{handicap}"
-        notification["over_odds"] = odds
-        notification["handicap_text"] = handicap
-        notification["handicap_team_order"] = (
-            "Home" if odds_side == "home" else "Away"
-        )
-
+    on_sent_details = _notification_sent_callback(
+        on_notification_sent, match_id, market, league
+    )
     try:
-        send_telegram_notification(
-            **notification, shutdown_requested=shutdown_requested
-        )
+        if market == "ov":
+            send_telegram_notification(
+                league=league,
+                home_team=home_team,
+                away_team=away_team,
+                score=score,
+                over=line,
+                over_odds=odds,
+                drop_type=drop_type,
+                match_id=match_id,
+                match_time=match_time,
+                on_sent_details=on_sent_details,
+                strategy="default",
+                shutdown_requested=shutdown_requested,
+            )
+        else:
+            handicap = line
+            if (
+                handicap
+                and not handicap.startswith("-")
+                and _ah_line_sign(handicap) != -1
+            ):
+                handicap = f"-{handicap}"
+            send_telegram_notification(
+                league=league,
+                home_team=home_team,
+                away_team=away_team,
+                score=score,
+                over_odds=odds,
+                handicap_text=handicap,
+                handicap_team_order="Home" if odds_side == "home" else "Away",
+                drop_type=drop_type,
+                match_id=match_id,
+                match_time=match_time,
+                on_sent_details=on_sent_details,
+                strategy="default",
+                shutdown_requested=shutdown_requested,
+            )
     except Exception as e:
         logger.error(f"Match {match_id}: Failed to send notification: {e}")
 
@@ -260,19 +263,19 @@ def _send_ah_notification(
 def _get_market_values(
     entry: MatchSnapshot,
     market: MarketType,
-) -> tuple[str | None, float | None, OddsSide | None]:
+) -> tuple[str, float | None, OddsSide | None]:
     """Получить линию, коэффициент и при необходимости сторону команды."""
     if market == "ov":
-        over_data: OverMarketLine = entry.get("ov", {})
+        over_data: OverMarketLine = entry["ov"]
         return (
-            over_data.get("over"),
-            _to_float(over_data.get("over_odds")),
+            over_data["over"],
+            _odds_to_float(over_data.get("over_odds")),
             None,
         )
 
-    handicap_data: HandicapMarketLine = entry.get("ah", {})
-    handicap = handicap_data.get("ah")
-    sign = _ah_sign(handicap)
+    handicap_data: HandicapMarketLine = entry["ah"]
+    handicap = handicap_data["ah"]
+    sign = _ah_line_sign(handicap)
     if sign in (None, 0):
         return handicap, None, None
 
@@ -282,7 +285,7 @@ def _get_market_values(
         if odds_side == "home"
         else handicap_data.get("away_ah_odds")
     )
-    return handicap, _to_float(odds), odds_side
+    return handicap, _odds_to_float(odds), odds_side
 
 
 def _find_market_pattern(
@@ -309,7 +312,7 @@ def _find_market_pattern(
 
     last_line, last_odds, odds_side = _get_market_values(last_entry, market)
 
-    if last_line is None or last_odds is None or last_odds > THRESHOLD:
+    if last_odds is None or last_odds > THRESHOLD:
         return False
 
     start_search_idx = last_idx - 1
@@ -327,7 +330,7 @@ def _find_market_pattern(
             break
 
         if current_odds is not None and current_odds >= START_ODD:
-            if not _scores_match(entries[-1], current_entry):
+            if not _match_scores(entries[-1], current_entry):
                 return False
             drop_type = f"ODDS {current_odds:.2f} -> {last_odds:.2f}"
             if market == "ov":
@@ -391,14 +394,14 @@ def _find_ah_pattern(
 
 
 def find_pattern_matches(
-    match_history: MatchHistoryMap,
+    matches_history: MatchHistoryMap,
     on_notification_sent: NotificationSentCallback | None = None,
     shutdown_requested: Event | None = None,
 ) -> list[str]:
     """Проанализировать истории и вернуть ID матчей с найденным паттерном."""
-    sent_matches = []
+    sent_matches: list[str] = []
 
-    for match_id, data in match_history.items():
+    for match_id, data in matches_history.items():
         if shutdown_requested is not None and shutdown_requested.is_set():
             break
         entries = _collect_match_entries(data)
