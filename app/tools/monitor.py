@@ -1,3 +1,4 @@
+import html
 import time
 import requests
 import os
@@ -21,13 +22,17 @@ from app.logger import format_console_log_message, setup_logger
 logger = setup_logger(__name__, 'monitor.log')
 
 
-def send(msg: str) -> bool:
+def send_monitor_notification(msg: str) -> bool:
     """Отправить сообщение о состоянии мониторинга в Telegram."""
     url = TELEGRAM_API_URL_TEMPLATE.format(token=config.MONITOR_TELEGRAM_TOKEN)
     try:
         response = requests.post(
             url,
-            data={"chat_id": config.MONITOR_CHAT_ID, "text": msg},
+            data={
+                "chat_id": config.MONITOR_CHAT_ID,
+                "text": msg,
+                "parse_mode": "HTML",
+            },
             proxies=TELEGRAM_PROXIES,
             timeout=config.MONITOR_TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
@@ -40,7 +45,7 @@ def send(msg: str) -> bool:
         return False
 
 
-def get_last_line() -> str | None:
+def get_last_log_line() -> str | None:
     """Прочитать последнюю строку файла лога, не загружая его целиком."""
     try:
         with open(config.BOT_LOG_FILE, "rb") as log_file:
@@ -71,7 +76,7 @@ def get_last_line() -> str | None:
         return None
 
 
-def parse_time(line: str | None) -> datetime | None:
+def parse_log_time(line: str | None) -> datetime | None:
     """Извлечь дату и время из строки лога."""
     try:
         if not line:
@@ -91,32 +96,35 @@ def parse_time(line: str | None) -> datetime | None:
 def main() -> NoReturn:
     """Периодически проверять свежесть лога и отправлять статус."""
     while True:
-        last_line = get_last_line()
+        last_line = get_last_log_line()
 
-        status_time = parse_time(last_line)
+        status_time = parse_log_time(last_line)
 
         now = datetime.now()
+        status_icon = "🟨"
 
         if status_time:
             age = (now - status_time).total_seconds()
 
             if age < config.MONITOR_STALE_LIMIT_SECONDS:
-                status = "✅ OK"
+                status_icon = "🟩"
             else:
-                status = "❌ STALE (no activity)"
+                status_icon = "🟥"
         else:
             age = None
-            status = "⚠️ NO TIMESTAMP / LOG ERROR"
 
         compact_last_line = (
             format_console_log_message(last_line) if last_line else last_line
         )
-        msg = f"{status}\nLast log:\n{compact_last_line}"
+        msg = (
+            f"<b>{status_icon} Last log:</b>\n"
+            f"<code>{html.escape(str(compact_last_line))}</code>"
+        )
 
         if age is not None:
-            msg += f"\nAge: {int(age)} sec"
+            msg += f"\n<code>Age: {int(age)} sec</code>"
 
-        send(msg)
+        send_monitor_notification(msg)
 
         time.sleep(config.MONITOR_CHECK_INTERVAL_SECONDS)
 

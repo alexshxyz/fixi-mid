@@ -80,7 +80,21 @@ def test_export_empty_list_writes_headers_only(matches_path):
         rows = list(csv.reader(csv_file, delimiter=";"))
 
     assert count == 0
-    assert rows == [list(export.PREFERRED_COLUMNS)]
+    assert rows == [
+        [
+            "date",
+            "mark",
+            "league",
+            "home_team",
+            "away_team",
+            "prediction",
+            "odds",
+            "final_score",
+            "result",
+            "link",
+            "source",
+        ]
+    ]
 
 
 def test_export_ignores_matches_file_environment_variable(

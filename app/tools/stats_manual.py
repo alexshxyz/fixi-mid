@@ -17,6 +17,15 @@ from app.storage import get_all_matches, get_matches_in_date_range, calculate_st
 from app.match_types import LeagueStats
 
 
+_WIN_PROFIT_PER_MATCH = 0.8
+_RESULT_EMOJIS: dict[str | None, str] = {
+    'Won': "✅",
+    'Lost': "❌",
+    'Void': "🔁",
+    None: "?",
+}
+
+
 def _calculate_win_rate(wins: int, losses: int) -> int:
     """Рассчитать процент побед без учёта возвратов."""
     matches_without_void = wins + losses
@@ -25,12 +34,7 @@ def _calculate_win_rate(wins: int, losses: int) -> int:
 
 def _result_emoji(result: str | None) -> str:
     """Вернуть эмодзи для результата матча."""
-    return {
-        'Won': "✅",
-        'Lost': "❌",
-        'Void': "🔁",
-        None: "?",
-    }.get(result, "?")
+    return _RESULT_EMOJIS.get(result, "?")
 
 
 def get_full_stats() -> str:
@@ -43,8 +47,8 @@ def get_full_stats() -> str:
             win_rate = _calculate_win_rate(wins, losses)
 
             # Рассчитываем Profit и ROI
-            # Won = +0.8, Lost = -1, Void = 0
-            profit = wins * 0.8 - losses * 1
+            # Won = configured profit, Lost = -1, Void = 0
+            profit = wins * _WIN_PROFIT_PER_MATCH - losses * 1
             roi = int(profit * 100 / total_matches) if total_matches > 0 else 0
 
             stats_text = (
@@ -119,7 +123,7 @@ def get_last_5_matches() -> list[dict[str, str | float | None]]:
         if matches:
             # Берем последние 5 в обратном порядке (самые новые первыми)
             last_matches = matches[-5:][::-1]
-            matches_data = []
+            matches_data: list[dict[str, str | float | None]] = []
 
             for match in last_matches:
                 # Подготавливаем значения, заменяя пустые на "?"
@@ -199,8 +203,8 @@ def get_this_month_stats() -> str:
         if total_matches > 0:
             win_rate = _calculate_win_rate(wins, losses)
 
-            # Вычисляем прибыль (Won = +0.8, Lost = -1, Void = 0)
-            profit = wins * 0.8 - losses * 1
+            # Вычисляем прибыль (Won = настроенная прибыль, Lost = -1, Void = 0)
+            profit = wins * _WIN_PROFIT_PER_MATCH - losses * 1
             profit_str = f"+{profit:.2f}" if profit >= 0 else f"{profit:.2f}"
 
             stats_text = (

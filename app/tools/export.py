@@ -1,10 +1,11 @@
 import csv
 import json
 from pathlib import Path
+from typing import Any, cast
 
 from app.config import MATCHES_FILE
 
-PREFERRED_COLUMNS = (
+_PREFERRED_COLUMNS: tuple[str, ...] = (
     'date',
     'mark',
     'league',
@@ -29,16 +30,19 @@ def export_matches_to_csv() -> tuple[int, Path]:
     with matches_path.open('r', encoding='utf-8') as matches_file:
         matches = json.load(matches_file)
 
-    if not isinstance(matches, list) or any(not isinstance(match, dict) for match in matches):
+    if not isinstance(matches, list) or any(
+        not isinstance(match, dict) for match in cast(list[object], matches)
+    ):
         raise ValueError(f'Expected a JSON list of match objects in {matches_path}')
 
+    matches = cast(list[dict[str, Any]], matches)
     export_rows = [
-        {column: match.get(column) for column in PREFERRED_COLUMNS}
+        {column: match.get(column) for column in _PREFERRED_COLUMNS}
         for match in matches
     ]
 
     with csv_path.open('w', encoding='utf-8-sig', newline='') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=PREFERRED_COLUMNS, delimiter=';')
+        writer = csv.DictWriter(csv_file, fieldnames=_PREFERRED_COLUMNS, delimiter=';')
         writer.writeheader()
         writer.writerows(export_rows)
 
