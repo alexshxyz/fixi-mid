@@ -662,7 +662,12 @@ def test_trigger_scheduled_restart_saves_and_raises(monkeypatch, monitor):
     with pytest.raises(tracker.ScheduledRestartRequired, match="Scheduled restart"):
         monitor._trigger_scheduled_restart()
 
-    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+    assert saved == [
+        (
+            monitor.active_match_ids,
+            monitor.last_data,
+        )
+    ]
 
 
 def test_trigger_scheduled_restart_continues_when_state_save_fails(
@@ -1083,6 +1088,13 @@ def test_page_refresh_retries_then_returns_status(monkeypatch, monitor, caplog):
     assert attempts == [monitor.page, monitor.page]
     assert sleeps == [10]
     assert "Page refresh attempt 1/2 failed" in caplog.text
+    assert caplog.text.count("temporary") == 1
+    assert any(
+        record.levelname == "ERROR"
+        and "Page refresh attempt 1/2 failed" in record.message
+        and "temporary" not in record.message
+        for record in caplog.records
+    )
     assert "Full page refresh" not in caplog.text
 
 
@@ -1101,7 +1113,7 @@ def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
     monkeypatch.setattr(
         monitor,
         "_save_state_to_json",
-        lambda *args: saved.append(args) or True,
+        lambda *args, **kwargs: saved.append((args, kwargs)) or True,
     )
     monkeypatch.setattr(tracker.time, "sleep", sleeps.append)
 
@@ -1110,8 +1122,13 @@ def test_page_refresh_uses_two_attempts_then_saves_state_and_requests_restart(
 
     assert attempts == [monitor.page, monitor.page]
     assert sleeps == [tracker.PAGE_REFRESH_RETRY_DELAY_SECONDS]
-    assert saved == [(monitor.active_match_ids, monitor.last_data)]
-    assert "Page refresh failed after 2 attempts" in caplog.text
+    assert saved == [
+        (
+            (monitor.active_match_ids, monitor.last_data),
+            {"requesting_restart": True},
+        )
+    ]
+    assert "Page refresh failed after 2 attempts" not in caplog.text
 
 
 def test_page_refresh_rejects_non_positive_retry_count(monitor):
@@ -1177,14 +1194,21 @@ def test_page_refresh_does_not_retry_when_page_is_closed(
 
     monitor.page_refresh_callback = refresh
     monkeypatch.setattr(
-        monitor, "_save_state_to_json", lambda *args: saved.append(args) or True
+        monitor,
+        "_save_state_to_json",
+        lambda *args, **kwargs: saved.append((args, kwargs)) or True,
     )
 
     with pytest.raises(tracker.PageRestartRequired, match="after 1 attempts"):
         monitor._do_hard_page_refresh_with_retries(max_retries=3)
 
     assert attempts == [monitor.page]
-    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+    assert saved == [
+        (
+            (monitor.active_match_ids, monitor.last_data),
+            {"requesting_restart": True},
+        )
+    ]
 
 
 def test_hard_page_refresh_missing_callback_saves_state_and_raises(
@@ -1193,13 +1217,20 @@ def test_hard_page_refresh_missing_callback_saves_state_and_raises(
     monitor.page_refresh_callback = None
     saved = []
     monkeypatch.setattr(
-        monitor, "_save_state_to_json", lambda *args: saved.append(args) or True
+        monitor,
+        "_save_state_to_json",
+        lambda *args, **kwargs: saved.append((args, kwargs)) or True,
     )
 
     with pytest.raises(tracker.PageRestartRequired, match="callback is not configured"):
         monitor._do_hard_page_refresh_with_retries(max_retries=1)
 
-    assert saved == [(monitor.active_match_ids, monitor.last_data)]
+    assert saved == [
+        (
+            (monitor.active_match_ids, monitor.last_data),
+            {"requesting_restart": True},
+        )
+    ]
 
 
 def test_hard_page_refresh_saves_failure_and_requests_restart_when_save_fails(
@@ -1208,7 +1239,11 @@ def test_hard_page_refresh_saves_failure_and_requests_restart_when_save_fails(
     monitor.page_refresh_callback = lambda *args, **kwargs: (_ for _ in ()).throw(
         RuntimeError("site unavailable")
     )
-    monkeypatch.setattr(monitor, "_save_state_to_json", lambda *args: False)
+    monkeypatch.setattr(
+        monitor,
+        "_save_state_to_json",
+        lambda *args, **kwargs: False,
+    )
 
     with pytest.raises(tracker.PageRestartRequired, match="failed after 1 attempts"):
         monitor._do_hard_page_refresh_with_retries(max_retries=1)

@@ -83,6 +83,9 @@ def _capture_error_screenshot(page: Page, error_label: str, error: Exception) ->
     """Сохранить снимок страницы с контекстом ошибки в имени файла."""
     if page_is_closed(page, error):
         return
+    if not getattr(error, "_fixi_error_logged", False):
+        logger.error("%s: %s", error_label, error)
+        setattr(error, "_fixi_error_logged", True)
     try:
         os.makedirs(ERROR_SCREENSHOTS_DIR, exist_ok=True)
         error_detail = str(error).splitlines()[0] or error.__class__.__name__
@@ -96,7 +99,10 @@ def _capture_error_screenshot(page: Page, error_label: str, error: Exception) ->
             ERROR_SCREENSHOTS_DIR, f"{filename[:200]}.png"
         )
         page.screenshot(path=screenshot_path)
-        logger.info("Saved error screenshot to %s", screenshot_path)
+        logger.info(
+            "Saved error screenshot to %s",
+            os.path.join(ERROR_SCREENSHOTS_DIR, ""),
+        )
     except Exception:
         logger.warning(
             "Failed to capture screenshot for %s",
@@ -123,15 +129,20 @@ def _run_actions_with_retries(
             raise
         except Exception as e:
             raise_if_shutdown(shutdown_requested, action_name, e)
+            if attempt == 1 and not getattr(e, "_fixi_error_logged", False):
+                logger.error("Failed to %s: %s", action_name, e)
+                setattr(e, "_fixi_error_logged", True)
+            message = f"Attempt {attempt} to {action_name} failed"
             if attempt == max_attempts:
+                logger.error(message)
                 logger.error(
-                    f"Failed to {action_name} after {max_attempts} attempts: {e}"
+                    "Failed to %s after %s attempts",
+                    action_name,
+                    max_attempts,
                 )
                 raise
 
-            logger.warning(
-                f"Attempt {attempt} to {action_name} failed: {e}. Retrying..."
-            )
+            logger.error("%s. Retrying...", message)
             if shutdown_requested is None:
                 time.sleep(retry_delay)
             else:
@@ -233,17 +244,13 @@ def init_browser(
 
 def switch_to_live_table(page: Page) -> None:
     """Переключить страницу на фильтр Live."""
-    try:
-        live_filter = page.locator("li#li_FilterLive")
-        live_table = page.locator("table#table_live")
-        live_filter.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
-        live_filter.click()
-        live_table.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
-        page.wait_for_timeout(HARDCODE_DELAY_MS)
-        logger.info("Switched to Live")
-    except Exception as e:
-        logger.error(f"Failed to switch to Live: {e}")
-        raise
+    live_filter = page.locator("li#li_FilterLive")
+    live_table = page.locator("table#table_live")
+    live_filter.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+    live_filter.click()
+    live_table.wait_for(timeout=PAGE_ELEMENT_WAIT_TIMEOUT_MS)
+    page.wait_for_timeout(HARDCODE_DELAY_MS)
+    logger.info("Switched to Live")
 
 
 def refresh_live_table(page: Page) -> None:
@@ -258,7 +265,6 @@ def refresh_live_table(page: Page) -> None:
         page.wait_for_timeout(HARDCODE_DELAY_MS)
         logger.info("Live table refreshed")
     except Exception as e:
-        logger.error("Failed to refresh Live table: %s", e)
         _capture_error_screenshot(page, "Failed to refresh Live table", e)
         raise
 
@@ -274,7 +280,6 @@ def refresh_page(page: Page) -> None:
 
         logger.info("Page refreshed")
     except Exception as e:
-        logger.error(f"Failed to refresh page: {e}")
         _capture_error_screenshot(page, "Failed to refresh page", e)
         raise
 
@@ -468,12 +473,10 @@ def main() -> None:
                         settings=settings,
                         leagues=leagues,
                     )
-                except PageRestartRequired as e:
+                except PageRestartRequired:
                     if shutdown_requested.is_set():
                         logger.info("Shutdown requested")
                         return
-                    if not isinstance(e, ScheduledRestartRequired):
-                        logger.info(f"{e}. Restarting script...")
                     _restart_bot(browser)
                 except Exception as e:
                     if shutdown_requested.is_set():

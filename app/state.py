@@ -55,6 +55,7 @@ def save_state_to_json(
     active_match_ids: list[str],
     pending_notifications: dict[str, dict[str, Any]],
     path: str | os.PathLike[str] = STATE_SAVE_FILE,
+    requesting_restart: bool = False,
 ) -> bool:
     """Сохранить текущее состояние матчей в JSON-файл."""
     try:
@@ -66,7 +67,10 @@ def save_state_to_json(
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        logger.info(f"Saved state to {path}")
+        if requesting_restart:
+            logger.info("Saved state to %s. Requesting restart.", path)
+        else:
+            logger.info("Saved state to %s", path)
         return True
     except Exception as e:
         logger.error(f"Failed to save state to {path}: {e}")

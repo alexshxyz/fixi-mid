@@ -164,6 +164,7 @@ def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog
     assert len(attempts) == 2
     assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
     assert "Failed to load page after 2 attempts" in caplog.text
+    assert caplog.text.count("permanent") == 1
 
 
 def test_run_actions_with_retries_allows_one_attempt_at_retry_boundary(monkeypatch):
@@ -462,7 +463,7 @@ def test_refresh_live_table_clicks_waits_and_delays():
     assert page.wait_timeout_calls == [main.HARDCODE_DELAY_MS]
 
 
-def test_refresh_live_table_logs_and_reraises_failure(
+def test_refresh_live_table_reraises_failure_without_duplicate_error_log(
     monkeypatch, tmp_path, caplog
 ):
     page = FakePage()
@@ -478,7 +479,7 @@ def test_refresh_live_table_logs_and_reraises_failure(
     with pytest.raises(RuntimeError, match="table unavailable"):
         main.refresh_live_table(page)
 
-    assert "Failed to refresh Live table" in caplog.text
+    assert caplog.text.count("table unavailable") == 1
 
 
 def test_refresh_live_table_saves_screenshot_after_failure(
@@ -498,7 +499,18 @@ def test_refresh_live_table_saves_screenshot_after_failure(
     assert len(screenshots) == 1
     assert "ERROR - Failed to refresh Live table" in screenshots[0].name
     assert screenshots[0].read_bytes() == b"fake screenshot"
-    assert "Saved error screenshot to" in caplog.text
+    assert f"Saved error screenshot to {screenshots_dir}/" in caplog.text
+    assert str(screenshots[0]) not in caplog.text
+    relevant_messages = [
+        record.message
+        for record in caplog.records
+        if "filter not visible" in record.message
+        or "Saved error screenshot" in record.message
+    ]
+    assert relevant_messages == [
+        "Failed to refresh Live table: filter not visible",
+        f"Saved error screenshot to {screenshots_dir}/",
+    ]
 
 
 def test_refresh_page_reloads_and_waits_for_live_table():
@@ -1354,11 +1366,10 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
 
     assert browser.close_calls == 1
     assert exec_calls == [("python.exe", ["python.exe", "main.py", "--flag"])]
-    restart_log = next(
-        record for record in caplog.records
-        if record.message == "restart. Restarting script..."
+    assert not any(
+        record.message == "restart. Restarting script..."
+        for record in caplog.records
     )
-    assert restart_log.levelname == "INFO"
 
 
 def test_main_handles_scheduled_restart_without_string_matching(monkeypatch, caplog):

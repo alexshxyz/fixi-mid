@@ -90,6 +90,14 @@ def test_save_state_to_json_persists_all_monitor_state(tmp_path):
     }
 
 
+def test_save_state_to_json_logs_restart_when_requested(tmp_path, caplog):
+    path = tmp_path / "state.json"
+
+    assert state.save_state_to_json({}, {}, [], {}, path, requesting_restart=True)
+
+    assert f"Saved state to {path}. Requesting restart." in caplog.text
+
+
 def test_save_state_to_json_logs_write_error_and_returns_false(
     monkeypatch, tmp_path, caplog
 ):

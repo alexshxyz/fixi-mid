@@ -148,19 +148,27 @@ def reload_page_with_retries(
                     "Shutdown requested during Live refresh"
                 ) from e
 
+            if attempt == 1 and not getattr(e, "_fixi_error_logged", False):
+                logger.error("Failed to refresh Live table: %s", e)
+                setattr(e, "_fixi_error_logged", True)
+
             if attempt == max_retries:
                 logger.error(
-                    "Live refresh failed after %s attempts: %s",
+                    "Live refresh attempt %s/%s failed",
+                    attempt,
                     max_retries,
-                    e,
+                )
+                logger.error(
+                    "Live refresh failed after %s attempts",
+                    max_retries,
                 )
                 return None
 
-            logger.warning(
-                "Live refresh attempt %s/%s failed: %s. Retrying in %s seconds...",
+            logger.error(
+                "Live refresh attempt %s/%s failed. "
+                "Retrying in %s seconds...",
                 attempt,
                 max_retries,
-                e,
                 retry_delay,
             )
             if shutdown_requested is None:

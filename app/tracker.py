@@ -139,6 +139,7 @@ class MatchMonitor:
         active_match_ids: list[str],
         last_data: dict[str, MatchSnapshot],
         path: str | Path = STATE_SAVE_FILE,
+        requesting_restart: bool = False,
     ) -> bool:
         """Сохранить текущее состояние матчей в JSON-файл."""
         return state.save_state_to_json(
@@ -147,6 +148,7 @@ class MatchMonitor:
             active_match_ids,
             self.pending_notifications_by_message_id,
             path,
+            requesting_restart,
         )
 
     def _init_or_restore_state(self) -> None:
@@ -467,13 +469,18 @@ class MatchMonitor:
                     self._raise_if_shutdown(e)
 
                 page_closed = page_is_closed(self.page, e)
+                if attempt == 1 and not getattr(
+                    e, "_fixi_error_logged", False
+                ):
+                    logger.error("Failed to refresh page: %s", e)
+                    setattr(e, "_fixi_error_logged", True)
+
                 if attempt < max_retries and not page_closed:
-                    logger.warning(
-                        "Page refresh attempt %s/%s failed: %s. "
+                    logger.error(
+                        "Page refresh attempt %s/%s failed. "
                         "Retrying in %s seconds...",
                         attempt,
                         max_retries,
-                        e,
                         retry_delay,
                     )
                     self._wait_for_shutdown_or_timeout(
@@ -489,14 +496,17 @@ class MatchMonitor:
                     self._restart_if_due()
                     continue
 
-                if self._save_state_to_json(self.active_match_ids, self.last_data):
-                    logger.error(
-                        "Page refresh failed after %s attempts. "
-                        "Saved state to %s and requesting restart.",
-                        attempt,
-                        STATE_SAVE_FILE,
-                    )
-                else:
+                logger.error(
+                    "Page refresh attempt %s/%s failed",
+                    attempt,
+                    max_retries,
+                )
+
+                if not self._save_state_to_json(
+                    self.active_match_ids,
+                    self.last_data,
+                    requesting_restart=True,
+                ):
                     logger.error(
                         "Page refresh failed after %s attempts and state save "
                         "failed. Requesting restart anyway.",

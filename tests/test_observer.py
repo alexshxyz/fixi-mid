@@ -330,6 +330,13 @@ def test_reload_page_with_retries_retries_errors_then_returns_none(
     assert attempts == [page] * max_retries
     assert sleeps == expected_sleeps
     assert "Live refresh failed after" in caplog.text
+    assert caplog.text.count("status failed") == 1
+    assert any(
+        record.levelname == "ERROR"
+        and "Live refresh attempt 1/" in record.message
+        and "status failed" not in record.message
+        for record in caplog.records
+    )
 
 
 def test_reload_page_with_retries_zero_attempts_returns_none():
