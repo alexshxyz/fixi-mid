@@ -35,12 +35,12 @@
         let homeTeam = row.querySelector('a[id="team1_' + match_id + '"]')?.textContent.trim() || 'Unknown';
         let awayTeam = row.querySelector('a[id="team2_' + match_id + '"]')?.textContent.trim() || 'Unknown';
         const gotSpan = row.querySelector('span[id="got_' + match_id + '"]');
-        let match_time = gotSpan?.textContent.trim() || 'Unknown';
+        let match_time = gotSpan?.textContent.trim() || '?';
 
         if (!gotSpan || !gotSpan.textContent.trim()) {
             const statusCell = timeTd;
             const statusText = statusCell?.textContent.trim();
-            if (statusText && statusText !== 'Unknown') {
+            if (statusText && statusText !== '?') {
                 match_time = statusText;
             }
         }
@@ -68,7 +68,7 @@
             },
             home_team: homeTeam,
             away_team: awayTeam,
-            score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || 'Unknown',
+            score: row.querySelector('td.blue.handpoint[onclick*="soccerInPage.detail"]')?.textContent.trim() || '-',
             league: league
         };
     }

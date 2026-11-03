@@ -587,10 +587,10 @@ class MatchMonitor:
             existing_data_changed = (
                 current_data['ah'] != last_match_data['ah'] or
                 current_data['ov'] != last_match_data['ov'] or
-                current_data.get('match_time', 'Unknown') !=
-                last_match_data.get('match_time', 'Unknown') or
-                current_data.get('score', 'Unknown') !=
-                last_match_data.get('score', 'Unknown')
+                current_data.get('match_time', '?') !=
+                last_match_data.get('match_time', '?') or
+                current_data.get('score', '-') !=
+                last_match_data.get('score', '-')
             )
             if existing_data_changed:
                 self.match_history[match_id]['changes'].append(current_data)

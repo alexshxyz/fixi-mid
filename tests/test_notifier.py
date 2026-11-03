@@ -26,7 +26,7 @@ def use_test_settings(monkeypatch):
 @pytest.mark.parametrize(
     ("raw_time", "expected"),
     [
-        ("Unknown", "Unknown"),
+        ("?", "?"),
         ("HT", "45"),
         ("FT", "FT"),
         ("ET", "ET"),
@@ -36,6 +36,13 @@ def use_test_settings(monkeypatch):
 )
 def test_normalize_match_time_for_message(raw_time, expected):
     assert notifier._normalize_match_time_for_message(raw_time) == expected
+
+
+@pytest.mark.parametrize("match_time", [None, "", "   ", "Unknown", " UNKNOWN "])
+def test_normalize_match_time_for_message_uses_question_mark_when_missing(
+    match_time,
+):
+    assert notifier._normalize_match_time_for_message(match_time) == "?"
 
 
 @pytest.mark.parametrize(
@@ -158,7 +165,23 @@ def test_build_message_without_match_url_leaves_match_text_unlinked():
 
     assert "Home 0-0 Away" in message
     assert "<a " not in message
-    assert "🔎 Unknown’" in message
+    assert "🔎 ?’" in message
+
+
+@pytest.mark.parametrize("score", [None, "", "   ", "Unknown", " UNKNOWN "])
+def test_build_message_uses_dash_for_missing_score(score):
+    message = notifier._build_message(
+        "League",
+        "Home",
+        "Away",
+        score,
+        "",
+        "Тотал больше 2",
+    )
+
+    assert "Home - Away" in message
+    assert "Home  Away" not in message
+    assert "Home Unknown Away" not in message
 
 
 class FakeResponse:

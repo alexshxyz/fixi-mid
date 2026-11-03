@@ -15,7 +15,7 @@ def entry(
     away_odds=None,
     **metadata,
 ):
-    metadata.setdefault("match_time", "Unknown")
+    metadata.setdefault("match_time", "?")
     return {
         "ov": {"over": over, "over_odds": over_odds},
         "ah": {
@@ -28,7 +28,7 @@ def entry(
 
 
 def closed_entry(market, **metadata):
-    metadata.setdefault("match_time", "Unknown")
+    metadata.setdefault("match_time", "?")
     return {
         market: {market if market == "ah" else "over": "Closed"},
         **metadata,
@@ -120,7 +120,7 @@ def test_collect_match_entries_handles_missing_or_empty_history(data):
 @pytest.mark.parametrize(
     ("entry_data", "expected"),
     [
-        ({"match_time": "Unknown"}, False),
+        ({"match_time": "?"}, False),
         ({"match_time": "HT"}, False),
         ({"match_time": "90+"}, True),
         ({"match_time": "FT"}, True),

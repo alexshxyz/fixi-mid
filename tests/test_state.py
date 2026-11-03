@@ -25,9 +25,31 @@ def test_get_last_data_extracts_tracked_match_values():
     assert state.get_last_data({"ah": {}, "ov": {}, "match_time": "Unknown"}) == {
         "ah": {},
         "ov": {},
-        "match_time": "Unknown",
-        "score": "Unknown",
+        "match_time": "?",
+        "score": "-",
     }
+
+
+def test_get_last_data_normalizes_missing_and_empty_scores():
+    for score in (None, "", "   ", "Unknown", " UNKNOWN "):
+        source = {
+            "ah": {},
+            "ov": {},
+            "match_time": "12",
+            "score": score,
+        }
+        assert state.get_last_data(source)["score"] == "-"
+
+
+def test_get_last_data_normalizes_missing_and_empty_match_times():
+    for match_time in (None, "", "   ", "Unknown"):
+        source = {
+            "ah": {},
+            "ov": {},
+            "score": "0-0",
+            "match_time": match_time,
+        }
+        assert state.get_last_data(source)["match_time"] == "?"
 
 
 def test_load_state_from_json_returns_none_when_file_is_missing(tmp_path):
@@ -164,3 +186,24 @@ def test_restore_state_preserves_existing_score_and_does_not_create_missing_last
     restored = state.restore_state(saved)
 
     assert restored["last_data"] == {"present": {"score": "1-0"}}
+
+
+def test_restore_state_normalizes_missing_empty_and_legacy_unknown_scores():
+    initial = market_data(score="")
+    latest = market_data(score="Unknown")
+    saved = {
+        "match_history": {
+            "1": {"initial": initial, "changes": [latest]},
+            "2": {"initial": {"ah": {}, "ov": {}, "match_time": "12"}},
+        },
+        "last_data": {
+            "1": {"score": ""},
+            "2": {"score": "Unknown"},
+        },
+    }
+
+    restored = state.restore_state(saved)
+
+    assert initial["score"] == "-"
+    assert latest["score"] == "-"
+    assert restored["last_data"] == {"1": {"score": "-"}, "2": {"score": "-"}}

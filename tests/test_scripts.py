@@ -36,6 +36,8 @@ def test_browser_scripts_are_loaded_from_javascript_files():
     assert scripts.EXTRACT_ALL_MATCH_DATA == (
         JS_DIR / "extract_all_match_data.js"
     ).read_text(encoding="utf-8").removesuffix("\n")
+    assert "?.textContent.trim() || '-'" in scripts.EXTRACT_ALL_MATCH_DATA
+    assert "?.textContent.trim() || '?'" in scripts.EXTRACT_ALL_MATCH_DATA
 
 
 def test_collect_match_status_marks_each_match_active_from_its_own_id_and_odds():

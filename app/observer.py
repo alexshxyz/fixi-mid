@@ -17,6 +17,7 @@ from .config import (
 )
 from .logger import setup_logger
 from .match_types import MatchSnapshot
+from .match_data import normalize_match_time, normalize_score
 from .scripts import (
     COLLECT_MATCH_STATUS,
     EXTRACT_ALL_MATCH_DATA,
@@ -227,6 +228,8 @@ def extract_all_match_data(
     for entry in match_data.values():
         if entry is not None:
             entry["date"] = observed_at
+            entry["score"] = normalize_score(entry.get("score"))
+            entry["match_time"] = normalize_match_time(entry.get("match_time"))
 
     return match_data
 

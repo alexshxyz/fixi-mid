@@ -19,6 +19,7 @@ from .storage import (
 )
 from .logger import setup_logger
 from .match_types import MarketValue, NotificationSentRegistrar
+from .match_data import normalize_match_time, normalize_score
 
 logger = setup_logger(__name__)
 
@@ -41,7 +42,8 @@ _NORMALIZED_HANDICAP_OUTCOMES: dict[tuple[str, Decimal], str] = {
 
 def _normalize_match_time_for_message(raw_time: str) -> str:
     """Нормализовать игровое время для сообщения Telegram."""
-    return '45' if raw_time == 'HT' else raw_time
+    normalized_time = normalize_match_time(raw_time)
+    return '45' if normalized_time == 'HT' else normalized_time
 
 
 def _normalize_split_value(
@@ -198,11 +200,12 @@ def _build_message(
     score: str | None,
     match_url: str,
     prediction: str,
-    match_time: str = 'Unknown',
+    match_time: str = '?',
     marker: str = "🔎",
 ) -> str:
     """Сформировать HTML-сообщение о матче."""
     clean_match_time = _normalize_match_time_for_message(match_time)
+    score = normalize_score(score)
 
     # Make the team-name / score segment a hyperlink to the oddscomp detail page.
     # Telegram HTML parse mode supports <a href="...">...</a> for clickable text.
@@ -371,7 +374,7 @@ def send_telegram_notification(
     match_id: str | int | None = None,
     handicap_text: MarketValue = None,
     handicap_team_order: str | None = None,
-    match_time: str = 'Unknown',
+    match_time: str = '?',
     on_sent_details: NotificationSentRegistrar | None = None,
     channel_id: str | None = None,
     drop_type: str | None = None,
@@ -382,6 +385,7 @@ def send_telegram_notification(
     """Отправить сигнал в Telegram и сохранить его при успехе."""
     # Отправляет уведомление о матче в Telegram канал.
     runtime_settings = settings or load_settings()
+    score = normalize_score(score)
     target_channel_id = channel_id or runtime_settings.channel_id
     match_url = f"{SITE_URL}oddscomp/{match_id}" if match_id else ""
     odds_value = over_odds

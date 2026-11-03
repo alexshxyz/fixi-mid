@@ -11,6 +11,7 @@ from .match_types import (
     NotificationSentRegistrar,
 )
 from .notifier import send_telegram_notification
+from .match_data import normalize_match_time, normalize_score
 
 logger = setup_logger(__name__)
 
@@ -64,12 +65,12 @@ def _send_signal(
                 league=entry.get("league", "Unknown"),
                 home_team=entry.get("home_team", "Unknown"),
                 away_team=entry.get("away_team", "Unknown"),
-                score=entry.get("score", "Unknown"),
+                score=normalize_score(entry.get("score")),
                 over=signal["line"],
                 over_odds=signal["odds"],
                 drop_type=signal["drop_type"],
                 match_id=signal["match_id"],
-                match_time=entry["match_time"],
+                match_time=normalize_match_time(entry.get("match_time")),
                 on_sent_details=on_sent_details,
                 strategy=signal["strategy"],
                 shutdown_requested=shutdown_requested,
@@ -87,7 +88,7 @@ def _send_signal(
                 league=entry.get("league", "Unknown"),
                 home_team=entry.get("home_team", "Unknown"),
                 away_team=entry.get("away_team", "Unknown"),
-                score=entry.get("score", "Unknown"),
+                score=normalize_score(entry.get("score")),
                 over_odds=signal["odds"],
                 handicap_text=handicap,
                 handicap_team_order=(
@@ -95,7 +96,7 @@ def _send_signal(
                 ),
                 drop_type=signal["drop_type"],
                 match_id=signal["match_id"],
-                match_time=entry["match_time"],
+                match_time=normalize_match_time(entry.get("match_time")),
                 on_sent_details=on_sent_details,
                 strategy=signal["strategy"],
                 shutdown_requested=shutdown_requested,

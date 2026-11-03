@@ -465,7 +465,14 @@ def test_write_match_count_logs_snapshot_write_failure(monkeypatch, tmp_path, ca
 
 def test_extract_all_match_data_passes_ids_and_adds_local_timestamp(monkeypatch):
     returned = {
-        "1": {"home_team": "Home", "ov": {"over": "2.5"}},
+        "1": {
+            "home_team": "Home",
+            "ov": {"over": "2.5"},
+            "score": "",
+            "match_time": "",
+        },
+        "3": {"score": "   "},
+        "4": {"score": "Unknown"},
         "2": None,
     }
     now = datetime(2026, 10, 9, 12, 34, 56, tzinfo=timezone.utc)
@@ -481,7 +488,21 @@ def test_extract_all_match_data_passes_ids_and_adds_local_timestamp(monkeypatch)
     assert "document.getElementById('tr1_' + match_id)" in script
     assert args == (["1", "2"],)
     assert result["1"]["date"] == now.astimezone().isoformat(timespec="seconds")
+    assert result["1"]["score"] == "-"
+    assert result["1"]["match_time"] == "?"
+    assert result["3"]["score"] == "-"
+    assert result["4"]["score"] == "-"
     assert result["2"] is None
+
+
+def test_extract_all_match_data_defaults_missing_score_to_dash():
+    returned = {"1": {"home_team": "Home"}}
+    page = FakePage(evaluate_result=returned)
+
+    result = observer.extract_all_match_data(page, ["1"])
+
+    assert result["1"]["score"] == "-"
+    assert result["1"]["match_time"] == "?"
 
 
 def test_extract_all_match_data_logs_and_reraises_page_error(caplog):
