@@ -268,7 +268,7 @@ def find_pattern_matches(
             break
         entries = _collect_match_entries(data)
 
-        if config.WITHOUT_CLOSED_STRATEGY:
+        if config.WITHOUT_CLOSED_STRATEGY_ACTIVE:
             signal = _find_over_pattern_without_closed(
                 entries,
                 match_id,

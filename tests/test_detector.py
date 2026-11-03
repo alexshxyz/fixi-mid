@@ -273,7 +273,7 @@ def test_find_pattern_matches_respects_without_closed_switch(
 ):
     monkeypatch.setattr(
         detector.config,
-        "WITHOUT_CLOSED_STRATEGY",
+        "WITHOUT_CLOSED_STRATEGY_ACTIVE",
         without_closed_enabled,
     )
     checks = []
@@ -307,7 +307,7 @@ def test_find_pattern_matches_uses_only_enabled_strategies(
 ):
     monkeypatch.setattr(
         detector.config,
-        "WITHOUT_CLOSED_STRATEGY",
+        "WITHOUT_CLOSED_STRATEGY_ACTIVE",
         without_closed_enabled,
     )
     history = {
