@@ -1,6 +1,7 @@
 import re
 from threading import Event
 
+from . import config
 from .config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
 from .match_types import (
     HandicapMarketLine,
@@ -267,21 +268,22 @@ def find_pattern_matches(
             break
         entries = _collect_match_entries(data)
 
-        signal = _find_over_pattern_without_closed(
-            entries,
-            match_id,
-            shutdown_requested=shutdown_requested,
-        )
-        if signal is not None:
-            signals.append(signal)
+        if config.WITHOUT_CLOSED_STRATEGY:
+            signal = _find_over_pattern_without_closed(
+                entries,
+                match_id,
+                shutdown_requested=shutdown_requested,
+            )
+            if signal is not None:
+                signals.append(signal)
 
-        signal = _find_ah_pattern_without_closed(
-            entries,
-            match_id,
-            shutdown_requested=shutdown_requested,
-        )
-        if signal is not None:
-            signals.append(signal)
+            signal = _find_ah_pattern_without_closed(
+                entries,
+                match_id,
+                shutdown_requested=shutdown_requested,
+            )
+            if signal is not None:
+                signals.append(signal)
 
         signal = _find_over_pattern(
             entries,

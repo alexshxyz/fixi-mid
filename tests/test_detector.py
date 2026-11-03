@@ -250,9 +250,32 @@ def test_without_closed_strategy_rejects_non_matching_latest_snapshot(history):
     assert detector._find_over_pattern_without_closed(history, "match-1") is None
 
 
-def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("without_closed_enabled", "expected_checks"),
+    [
+        (
+            True,
+            [
+                "_find_over_pattern_without_closed",
+                "_find_ah_pattern_without_closed",
+                "_find_over_pattern",
+                "_find_ah_pattern",
+            ],
+        ),
+        (
+            False,
+            ["_find_over_pattern", "_find_ah_pattern"],
+        ),
+    ],
+)
+def test_find_pattern_matches_respects_without_closed_switch(
+    monkeypatch, without_closed_enabled, expected_checks
 ):
+    monkeypatch.setattr(
+        detector.config,
+        "WITHOUT_CLOSED_STRATEGY",
+        without_closed_enabled,
+    )
     checks = []
     history = {"match-1": {"initial": {}, "changes": []}}
 
@@ -269,12 +292,43 @@ def test_find_pattern_matches_checks_without_closed_before_closed_strategy(
         )
 
     assert detector.find_pattern_matches(history) == []
-    assert checks == [
-        "_find_over_pattern_without_closed",
-        "_find_ah_pattern_without_closed",
-        "_find_over_pattern",
-        "_find_ah_pattern",
-    ]
+    assert checks == expected_checks
+
+
+@pytest.mark.parametrize(
+    ("without_closed_enabled", "expected_signals"),
+    [
+        (True, [("open-match", "without closed"), ("closed-match", "default")]),
+        (False, [("closed-match", "default")]),
+    ],
+)
+def test_find_pattern_matches_uses_only_enabled_strategies(
+    monkeypatch, without_closed_enabled, expected_signals
+):
+    monkeypatch.setattr(
+        detector.config,
+        "WITHOUT_CLOSED_STRATEGY",
+        without_closed_enabled,
+    )
+    history = {
+        "open-match": {
+            "initial": entry(over="2.5", over_odds=START_ODD),
+            "changes": [entry(over="2.5", over_odds=THRESHOLD)],
+        },
+        "closed-match": {
+            "initial": entry(over="2.5", over_odds=START_ODD),
+            "changes": [
+                entry(over="2.5", over_odds=THRESHOLD),
+                entry(over="Closed"),
+            ],
+        },
+    }
+
+    signals = detector.find_pattern_matches(history)
+
+    assert [
+        (signal["match_id"], signal["strategy"]) for signal in signals
+    ] == expected_signals
 
 
 @pytest.mark.parametrize(

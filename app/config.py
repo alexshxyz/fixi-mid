@@ -30,6 +30,9 @@ START_ODD: float = 1.80
 # Диагностические записи
 DEBUGMODE: bool = False
 
+# Включение/отключение новой стратегии
+WITHOUT_CLOSED_STRATEGY: bool = True
+
 # Интервал обновления Live-таблицы
 TABLE_LIVE_RELOAD_MIN_SECONDS: int = 100
 TABLE_LIVE_RELOAD_MAX_SECONDS: int = 120
