@@ -3,8 +3,9 @@ import os
 import pytest
 
 from app import main
+from app.browser import livepage, session
 from app.config import Settings
-from app.monitoring.observer import PageRestartRequired
+from app.monitoring.observer import PageRestartRequired, raise_if_shutdown
 
 
 class FakeLocator:
@@ -136,14 +137,14 @@ def test_run_actions_with_retries_returns_result_after_retries(
     sleeps = []
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
 
-    assert main._run_actions_with_retries(
+    assert main.run_actions_with_retries(
         action,
         "action",
         max_attempts=max_attempts,
-        retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
+        retry_delay=session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
     ) == "done"
     assert len(attempts) == expected_calls
-    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS] * failures
+    assert sleeps == [session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS] * failures
 
 
 def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog):
@@ -156,15 +157,15 @@ def test_run_actions_with_retries_raises_after_final_failure(monkeypatch, caplog
         raise ValueError("permanent")
 
     with pytest.raises(ValueError, match="permanent"):
-        main._run_actions_with_retries(
+        main.run_actions_with_retries(
             action,
             "load page",
             max_attempts=2,
-            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
+            retry_delay=session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
         )
 
     assert len(attempts) == 2
-    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
+    assert sleeps == [session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
     assert "Failed to load page after 2 attempts" in caplog.text
     assert caplog.text.count("permanent") == 1
 
@@ -179,11 +180,11 @@ def test_run_actions_with_retries_allows_one_attempt_at_retry_boundary(monkeypat
         raise RuntimeError("single attempt failed")
 
     with pytest.raises(RuntimeError, match="single attempt failed"):
-        main._run_actions_with_retries(
+        main.run_actions_with_retries(
             fail_once,
             "load page",
             max_attempts=1,
-            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
+            retry_delay=session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
         )
 
     assert len(attempts) == 1
@@ -205,11 +206,11 @@ def test_run_actions_with_retries_stops_when_shutdown_interrupts_retry_wait(monk
         raise RuntimeError("temporary")
 
     with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
-        main._run_actions_with_retries(
+        main.run_actions_with_retries(
             action,
             "load page",
             max_attempts=2,
-            retry_delay=main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
+            retry_delay=session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS,
             shutdown_requested=shutdown_requested,
         )
 
@@ -226,7 +227,7 @@ def test_run_actions_with_retries_stops_when_action_finishes_after_shutdown(monk
         return "done"
 
     with pytest.raises(main.PageRestartRequired, match="Shutdown requested"):
-        main._run_actions_with_retries(
+        main.run_actions_with_retries(
             action,
             "prepare page",
             max_attempts=2,
@@ -245,8 +246,8 @@ def test_init_browser_sets_up_page_and_opens_site(monkeypatch):
     settings = use_settings(
         monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
     )
-    monkeypatch.setattr(main, "SITE_COOKIES", [{"name": "cookie"}])
-    monkeypatch.setattr(main, "SITE_URL", "https://example.test")
+    monkeypatch.setattr(session, "SITE_COOKIES", [{"name": "cookie"}])
+    monkeypatch.setattr(session, "SITE_URL", "https://example.test")
 
     result_browser, result_page = main.init_browser(playwright, settings=settings)
 
@@ -286,8 +287,6 @@ def test_init_browser_stops_if_cookie_setup_fails(monkeypatch, caplog):
     settings = use_settings(
         monkeypatch, browser_proxy_server="socks5://proxy.test:1080"
     )
-    monkeypatch.setattr(main, "_run_actions_with_retries", lambda *args, **kwargs: None)
-
     with pytest.raises(
         main.CookieSetupError, match="Failed to add required site cookies"
     ) as error:
@@ -307,7 +306,7 @@ def test_main_does_not_restart_after_cookie_setup_failure(monkeypatch, caplog):
     page, browser = configure_main(monkeypatch)
     context = browser.context
     context.cookies_error = RuntimeError("cookie error")
-    monkeypatch.setattr(main, "SITE_COOKIES", [{"name": "cookie"}])
+    monkeypatch.setattr(session, "SITE_COOKIES", [{"name": "cookie"}])
     monkeypatch.setattr(main, "init_browser", init_browser)
     restart_calls = []
     monkeypatch.setattr(
@@ -433,7 +432,7 @@ def test_init_browser_restarts_after_navigation_retries_fail(monkeypatch):
         main.init_browser(playwright, settings=settings)
 
     assert len(attempts) == 2
-    assert sleeps == [main.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
+    assert sleeps == [session.FIRST_PAGE_LOAD_RETRY_DELAY_SECONDS]
     assert restart_calls == [browser]
     assert browser.close_calls == 1
 
@@ -445,7 +444,7 @@ def test_switch_to_live_table_waits_clicks_delays_and_propagates_failure():
 
     assert page.locators["li#li_FilterLive"].click_calls == 1
     assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
-    assert page.wait_timeout_calls == [main.HARDCODE_DELAY_MS]
+    assert page.wait_timeout_calls == [livepage.HARDCODE_DELAY_MS]
 
     failing_page = FakePage()
     failing_page.locators["table#table_live"] = FakeLocator(
@@ -462,7 +461,7 @@ def test_refresh_live_table_clicks_waits_and_delays():
 
     assert page.locators["li#li_FilterLive"].click_calls == 1
     assert page.locators["table#table_live"].wait_calls == [{"timeout": 10000}]
-    assert page.wait_timeout_calls == [main.HARDCODE_DELAY_MS]
+    assert page.wait_timeout_calls == [livepage.HARDCODE_DELAY_MS]
 
 
 def test_refresh_live_table_reraises_failure_without_duplicate_error_log(
@@ -473,7 +472,7 @@ def test_refresh_live_table_reraises_failure_without_duplicate_error_log(
         wait_error=RuntimeError("table unavailable")
     )
     monkeypatch.setattr(
-        main,
+        livepage,
         "ERROR_SCREENSHOTS_DIR",
         str(tmp_path / "logs" / "screenshots"),
     )
@@ -492,7 +491,7 @@ def test_refresh_live_table_saves_screenshot_after_failure(
         wait_error=TimeoutError("filter not visible")
     )
     screenshots_dir = tmp_path / "logs" / "screenshots"
-    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+    monkeypatch.setattr(livepage, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
 
     with pytest.raises(TimeoutError, match="filter not visible"):
         main.refresh_live_table(page)
@@ -532,7 +531,7 @@ def test_refresh_page_propagates_reload_failure(monkeypatch, tmp_path):
             raise RuntimeError("reload failed")
 
     monkeypatch.setattr(
-        main,
+        livepage,
         "ERROR_SCREENSHOTS_DIR",
         str(tmp_path / "logs" / "screenshots"),
     )
@@ -547,7 +546,7 @@ def test_refresh_page_saves_screenshot_after_failure(monkeypatch, tmp_path):
             raise RuntimeError("navigation timeout")
 
     screenshots_dir = tmp_path / "logs" / "screenshots"
-    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+    monkeypatch.setattr(livepage, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
 
     with pytest.raises(RuntimeError, match="navigation timeout"):
         main.refresh_page(BrokenPage())
@@ -568,7 +567,7 @@ def test_refresh_page_skips_screenshot_when_page_is_closed(
             )
 
     screenshots_dir = tmp_path / "logs" / "screenshots"
-    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+    monkeypatch.setattr(livepage, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
 
     with pytest.raises(RuntimeError, match="has been closed"):
         main.refresh_page(ClosedPage())
@@ -581,9 +580,9 @@ def test_capture_error_screenshot_sanitizes_and_limits_filename(
 ):
     page = FakePage()
     screenshots_dir = tmp_path / "screenshots"
-    monkeypatch.setattr(main, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
+    monkeypatch.setattr(livepage, "ERROR_SCREENSHOTS_DIR", str(screenshots_dir))
 
-    main._capture_error_screenshot(
+    livepage._capture_error_screenshot(
         page,
         "bad/name",
         RuntimeError("first line\n" + "detail" * 100),
@@ -606,7 +605,7 @@ def test_screenshot_failure_does_not_hide_refresh_error(
             raise RuntimeError("screenshot unavailable")
 
     monkeypatch.setattr(
-        main, "ERROR_SCREENSHOTS_DIR", str(tmp_path / "screenshots")
+        livepage, "ERROR_SCREENSHOTS_DIR", str(tmp_path / "screenshots")
     )
 
     with pytest.raises(RuntimeError, match="navigation timeout"):
@@ -625,10 +624,10 @@ def test_collect_crown_matches_deduplicates_active_ids_and_writes_debug_snapshot
         {"match_id": "2", "active": False, "label": "C - D"},
     ]
     writes = []
-    monkeypatch.setattr(main, "collect_crown_matches_status", lambda *args, **kwargs: status)
-    monkeypatch.setattr(main, "DEBUGMODE", True)
+    monkeypatch.setattr(livepage, "collect_crown_matches_status", lambda *args, **kwargs: status)
+    monkeypatch.setattr(livepage, "DEBUGMODE", True)
     monkeypatch.setattr(
-        main, "write_match_count", lambda *args: writes.append(args)
+        livepage, "write_match_count", lambda *args: writes.append(args)
     )
 
     assert main.collect_crown_matches(page) == ["1"]
@@ -642,12 +641,12 @@ def test_collect_crown_matches_logs_collection_error_and_reraises(
     page = FakePage()
     writes = []
     monkeypatch.setattr(
-        main,
+        livepage,
         "collect_crown_matches_status",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("collection failed")),
     )
-    monkeypatch.setattr(main, "DEBUGMODE", True)
-    monkeypatch.setattr(main, "write_match_count", lambda *args: writes.append(args))
+    monkeypatch.setattr(livepage, "DEBUGMODE", True)
+    monkeypatch.setattr(livepage, "write_match_count", lambda *args: writes.append(args))
 
     with pytest.raises(RuntimeError, match="collection failed"):
         main.collect_crown_matches(page)
@@ -663,12 +662,12 @@ def test_collect_crown_matches_does_not_write_snapshot_when_debug_is_disabled(
     page = FakePage()
     writes = []
     status = [{"match_id": "inactive", "active": False}]
-    monkeypatch.setattr(main, "DEBUGMODE", False)
+    monkeypatch.setattr(livepage, "DEBUGMODE", False)
     monkeypatch.setattr(
-        main, "collect_crown_matches_status", lambda *args, **kwargs: status
+        livepage, "collect_crown_matches_status", lambda *args, **kwargs: status
     )
     monkeypatch.setattr(
-        main, "write_match_count", lambda *args: writes.append(args)
+        livepage, "write_match_count", lambda *args: writes.append(args)
     )
 
     assert main.collect_crown_matches(page) == []
@@ -779,7 +778,7 @@ def test_main_does_not_restart_when_match_collection_fails(monkeypatch, caplog):
     _, browser = configure_main(monkeypatch)
     restart_calls = []
     monkeypatch.setattr(
-        main,
+        livepage,
         "collect_crown_matches_status",
         lambda page: (_ for _ in ()).throw(RuntimeError("collection failed")),
     )
@@ -967,6 +966,11 @@ def test_main_retries_no_match_page_refresh_then_restarts_without_loading_state(
         "_wait_for_shutdown",
         lambda event, seconds: waits.append(seconds),
     )
+    monkeypatch.setattr(
+        session,
+        "_wait_for_shutdown",
+        lambda event, seconds: waits.append(seconds),
+    )
     monkeypatch.setattr(main.time, "sleep", sleeps.append)
     monkeypatch.setattr(
         main,
@@ -1040,7 +1044,7 @@ def test_main_stops_if_page_preparation_fails_during_shutdown(monkeypatch):
         kwargs["shutdown_requested"].set()
         raise RuntimeError("prepare interrupted")
 
-    monkeypatch.setattr(main, "_run_actions_with_retries", interrupt_prepare)
+    monkeypatch.setattr(main, "run_actions_with_retries", interrupt_prepare)
     monkeypatch.setattr(
         main, "collect_crown_matches", lambda page: collected.append(page) or ["1"]
     )
@@ -1066,7 +1070,7 @@ def test_main_stops_if_refresh_fails_during_shutdown_before_matches(
         kwargs["shutdown_requested"].set()
         raise RuntimeError("refresh interrupted")
 
-    monkeypatch.setattr(main, "_run_actions_with_retries", interrupt_refresh)
+    monkeypatch.setattr(main, "run_actions_with_retries", interrupt_refresh)
 
     main.main()
 
@@ -1276,13 +1280,13 @@ def test_request_shutdown_sets_event():
 
 def test_raise_if_shutdown_only_raises_when_event_is_set():
     event = main.threading.Event()
-    main.raise_if_shutdown(None, "operation")
-    main.raise_if_shutdown(event, "operation")
+    raise_if_shutdown(None, "operation")
+    raise_if_shutdown(event, "operation")
 
     cause = RuntimeError("interrupted")
     event.set()
     with pytest.raises(main.PageRestartRequired, match="operation") as error:
-        main.raise_if_shutdown(event, "operation", cause)
+        raise_if_shutdown(event, "operation", cause)
 
     assert error.value.__cause__ is cause
 
@@ -1356,7 +1360,7 @@ def test_main_restarts_process_on_page_restart_required(monkeypatch, caplog):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "collect_crown_matches_status",
+        livepage, "collect_crown_matches_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(main.os, "execv", restart)
@@ -1386,7 +1390,7 @@ def test_main_handles_scheduled_restart_without_string_matching(monkeypatch, cap
         ),
     )
     monkeypatch.setattr(
-        main,
+        livepage,
         "collect_crown_matches_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
@@ -1409,7 +1413,7 @@ def test_main_closes_browser_and_reraises_unexpected_failure(monkeypatch):
         monkeypatch, saved_state={"active_match_ids": ["1"]}
     )
     monkeypatch.setattr(
-        main, "collect_crown_matches_status",
+        livepage, "collect_crown_matches_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(
@@ -1464,7 +1468,7 @@ def test_main_ignores_browser_close_error_during_restart(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(PageRestartRequired("restart")),
     )
     monkeypatch.setattr(
-        main, "collect_crown_matches_status",
+        livepage, "collect_crown_matches_status",
         lambda *args, **kwargs: [{"active": True, "match_id": "1"}],
     )
     monkeypatch.setattr(

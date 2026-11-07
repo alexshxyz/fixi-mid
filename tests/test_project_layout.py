@@ -11,6 +11,9 @@ PROJECT_MODULES = (
     "app.config",
     "app.logger",
     "app.main",
+    "app.browser",
+    "app.browser.livepage",
+    "app.browser.session",
     "app.monitoring.detector",
     "app.monitoring.matchdata",
     "app.monitoring.matchtypes",
@@ -29,6 +32,9 @@ PROJECT_MODULES = (
 
 APP_PYTHON_FILES = {
     "__init__.py",
+    "browser/__init__.py",
+    "browser/livepage.py",
+    "browser/session.py",
     "config.py",
     "logger.py",
     "main.py",

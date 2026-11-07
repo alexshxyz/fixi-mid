@@ -4,6 +4,8 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from app import main
+from app.browser import session
+from app.monitoring.observer import collect_crown_matches_status
 from app.monitoring.observer import extract_all_match_data
 
 
@@ -14,18 +16,18 @@ def test_real_site_loads_and_live_table_is_active():
         try:
             loaded_cookies = {
                 cookie["name"]: cookie["value"]
-                for cookie in page.context.cookies(main.SITE_URL)
+                for cookie in page.context.cookies(session.SITE_URL)
             }
             missing_cookies = [
                 cookie["name"]
-                for cookie in main.SITE_COOKIES
+                for cookie in session.SITE_COOKIES
                 if loaded_cookies.get(cookie["name"]) != cookie["value"]
             ]
             assert not missing_cookies, (
                 "Configured site cookies were not loaded: "
                 f"{', '.join(missing_cookies)}"
             )
-            print(f"Site cookies loaded: {len(main.SITE_COOKIES)}")
+            print(f"Site cookies loaded: {len(session.SITE_COOKIES)}")
 
             main.switch_to_live_table(page)
 
@@ -37,7 +39,7 @@ def test_real_site_loads_and_live_table_is_active():
             live_table.wait_for(state="visible", timeout=10_000)
             assert live_table.is_visible()
 
-            match_status = main.collect_crown_matches_status(page)
+            match_status = collect_crown_matches_status(page)
             matches = list(dict.fromkeys(
                 item["match_id"]
                 for item in match_status
