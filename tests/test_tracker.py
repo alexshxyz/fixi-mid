@@ -681,15 +681,12 @@ def test_trigger_scheduled_restart_continues_when_state_save_fails(
     assert "proceeding with restart" in caplog.text
 
 
-def test_monitor_loop_runs_scheduled_page_refresh_and_heartbeat(
-    monkeypatch, monitor
-):
+def test_monitor_loop_runs_scheduled_page_refresh(monkeypatch, monitor):
     class StopLoop(Exception):
         pass
 
     monitor.page_refresh_callback = lambda page: None
     monitor.next_page_refresh_at = 0
-    monitor.next_heartbeat_at = 0
     monitor.next_reload_at = 1000
     monitor.restart_deadline = 1000
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
@@ -709,7 +706,6 @@ def test_monitor_loop_runs_scheduled_page_refresh_and_heartbeat(
         monitor._monitor_loop()
 
     assert len(processed) == 3
-    assert monitor.next_heartbeat_at == 110
 
 
 def test_monitor_loop_reschedules_failed_scheduled_page_refresh(
@@ -720,7 +716,6 @@ def test_monitor_loop_reschedules_failed_scheduled_page_refresh(
 
     monitor.page_refresh_callback = lambda page: None
     monitor.next_page_refresh_at = 0
-    monitor.next_heartbeat_at = 1000
     monitor.next_reload_at = 1000
     monitor.restart_deadline = 1000
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
@@ -754,7 +749,6 @@ def test_monitor_loop_propagates_restart_from_scheduled_page_refresh(
     monitor.page_refresh_callback = lambda page: None
     monitor.next_page_refresh_at = 0
     monitor.next_reload_at = 1000
-    monitor.next_heartbeat_at = 1000
     monitor.restart_deadline = 1000
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
     monkeypatch.setattr(tracker.time, "time", lambda: 0)
@@ -776,7 +770,6 @@ def test_monitor_loop_periodic_reload_polls_active_matches_and_analyzes(
         pass
 
     monitor.next_reload_at = 0
-    monitor.next_heartbeat_at = 1000
     monitor.restart_deadline = 1000
     monitor.active_match_ids = ["1"]
     monkeypatch.setattr(tracker.time, "monotonic", lambda: 10)
@@ -811,7 +804,6 @@ def test_monitor_loop_polls_after_live_change_and_processes_no_change(
         pass
 
     monitor.next_reload_at = 1000
-    monitor.next_heartbeat_at = 1000
     monitor.restart_deadline = 1000
     monitor.active_match_ids = ["1"]
     monitor.pending_notifications_by_message_id = {"10": {"deadline": 5}}
@@ -1455,7 +1447,6 @@ def test_monitor_loop_waits_once_then_propagates_wait_signal(monkeypatch, monito
 
     observed = []
     monitor.next_reload_at = tracker.time.monotonic() + 10
-    monitor.next_heartbeat_at = tracker.time.monotonic() + 20
     monitor.restart_deadline = tracker.time.monotonic() + 30
     monkeypatch.setattr(monitor, "_process_due_notifications", lambda: observed.append("process"))
 

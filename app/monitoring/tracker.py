@@ -14,7 +14,6 @@ from app.config import (
     DEBUGMODE,
     PAGE_REFRESH_MAX_ATTEMPTS,
     PAGE_REFRESH_RETRY_DELAY_SECONDS,
-    HEARTBEAT_INTERVAL_SECONDS,
     NO_MATCHES_RETRY_DELAY_SECONDS,
     PAGE_LIVE_RELOAD,
     RESTART_HOURS,
@@ -79,7 +78,6 @@ class MatchMonitor:
         self.active_match_ids: list[str] = []
         self.next_reload_at: float = time.monotonic() + get_table_live_reload_interval()
         self.next_page_refresh_at: float = time.monotonic() + PAGE_LIVE_RELOAD
-        self.next_heartbeat_at: float = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
         self.restart_deadline: float = (
             restart_deadline
             if restart_deadline is not None
@@ -246,20 +244,12 @@ class MatchMonitor:
                 break
 
             now = time.monotonic()
-            if now >= self.next_heartbeat_at:
-                self._tick_heartbeat(now)
-
             handled = self._tick_page_refresh(now)
             if not handled:
                 handled = self._tick_table_reload(now)
             if not handled:
                 self._tick_live_change(now)
             self._restart_if_due()
-
-    def _tick_heartbeat(self, now: float) -> None:
-        """Обновить heartbeat, если наступил срок."""
-        logger.info("Heartbeat: OK")
-        self.next_heartbeat_at = now + HEARTBEAT_INTERVAL_SECONDS
 
     def _tick_page_refresh(self, now: float) -> bool:
         """Выполнить плановую полную перезагрузку страницы при необходимости."""
@@ -314,7 +304,6 @@ class MatchMonitor:
             if self.page_refresh_callback
             else float("inf"),
             self.restart_deadline - now,
-            self.next_heartbeat_at - now,
         )
         notification_timeout = self._next_notification_timeout()
         if notification_timeout is not None:
