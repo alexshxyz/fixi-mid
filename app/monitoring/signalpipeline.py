@@ -1,17 +1,17 @@
 from threading import Event
 
-from .config import Settings
+from app.config import Settings
 from . import detector
-from .logger import setup_logger
-from .match_types import (
+from app.logger import setup_logger
+from .matchtypes import (
     MatchHistoryMap,
     MatchSignal,
     NotificationSentCallback,
     NotificationSentDetails,
     NotificationSentRegistrar,
 )
-from .notifier import send_telegram_notification
-from .match_data import normalize_match_time, normalize_score
+from app.notifications.notifier import send_telegram_notification
+from .matchdata import normalize_match_time, normalize_score
 
 logger = setup_logger(__name__)
 

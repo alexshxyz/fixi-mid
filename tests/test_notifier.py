@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from app import notifier
+from app.notifications import notifier
 from app.config import SITE_URL, Settings
 
 CHANNEL_ID = "test-channel"

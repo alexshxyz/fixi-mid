@@ -7,8 +7,9 @@ from typing import Any, NoReturn
 
 from playwright.sync_api import Page
 
-from . import pending_notifications, state
-from .config import (
+from app.notifications import pendingnotifications
+from app.persistence import state
+from app.config import (
     DATA_DIR,
     DEBUGMODE,
     PAGE_REFRESH_MAX_ATTEMPTS,
@@ -23,8 +24,8 @@ from .config import (
     load_leagues,
     load_settings,
 )
-from .logger import setup_logger
-from .match_types import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
+from app.logger import setup_logger
+from .matchtypes import MatchHistoryMap, MatchSnapshot, NotificationSentDetails
 from .observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
@@ -38,7 +39,7 @@ from .observer import (
     wait_for_live_change,
     write_match_count,
 )
-from .signal_pipeline import process_match_history
+from .signalpipeline import process_match_history
 
 logger = setup_logger(__name__)
 
@@ -203,13 +204,13 @@ class MatchMonitor:
         self, notification: NotificationSentDetails
     ) -> None:
         """Запланировать отложенную проверку отправленного уведомления."""
-        pending_notifications.register_pending_notification(
+        pendingnotifications.register_pending_notification(
             self.pending_notifications_by_message_id, notification
         )
 
     def _process_due_notifications(self) -> None:
         """Обработать истёкшие таймеры и обновить Telegram-сообщения."""
-        pending_notifications.process_due_notifications(
+        pendingnotifications.process_due_notifications(
             self.pending_notifications_by_message_id,
             self.last_data,
             self.active_match_ids,
@@ -220,7 +221,7 @@ class MatchMonitor:
 
     def _next_notification_timeout(self) -> float | None:
         """Вычислить время ожидания до ближайшей проверки уведомления."""
-        return pending_notifications.next_notification_timeout(
+        return pendingnotifications.next_notification_timeout(
             self.pending_notifications_by_message_id
         )
 

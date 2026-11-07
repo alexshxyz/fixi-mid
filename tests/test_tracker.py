@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from app import tracker
+from app.monitoring import tracker
 
 
 class FakePage:
@@ -579,7 +579,7 @@ def test_register_pending_notification_delegates_to_pending_store(
     notification = {"match_id": "1", "market": "ov"}
     calls = []
     monkeypatch.setattr(
-        tracker.pending_notifications,
+        tracker.pendingnotifications,
         "register_pending_notification",
         lambda pending, details: calls.append((pending, details)),
     )
@@ -594,7 +594,7 @@ def test_process_due_notifications_passes_shutdown_argument(
 ):
     calls = []
     monkeypatch.setattr(
-        tracker.pending_notifications,
+        tracker.pendingnotifications,
         "process_due_notifications",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )

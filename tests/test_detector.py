@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from app import detector
+from app.monitoring import detector
 from app.config import START_ODD, THRESHOLD
 
 

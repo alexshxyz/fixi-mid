@@ -1,7 +1,7 @@
 import threading
 
-from app import signal_pipeline
-from app.match_types import MatchSignal, MarketType, OddsSide
+from app.monitoring import signalpipeline as signal_pipeline
+from app.monitoring.matchtypes import MatchSignal, MarketType, OddsSide
 
 
 def signal(

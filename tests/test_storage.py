@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app import storage
+from app.persistence import storage
 
 
 @pytest.fixture

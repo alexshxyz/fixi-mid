@@ -1,9 +1,9 @@
 import re
 from threading import Event
 
-from . import config
-from .config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
-from .match_types import (
+from app import config
+from app.config import FINISHED_TIME_MARKERS, START_ODD, THRESHOLD
+from .matchtypes import (
     HandicapMarketLine,
     MatchSignal,
     MarketType,

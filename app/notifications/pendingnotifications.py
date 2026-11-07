@@ -3,16 +3,16 @@ from typing import Any
 from threading import Event
 from collections.abc import MutableMapping
 
-from .config import (
+from app.config import (
     NOTIFICATION_CHECK_DELAY_SECONDS,
     Settings,
     TELEGRAM_EDIT_MAX_ATTEMPTS,
     TELEGRAM_EDIT_RETRY_DELAY_SECONDS,
     load_leagues,
 )
-from .logger import setup_logger
+from app.logger import setup_logger
 from .notifier import edit_telegram_notification
-from .storage import update_match_mark
+from app.persistence.storage import update_match_mark
 
 logger = setup_logger(__name__)
 

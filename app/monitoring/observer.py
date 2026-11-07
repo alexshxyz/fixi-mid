@@ -8,16 +8,16 @@ from collections.abc import Callable, Sequence
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from .config import (
+from app.config import (
     DATA_DIR,
     DEBUGMODE,
     LIVE_CHANGE_POLL_INTERVAL_MS,
     LIVE_TABLE_REFRESH_MAX_ATTEMPTS,
     LIVE_TABLE_REFRESH_RETRY_DELAY_SECONDS,
 )
-from .logger import setup_logger
-from .match_types import MatchSnapshot
-from .match_data import normalize_match_time, normalize_score
+from app.logger import setup_logger
+from .matchtypes import MatchSnapshot
+from .matchdata import normalize_match_time, normalize_score
 from .scripts import (
     COLLECT_MATCH_STATUS,
     EXTRACT_ALL_MATCH_DATA,

@@ -13,8 +13,8 @@ PROJECT_DIR = os.path.dirname(
 )
 sys.path.insert(0, PROJECT_DIR)
 
-from app.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
-from app.match_types import LeagueStats
+from app.persistence.storage import get_all_matches, get_matches_in_date_range, calculate_stats, get_stats_by_league
+from app.monitoring.matchtypes import LeagueStats
 
 
 _WIN_PROFIT_PER_MATCH = 0.8

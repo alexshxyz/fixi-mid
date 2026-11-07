@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app import scripts
+from app.monitoring import scripts
 
 
 JS_DIR = Path(scripts.__file__).parent / "js"

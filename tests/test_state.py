@@ -1,6 +1,6 @@
 import json
 
-from app import state
+from app.persistence import state
 
 
 def market_data(*, score="0-0", date="now"):

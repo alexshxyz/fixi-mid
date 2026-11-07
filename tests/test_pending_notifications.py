@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from app import pending_notifications as alarms
+from app.notifications import pendingnotifications as alarms
 from app.config import (
     NOTIFICATION_CHECK_DELAY_SECONDS,
     TELEGRAM_EDIT_RETRY_DELAY_SECONDS,

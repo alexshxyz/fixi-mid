@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from threading import Event
 from typing import Any, TypedDict, cast
 
-from .config import (
+from app.config import (
     TELEGRAM_REQUEST_TIMEOUT_SECONDS,
     TELEGRAM_RETRY_DELAY_SECONDS,
     TELEGRAM_SEND_MAX_ATTEMPTS,
@@ -13,13 +13,13 @@ from .config import (
     Settings,
     load_settings,
 )
-from .storage import (
+from app.persistence.storage import (
     save_match,
     check_duplicate_market,
 )
-from .logger import setup_logger
-from .match_types import MarketValue, NotificationSentRegistrar
-from .match_data import normalize_match_time, normalize_score
+from app.logger import setup_logger
+from app.monitoring.matchtypes import MarketValue, NotificationSentRegistrar
+from app.monitoring.matchdata import normalize_match_time, normalize_score
 
 logger = setup_logger(__name__)
 

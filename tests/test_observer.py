@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from app import observer
+from app.monitoring import observer
 
 
 def test_observer_exports_shared_page_operations():

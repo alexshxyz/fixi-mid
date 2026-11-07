@@ -1,8 +1,10 @@
+import os
+
 import pytest
 
 from app import main
 from app.config import Settings
-from app.tracker import PageRestartRequired
+from app.monitoring.observer import PageRestartRequired
 
 
 class FakeLocator:
@@ -499,7 +501,7 @@ def test_refresh_live_table_saves_screenshot_after_failure(
     assert len(screenshots) == 1
     assert "ERROR - Failed to refresh Live table" in screenshots[0].name
     assert screenshots[0].read_bytes() == b"fake screenshot"
-    assert f"Saved error screenshot to {screenshots_dir}/" in caplog.text
+    assert f"Saved error screenshot to {screenshots_dir}{os.sep}" in caplog.text
     assert str(screenshots[0]) not in caplog.text
     relevant_messages = [
         record.message
@@ -509,7 +511,7 @@ def test_refresh_live_table_saves_screenshot_after_failure(
     ]
     assert relevant_messages == [
         "Failed to refresh Live table: filter not visible",
-        f"Saved error screenshot to {screenshots_dir}/",
+        f"Saved error screenshot to {screenshots_dir}{os.sep}",
     ]
 
 

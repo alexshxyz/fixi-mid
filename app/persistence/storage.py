@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
-from .config import MATCHES_FILE
-from .logger import setup_logger
-from .match_types import (
+from app.config import MATCHES_FILE
+from app.logger import setup_logger
+from app.monitoring.matchtypes import (
     LeagueStats,
     MatchNotificationState,
     MatchRecord,

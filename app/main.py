@@ -17,9 +17,9 @@ if __package__ in (None, ""):
 
 from app import config
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
-from app.tracker import parse_and_monitor_match
-from app.state import load_state_from_json
-from app.storage import init_storage
+from app.monitoring.tracker import parse_and_monitor_match
+from app.persistence.state import load_state_from_json
+from app.persistence.storage import init_storage
 from app.config import (
     BROWSER_HEADLESS,
     DEBUGMODE,
@@ -41,7 +41,7 @@ from app.config import (
     Settings,
 )
 from app.logger import setup_logger
-from app.observer import (
+from app.monitoring.observer import (
     PageRestartRequired,
     ScheduledRestartRequired,
     raise_if_shutdown,

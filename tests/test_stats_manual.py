@@ -3,8 +3,8 @@ from datetime import date, datetime
 
 import pytest
 
-from app import storage
-from app.tools import stats_manual
+from app.persistence import storage
+from app.tools import statsmanual as stats_manual
 
 
 def test_get_full_stats_formats_rates_and_profit(monkeypatch):

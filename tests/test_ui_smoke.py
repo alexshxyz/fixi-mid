@@ -4,7 +4,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from app import main
-from app.observer import extract_all_match_data
+from app.monitoring.observer import extract_all_match_data
 
 
 @pytest.mark.smoke
